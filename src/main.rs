@@ -12,9 +12,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         Instruction::StoreNext(VarRef(0)),
     ]);
 
-    let processor = context
-        .create_signal_processor(&func)
-        .ok_or("Unable to create signal processor")?;
+    let processor = context.create_signal_processor(&func)?;
 
     let x = [0.42];
     let mut y = [0.0];
