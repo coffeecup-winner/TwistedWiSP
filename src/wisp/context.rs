@@ -1,6 +1,10 @@
+use std::collections::HashMap;
+
 use inkwell::context::Context;
 use inkwell::execution_engine::JitFunction;
 use inkwell::{AddressSpace, OptimizationLevel};
+
+use super::function::Function;
 
 type ProcessFn = unsafe extern "C" fn(*const f32, *mut f32);
 
@@ -29,7 +33,7 @@ impl SignalProcessorContext {
         }
     }
 
-    pub fn create_signal_processor(&mut self) -> Option<SignalProcessor> {
+    pub fn create_signal_processor(&mut self, func: &Function) -> Option<SignalProcessor> {
         self.id_gen += 1;
 
         let module = self.context.create_module(&format!("wisp_{}", self.id_gen));
@@ -51,8 +55,24 @@ impl SignalProcessorContext {
         let p_next = function.get_nth_param(1)?.into_pointer_value();
 
         // TODO: Replace this with custom IR translation
-        let prev = builder.build_load(type_f32, p_prev, "process").unwrap();
-        builder.build_store(p_next, prev).unwrap();
+        let mut var_refs = HashMap::new();
+        for insn in func.instructions() {
+            use super::ir::Instruction::*;
+
+            match insn {
+                LoadPrev(vref) => {
+                    let prev = builder
+                        .build_load(type_f32, p_prev, &format!("tmp_loadprev_{}", vref.0))
+                        .unwrap();
+                    var_refs.insert(vref, prev);
+                }
+                StoreNext(vref) => {
+                    builder
+                        .build_store(p_next, *var_refs.get(vref).unwrap())
+                        .unwrap();
+                }
+            }
+        }
 
         builder.build_return(None).unwrap();
 
