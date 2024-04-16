@@ -21,17 +21,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         Instruction::StoreNext(VarRef(1)),
     ]);
 
-    let processor = context.create_signal_processor(&func)?;
-
-    let v0 = [0.0];
-    let mut v1 = [0.0];
-    let mut v2 = [0.0];
-
-    processor.process(&v0, &mut v1);
-    println!("Result: {}", v1[0]);
-
-    processor.process(&v1, &mut v2);
-    println!("Result: {}", v2[0]);
+    let mut processor = context.create_signal_processor(&func)?;
+    processor.process();
+    println!("Result: {}", processor.values()[0]);
+    processor.process();
+    println!("Result: {}", processor.values()[0]);
 
     Ok(())
 }

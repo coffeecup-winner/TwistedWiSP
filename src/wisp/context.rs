@@ -14,12 +14,38 @@ type ProcessFn = unsafe extern "C" fn(*const f32, *mut f32);
 
 pub struct SignalProcessor<'ctx> {
     function: JitFunction<'ctx, ProcessFn>,
+    values0: Vec<f32>,
+    values1: Vec<f32>,
+    values_choice_flag: bool,
 }
 
 impl<'ctx> SignalProcessor<'ctx> {
-    pub fn process(&self, prev: &[f32], next: &mut [f32]) {
+    pub fn new(function: JitFunction<'ctx, ProcessFn>, num_signals: usize) -> Self {
+        SignalProcessor {
+            function,
+            values0: vec![0.0; num_signals],
+            values1: vec![0.0; num_signals],
+            values_choice_flag: false,
+        }
+    }
+
+    pub fn process(&mut self) {
+        self.values_choice_flag = !self.values_choice_flag;
+        let (prev, next) = if self.values_choice_flag {
+            (&self.values0, &mut self.values1)
+        } else {
+            (&self.values1, &mut self.values0)
+        };
         unsafe {
             self.function.call(prev.as_ptr(), next.as_mut_ptr());
+        }
+    }
+
+    pub fn values(&self) -> &[f32] {
+        if self.values_choice_flag {
+            &self.values1
+        } else {
+            &self.values0
         }
     }
 }
@@ -140,7 +166,7 @@ impl SignalProcessorContext {
 
         let function = unsafe { execution_engine.get_function("process") }
             .map_err(|_| SignalProcessCreationError::LoadFunction)?;
-        Ok(SignalProcessor { function })
+        Ok(SignalProcessor::new(function, 1))
     }
 
     fn build<'ctx, F, R>(
