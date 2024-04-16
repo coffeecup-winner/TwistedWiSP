@@ -1,11 +1,14 @@
 use std::collections::HashMap;
 
+use inkwell::builder::{Builder, BuilderError};
 use inkwell::context::Context;
 use inkwell::execution_engine::JitFunction;
+use inkwell::values::{BasicValue, BasicValueEnum, FloatValue};
 use inkwell::{AddressSpace, OptimizationLevel};
 use thiserror::Error;
 
 use super::function::Function;
+use super::ir::{Operand, VarRef};
 
 type ProcessFn = unsafe extern "C" fn(*const f32, *mut f32);
 
@@ -93,23 +96,40 @@ impl SignalProcessorContext {
         let mut var_refs = HashMap::new();
         for insn in func.instructions() {
             use super::ir::Instruction::*;
-
             match insn {
                 LoadPrev(vref) => {
-                    let prev = builder
-                        .build_load(type_f32, p_prev, &format!("tmp_load_prev_{}", vref.0))
-                        .map_err(|_| {
-                            SignalProcessCreationError::BuildInstruction("load_prev".into())
-                        })?;
+                    let prev = Self::build(&builder, "load_prev", vref, |b, n| {
+                        b.build_load(type_f32, p_prev, n)
+                    })?;
                     var_refs.insert(vref, prev);
                 }
                 StoreNext(vref) => {
                     let var = var_refs
                         .get(vref)
                         .ok_or(SignalProcessCreationError::UninitializedVar(vref.0))?;
-                    builder.build_store(p_next, *var).map_err(|_| {
-                        SignalProcessCreationError::BuildInstruction("store_next".into())
+                    Self::build(&builder, "store_next", vref, |b, _| {
+                        b.build_store(p_next, *var)
                     })?;
+                }
+                BinaryOp(vref, type_, op1, op2) => {
+                    let left = self.resolve_operand(&var_refs, op1)?;
+                    let right = self.resolve_operand(&var_refs, op2)?;
+                    use crate::wisp::ir::BinaryOpType::*;
+                    let res = match type_ {
+                        Add => Self::build(&builder, "binop_add", vref, |b, n| {
+                            b.build_float_add(left, right, n)
+                        }),
+                        Subtract => Self::build(&builder, "binop_sub", vref, |b, n| {
+                            b.build_float_sub(left, right, n)
+                        }),
+                        Multiply => Self::build(&builder, "binop_mul", vref, |b, n| {
+                            b.build_float_mul(left, right, n)
+                        }),
+                        Divide => Self::build(&builder, "binop_div", vref, |b, n| {
+                            b.build_float_div(left, right, n)
+                        }),
+                    }?;
+                    var_refs.insert(vref, res.as_basic_value_enum());
                 }
             }
         }
@@ -121,5 +141,33 @@ impl SignalProcessorContext {
         let function = unsafe { execution_engine.get_function("process") }
             .map_err(|_| SignalProcessCreationError::LoadFunction)?;
         Ok(SignalProcessor { function })
+    }
+
+    fn build<'ctx, F, R>(
+        builder: &Builder<'ctx>,
+        name: &str,
+        vref: &VarRef,
+        func: F,
+    ) -> Result<R, SignalProcessCreationError>
+    where
+        F: FnOnce(&Builder<'ctx>, &str) -> Result<R, BuilderError>,
+    {
+        func(builder, &format!("tmp_{}_{}", name, vref.0))
+            .map_err(|_| SignalProcessCreationError::BuildInstruction(name.into()))
+    }
+
+    fn resolve_operand<'ctx>(
+        &'ctx self,
+        var_refs: &HashMap<&VarRef, BasicValueEnum<'ctx>>,
+        op1: &Operand,
+    ) -> Result<FloatValue<'ctx>, SignalProcessCreationError> {
+        use crate::wisp::ir::Operand::*;
+        Ok(match op1 {
+            Constant(v) => self.context.f32_type().const_float(*v as f64),
+            Var(vref) => var_refs
+                .get(vref)
+                .ok_or(SignalProcessCreationError::UninitializedVar(vref.0))?
+                .into_float_value(),
+        })
     }
 }
