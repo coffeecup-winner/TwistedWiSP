@@ -24,8 +24,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut processor = context.create_signal_processor(&func)?;
     let mut v = vec![0.0; 2];
-    processor.process_one(&mut v[0..]);
-    processor.process_one(&mut v[1..]);
+    processor.process(&mut v);
     println!("Result: {:?}", v);
 
     Ok(())

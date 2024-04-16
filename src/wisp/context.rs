@@ -14,18 +14,32 @@ type ProcessFn = unsafe extern "C" fn(buf_prev: *const f32, buf_next: *mut f32, 
 
 pub struct SignalProcessor<'ctx> {
     function: JitFunction<'ctx, ProcessFn>,
+    num_outputs: usize,
     values0: Vec<f32>,
     values1: Vec<f32>,
     values_choice_flag: bool,
 }
 
 impl<'ctx> SignalProcessor<'ctx> {
-    pub fn new(function: JitFunction<'ctx, ProcessFn>, num_signals: usize) -> Self {
+    pub fn new(
+        function: JitFunction<'ctx, ProcessFn>,
+        num_outputs: usize,
+        num_signals: usize,
+    ) -> Self {
         SignalProcessor {
             function,
+            num_outputs,
             values0: vec![0.0; num_signals],
             values1: vec![0.0; num_signals],
             values_choice_flag: false,
+        }
+    }
+
+    pub fn process(&mut self, output: &mut [f32]) {
+        // TODO: Return error instead?
+        assert_eq!(0, output.len() % self.num_outputs);
+        for chunk in output.chunks_mut(self.num_outputs) {
+            self.process_one(chunk);
         }
     }
 
@@ -111,6 +125,7 @@ impl SignalProcessorContext {
         let p_next = Self::get_argument(function, 1)?.into_pointer_value();
         let p_output = Self::get_argument(function, 2)?.into_pointer_value();
 
+        let mut num_outputs = 0;
         let mut var_refs = HashMap::new();
         for insn in func.instructions() {
             use super::ir::Instruction::*;
@@ -158,6 +173,7 @@ impl SignalProcessorContext {
                     Self::build(&builder, "output", vref, |b, _| {
                         b.build_store(output, value)
                     })?;
+                    num_outputs = num_outputs.max(idx.0 + 1);
                 }
             }
         }
@@ -168,7 +184,7 @@ impl SignalProcessorContext {
 
         let function = unsafe { execution_engine.get_function("process") }
             .map_err(|_| SignalProcessCreationError::LoadFunction)?;
-        Ok(SignalProcessor::new(function, 1))
+        Ok(SignalProcessor::new(function, num_outputs as usize, 1))
     }
 
     fn get_argument(
