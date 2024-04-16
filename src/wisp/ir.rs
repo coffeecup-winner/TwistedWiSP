@@ -3,6 +3,9 @@
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct VarRef(pub u32);
 
+#[derive(Debug, PartialEq, Eq)]
+pub struct OutputIndex(pub u32);
+
 #[derive(Debug)]
 pub enum Operand {
     Constant(f32),
@@ -22,4 +25,5 @@ pub enum Instruction {
     LoadPrev(VarRef),
     StoreNext(VarRef),
     BinaryOp(VarRef, BinaryOpType, Operand, Operand),
+    Output(OutputIndex, VarRef),
 }

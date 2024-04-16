@@ -10,7 +10,7 @@ use thiserror::Error;
 use super::function::Function;
 use super::ir::{Operand, VarRef};
 
-type ProcessFn = unsafe extern "C" fn(*const f32, *mut f32);
+type ProcessFn = unsafe extern "C" fn(buf_prev: *const f32, buf_next: *mut f32, output: *mut f32);
 
 pub struct SignalProcessor<'ctx> {
     function: JitFunction<'ctx, ProcessFn>,
@@ -29,7 +29,7 @@ impl<'ctx> SignalProcessor<'ctx> {
         }
     }
 
-    pub fn process(&mut self) {
+    pub fn process_one(&mut self, output: &mut [f32]) {
         self.values_choice_flag = !self.values_choice_flag;
         let (prev, next) = if self.values_choice_flag {
             (&self.values0, &mut self.values1)
@@ -37,10 +37,12 @@ impl<'ctx> SignalProcessor<'ctx> {
             (&self.values1, &mut self.values0)
         };
         unsafe {
-            self.function.call(prev.as_ptr(), next.as_mut_ptr());
+            self.function
+                .call(prev.as_ptr(), next.as_mut_ptr(), output.as_mut_ptr());
         }
     }
 
+    #[allow(dead_code)]
     pub fn values(&self) -> &[f32] {
         if self.values_choice_flag {
             &self.values1
@@ -95,29 +97,19 @@ impl SignalProcessorContext {
 
         let type_f32 = self.context.f32_type();
         let type_pf32 = type_f32.ptr_type(AddressSpace::default());
-        let fn_type = type_f32.fn_type(&[type_pf32.into(), type_pf32.into()], false);
+        let fn_type = type_f32.fn_type(
+            &[type_pf32.into(), type_pf32.into(), type_pf32.into()],
+            false,
+        );
 
         let function = module.add_function("process", fn_type, None);
         let basic_block = self.context.append_basic_block(function, "start");
 
         builder.position_at_end(basic_block);
 
-        let p_prev = function
-            .get_nth_param(0)
-            .ok_or_else(|| {
-                SignalProcessCreationError::CustomLogicalError(
-                    "Invalid number of function arguments".into(),
-                )
-            })?
-            .into_pointer_value();
-        let p_next = function
-            .get_nth_param(1)
-            .ok_or_else(|| {
-                SignalProcessCreationError::CustomLogicalError(
-                    "Invalid number of function arguments".into(),
-                )
-            })?
-            .into_pointer_value();
+        let p_prev = Self::get_argument(function, 0)?.into_pointer_value();
+        let p_next = Self::get_argument(function, 1)?.into_pointer_value();
+        let p_output = Self::get_argument(function, 2)?.into_pointer_value();
 
         let mut var_refs = HashMap::new();
         for insn in func.instructions() {
@@ -130,11 +122,9 @@ impl SignalProcessorContext {
                     var_refs.insert(vref, prev);
                 }
                 StoreNext(vref) => {
-                    let var = var_refs
-                        .get(vref)
-                        .ok_or(SignalProcessCreationError::UninitializedVar(vref.0))?;
+                    let var = Self::get_var(&var_refs, vref)?;
                     Self::build(&builder, "store_next", vref, |b, _| {
-                        b.build_store(p_next, *var)
+                        b.build_store(p_next, var)
                     })?;
                 }
                 BinaryOp(vref, type_, op1, op2) => {
@@ -157,6 +147,18 @@ impl SignalProcessorContext {
                     }?;
                     var_refs.insert(vref, res.as_basic_value_enum());
                 }
+                Output(idx, vref) => {
+                    let output = unsafe {
+                        p_output.const_gep(
+                            type_f32,
+                            &[self.context.i32_type().const_int(idx.0 as u64, false)],
+                        )
+                    };
+                    let value = Self::get_var(&var_refs, vref)?.into_float_value();
+                    Self::build(&builder, "output", vref, |b, _| {
+                        b.build_store(output, value)
+                    })?;
+                }
             }
         }
 
@@ -167,6 +169,26 @@ impl SignalProcessorContext {
         let function = unsafe { execution_engine.get_function("process") }
             .map_err(|_| SignalProcessCreationError::LoadFunction)?;
         Ok(SignalProcessor::new(function, 1))
+    }
+
+    fn get_argument(
+        function: inkwell::values::FunctionValue,
+        nth: u32,
+    ) -> Result<BasicValueEnum, SignalProcessCreationError> {
+        function.get_nth_param(nth).ok_or_else(|| {
+            SignalProcessCreationError::CustomLogicalError(
+                "Invalid number of function arguments".into(),
+            )
+        })
+    }
+
+    fn get_var<'ctx>(
+        var_refs: &HashMap<&VarRef, BasicValueEnum<'ctx>>,
+        vref: &VarRef,
+    ) -> Result<BasicValueEnum<'ctx>, SignalProcessCreationError> {
+        Ok(*var_refs
+            .get(vref)
+            .ok_or(SignalProcessCreationError::UninitializedVar(vref.0))?)
     }
 
     fn build<'ctx, F, R>(
@@ -190,10 +212,7 @@ impl SignalProcessorContext {
         use crate::wisp::ir::Operand::*;
         Ok(match op1 {
             Constant(v) => self.context.f32_type().const_float(*v as f64),
-            Var(vref) => var_refs
-                .get(vref)
-                .ok_or(SignalProcessCreationError::UninitializedVar(vref.0))?
-                .into_float_value(),
+            Var(vref) => Self::get_var(var_refs, vref)?.into_float_value(),
         })
     }
 }
