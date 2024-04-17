@@ -9,7 +9,7 @@ use inkwell::{AddressSpace, OptimizationLevel};
 use thiserror::Error;
 
 use super::function::Function;
-use super::ir::{Instruction, Operand, VarRef};
+use super::ir::{Instruction, LocalRef, Operand, VarRef};
 
 type ProcessFn = unsafe extern "C" fn(buf_prev: *const f32, buf_next: *mut f32, output: *mut f32);
 
@@ -81,6 +81,9 @@ pub enum SignalProcessCreationError {
     #[error("Var ref {0} is uninitialized")]
     UninitializedVar(u32),
 
+    #[error("Local ref {0} is uninitialized")]
+    UninitializedLocal(u32),
+
     #[error("Logical error: {0}")]
     CustomLogicalError(String),
 }
@@ -131,11 +134,13 @@ impl SignalProcessorContext {
 
         let mut num_outputs = 0;
         let mut var_refs = HashMap::new();
+        let mut local_refs = HashMap::new();
         self.translate_instructions(
             func.instructions(),
             &builder,
             function,
             &mut var_refs,
+            &mut local_refs,
             &SignalProcessorArgs {
                 p_prev,
                 p_next,
@@ -157,12 +162,14 @@ impl SignalProcessorContext {
         Ok(SignalProcessor::new(function, num_outputs as usize, 1))
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn translate_instructions<'ctx, 'temp>(
         &'ctx self,
         instructions: &'temp [Instruction],
         builder: &'ctx Builder,
         function: FunctionValue<'ctx>,
         var_refs: &mut HashMap<&'temp VarRef, BasicValueEnum<'ctx>>,
+        local_refs: &mut HashMap<&'temp LocalRef, PointerValue<'ctx>>,
         args: &SignalProcessorArgs<'ctx>,
         num_outputs: &mut u32,
     ) -> Result<(BasicBlock<'ctx>, BasicBlock<'ctx>), SignalProcessCreationError> {
@@ -183,6 +190,26 @@ impl SignalProcessorContext {
                     let var = Self::get_var(var_refs, vref)?;
                     Self::build(builder, "store_next", vref, |b, _| {
                         b.build_store(args.p_next, var)
+                    })?;
+                }
+                AllocLocal(lref) => {
+                    let local = Self::build(builder, "alloc_local", &VarRef(0), |b, _| {
+                        b.build_alloca(self.context.f32_type(), &format!("local_{}", lref.0))
+                    })?;
+                    local_refs.insert(lref, local);
+                }
+                LoadLocal(vref, lref) => {
+                    let local = Self::get_local(local_refs, lref)?;
+                    let value = Self::build(builder, "load_local", vref, |b, n| {
+                        b.build_load(self.context.f32_type(), local, n)
+                    })?;
+                    var_refs.insert(vref, value);
+                }
+                StoreLocal(lref, vref) => {
+                    let local = Self::get_local(local_refs, lref)?;
+                    let value = Self::get_var(var_refs, vref)?;
+                    Self::build(builder, "store_local", vref, |b, _| {
+                        b.build_store(local, value)
                     })?;
                 }
                 BinaryOp(vref, type_, op1, op2) => {
@@ -234,6 +261,7 @@ impl SignalProcessorContext {
                         builder,
                         function,
                         var_refs,
+                        local_refs,
                         args,
                         num_outputs,
                     )?;
@@ -242,6 +270,7 @@ impl SignalProcessorContext {
                         builder,
                         function,
                         var_refs,
+                        local_refs,
                         args,
                         num_outputs,
                     )?;
@@ -301,6 +330,15 @@ impl SignalProcessorContext {
         Ok(*var_refs
             .get(vref)
             .ok_or(SignalProcessCreationError::UninitializedVar(vref.0))?)
+    }
+
+    fn get_local<'ctx>(
+        local_refs: &HashMap<&LocalRef, PointerValue<'ctx>>,
+        lref: &LocalRef,
+    ) -> Result<PointerValue<'ctx>, SignalProcessCreationError> {
+        Ok(*local_refs
+            .get(lref)
+            .ok_or(SignalProcessCreationError::UninitializedLocal(lref.0))?)
     }
 
     fn build<'ctx, F, R>(

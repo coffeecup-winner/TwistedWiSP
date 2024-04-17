@@ -3,6 +3,9 @@
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct VarRef(pub u32);
 
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct LocalRef(pub u32);
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct OutputIndex(pub u32);
 
@@ -34,6 +37,10 @@ pub enum ComparisonOpType {
 pub enum Instruction {
     LoadPrev(VarRef),
     StoreNext(VarRef),
+
+    AllocLocal(LocalRef),
+    LoadLocal(VarRef, LocalRef),
+    StoreLocal(LocalRef, VarRef),
 
     BinaryOp(VarRef, BinaryOpType, Operand, Operand),
     ComparisonOp(VarRef, ComparisonOpType, Operand, Operand),

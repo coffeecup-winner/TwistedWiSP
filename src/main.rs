@@ -4,7 +4,7 @@ use std::error::Error;
 
 use crate::wisp::{
     function::Function,
-    ir::{BinaryOpType, ComparisonOpType, Instruction, Operand, OutputIndex, VarRef},
+    ir::{BinaryOpType, ComparisonOpType, Instruction, LocalRef, Operand, OutputIndex, VarRef},
 };
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -12,19 +12,34 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let func = Function::new(vec![
         Instruction::LoadPrev(VarRef(0)),
+        Instruction::AllocLocal(LocalRef(0)),
         Instruction::BinaryOp(
             VarRef(0),
             BinaryOpType::Add,
             Operand::Var(VarRef(0)),
             Operand::Constant(0.10),
         ),
+        Instruction::StoreLocal(LocalRef(0), VarRef(0)),
         Instruction::ComparisonOp(
             VarRef(1),
             ComparisonOpType::Greater,
             Operand::Var(VarRef(0)),
             Operand::Constant(1.0),
         ),
-        Instruction::Conditional(VarRef(1), vec![], vec![]),
+        Instruction::Conditional(
+            VarRef(1),
+            vec![
+                Instruction::BinaryOp(
+                    VarRef(0),
+                    BinaryOpType::Subtract,
+                    Operand::Var(VarRef(0)),
+                    Operand::Constant(1.0),
+                ),
+                Instruction::StoreLocal(LocalRef(0), VarRef(0)),
+            ],
+            vec![],
+        ),
+        Instruction::LoadLocal(VarRef(0), LocalRef(0)),
         Instruction::StoreNext(VarRef(0)),
         Instruction::Output(OutputIndex(0), VarRef(0)),
     ]);
