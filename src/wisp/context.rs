@@ -1,14 +1,15 @@
 use std::collections::HashMap;
 
+use inkwell::basic_block::BasicBlock;
 use inkwell::builder::{Builder, BuilderError};
 use inkwell::context::Context;
 use inkwell::execution_engine::JitFunction;
-use inkwell::values::{BasicValue, BasicValueEnum, FloatValue};
+use inkwell::values::{BasicValue, BasicValueEnum, FloatValue, FunctionValue, PointerValue};
 use inkwell::{AddressSpace, OptimizationLevel};
 use thiserror::Error;
 
 use super::function::Function;
-use super::ir::{Operand, VarRef};
+use super::ir::{Instruction, Operand, VarRef};
 
 type ProcessFn = unsafe extern "C" fn(buf_prev: *const f32, buf_next: *mut f32, output: *mut f32);
 
@@ -84,6 +85,12 @@ pub enum SignalProcessCreationError {
     CustomLogicalError(String),
 }
 
+struct SignalProcessorArgs<'ctx> {
+    p_prev: PointerValue<'ctx>,
+    p_next: PointerValue<'ctx>,
+    p_output: PointerValue<'ctx>,
+}
+
 pub struct SignalProcessorContext {
     id_gen: u64,
     context: Context,
@@ -117,9 +124,6 @@ impl SignalProcessorContext {
         );
 
         let function = module.add_function("process", fn_type, None);
-        let basic_block = self.context.append_basic_block(function, "start");
-
-        builder.position_at_end(basic_block);
 
         let p_prev = Self::get_argument(function, 0)?.into_pointer_value();
         let p_next = Self::get_argument(function, 1)?.into_pointer_value();
@@ -127,55 +131,21 @@ impl SignalProcessorContext {
 
         let mut num_outputs = 0;
         let mut var_refs = HashMap::new();
-        for insn in func.instructions() {
-            use super::ir::Instruction::*;
-            match insn {
-                LoadPrev(vref) => {
-                    let prev = Self::build(&builder, "load_prev", vref, |b, n| {
-                        b.build_load(type_f32, p_prev, n)
-                    })?;
-                    var_refs.insert(vref, prev);
-                }
-                StoreNext(vref) => {
-                    let var = Self::get_var(&var_refs, vref)?;
-                    Self::build(&builder, "store_next", vref, |b, _| {
-                        b.build_store(p_next, var)
-                    })?;
-                }
-                BinaryOp(vref, type_, op1, op2) => {
-                    let left = self.resolve_operand(&var_refs, op1)?;
-                    let right = self.resolve_operand(&var_refs, op2)?;
-                    use crate::wisp::ir::BinaryOpType::*;
-                    let res = match type_ {
-                        Add => Self::build(&builder, "binop_add", vref, |b, n| {
-                            b.build_float_add(left, right, n)
-                        }),
-                        Subtract => Self::build(&builder, "binop_sub", vref, |b, n| {
-                            b.build_float_sub(left, right, n)
-                        }),
-                        Multiply => Self::build(&builder, "binop_mul", vref, |b, n| {
-                            b.build_float_mul(left, right, n)
-                        }),
-                        Divide => Self::build(&builder, "binop_div", vref, |b, n| {
-                            b.build_float_div(left, right, n)
-                        }),
-                    }?;
-                    var_refs.insert(vref, res.as_basic_value_enum());
-                }
-                Output(idx, vref) => {
-                    let output = unsafe {
-                        p_output.const_gep(
-                            type_f32,
-                            &[self.context.i32_type().const_int(idx.0 as u64, false)],
-                        )
-                    };
-                    let value = Self::get_var(&var_refs, vref)?.into_float_value();
-                    Self::build(&builder, "output", vref, |b, _| {
-                        b.build_store(output, value)
-                    })?;
-                    num_outputs = num_outputs.max(idx.0 + 1);
-                }
-            }
+        self.translate_instructions(
+            func.instructions(),
+            &builder,
+            function,
+            &mut var_refs,
+            &SignalProcessorArgs {
+                p_prev,
+                p_next,
+                p_output,
+            },
+            &mut num_outputs,
+        )?;
+
+        if cfg!(debug_assertions) {
+            function.print_to_stderr();
         }
 
         builder
@@ -185,6 +155,132 @@ impl SignalProcessorContext {
         let function = unsafe { execution_engine.get_function("process") }
             .map_err(|_| SignalProcessCreationError::LoadFunction)?;
         Ok(SignalProcessor::new(function, num_outputs as usize, 1))
+    }
+
+    fn translate_instructions<'ctx, 'temp>(
+        &'ctx self,
+        instructions: &'temp [Instruction],
+        builder: &'ctx Builder,
+        function: FunctionValue<'ctx>,
+        var_refs: &mut HashMap<&'temp VarRef, BasicValueEnum<'ctx>>,
+        args: &SignalProcessorArgs<'ctx>,
+        num_outputs: &mut u32,
+    ) -> Result<(BasicBlock<'ctx>, BasicBlock<'ctx>), SignalProcessCreationError> {
+        let mut current_block = self.context.append_basic_block(function, "start");
+        builder.position_at_end(current_block);
+        let start_block = current_block;
+
+        for insn in instructions {
+            use super::ir::Instruction::*;
+            match insn {
+                LoadPrev(vref) => {
+                    let prev = Self::build(builder, "load_prev", vref, |b, n| {
+                        b.build_load(self.context.f32_type(), args.p_prev, n)
+                    })?;
+                    var_refs.insert(vref, prev);
+                }
+                StoreNext(vref) => {
+                    let var = Self::get_var(var_refs, vref)?;
+                    Self::build(builder, "store_next", vref, |b, _| {
+                        b.build_store(args.p_next, var)
+                    })?;
+                }
+                BinaryOp(vref, type_, op1, op2) => {
+                    let left = self.resolve_operand(var_refs, op1)?;
+                    let right = self.resolve_operand(var_refs, op2)?;
+                    use crate::wisp::ir::BinaryOpType::*;
+                    let res = match type_ {
+                        Add => Self::build(builder, "binop_add", vref, |b, n| {
+                            b.build_float_add(left, right, n)
+                        }),
+                        Subtract => Self::build(builder, "binop_sub", vref, |b, n| {
+                            b.build_float_sub(left, right, n)
+                        }),
+                        Multiply => Self::build(builder, "binop_mul", vref, |b, n| {
+                            b.build_float_mul(left, right, n)
+                        }),
+                        Divide => Self::build(builder, "binop_div", vref, |b, n| {
+                            b.build_float_div(left, right, n)
+                        }),
+                    }?;
+                    var_refs.insert(vref, res.as_basic_value_enum());
+                }
+                ComparisonOp(vref, type_, op1, op2) => {
+                    let left = self.resolve_operand(var_refs, op1)?;
+                    let right = self.resolve_operand(var_refs, op2)?;
+                    use crate::wisp::ir::ComparisonOpType::*;
+                    let res = Self::build(builder, "compop_eq", vref, |b, n| {
+                        b.build_float_compare(
+                            match type_ {
+                                Equal => inkwell::FloatPredicate::OEQ,
+                                NotEqual => inkwell::FloatPredicate::ONE,
+                                Less => inkwell::FloatPredicate::OLT,
+                                LessOrEqual => inkwell::FloatPredicate::OLE,
+                                Greater => inkwell::FloatPredicate::OGT,
+                                GreaterOrEqual => inkwell::FloatPredicate::OGE,
+                            },
+                            left,
+                            right,
+                            n,
+                        )
+                    })?;
+                    var_refs.insert(vref, res.as_basic_value_enum());
+                }
+                Conditional(vref, then_branch, else_branch) => {
+                    // Generate code
+                    let cond = Self::get_var(var_refs, vref)?.into_int_value();
+                    let (then_block_first, then_block_last) = self.translate_instructions(
+                        then_branch,
+                        builder,
+                        function,
+                        var_refs,
+                        args,
+                        num_outputs,
+                    )?;
+                    let (else_block_first, else_block_last) = self.translate_instructions(
+                        else_branch,
+                        builder,
+                        function,
+                        var_refs,
+                        args,
+                        num_outputs,
+                    )?;
+
+                    // Tie blocks together
+                    builder.position_at_end(current_block);
+                    Self::build(builder, "cond", vref, |b, _| {
+                        b.build_conditional_branch(cond, then_block_first, else_block_first)
+                    })?;
+
+                    let next_block = self.context.append_basic_block(function, "post_cond");
+
+                    builder.position_at_end(then_block_last);
+                    Self::build(builder, "then_jump", vref, |b, _| {
+                        b.build_unconditional_branch(next_block)
+                    })?;
+
+                    builder.position_at_end(else_block_last);
+                    Self::build(builder, "else_jump", vref, |b, _| {
+                        b.build_unconditional_branch(next_block)
+                    })?;
+
+                    current_block = next_block;
+                    builder.position_at_end(current_block);
+                }
+                Output(idx, vref) => {
+                    let output = unsafe {
+                        args.p_output.const_gep(
+                            self.context.f32_type(),
+                            &[self.context.i32_type().const_int(idx.0 as u64, false)],
+                        )
+                    };
+                    let value = Self::get_var(var_refs, vref)?.into_float_value();
+                    Self::build(builder, "output", vref, |b, _| b.build_store(output, value))?;
+                    *num_outputs = (*num_outputs).max(idx.0 + 1);
+                }
+            }
+        }
+        Ok((start_block, current_block))
     }
 
     fn get_argument(
