@@ -5,6 +5,8 @@ use inkwell::builder::{Builder, BuilderError};
 use inkwell::context::Context;
 use inkwell::execution_engine::JitFunction;
 use inkwell::module::Module;
+use inkwell::passes::PassBuilderOptions;
+use inkwell::targets::{CodeModel, RelocMode, Target, TargetMachine};
 use inkwell::values::{
     AnyValue, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue,
     PointerValue,
@@ -224,7 +226,35 @@ impl SignalProcessorContext {
         self.build_function(&module, &func, runtime, &builder)?;
 
         if cfg!(debug_assertions) {
+            eprintln!("===== BEFORE =====");
             module.print_to_stderr();
+        }
+
+        // TODO: Enable optimization passes
+        if false {
+            let target = Target::from_triple(&TargetMachine::get_default_triple())
+                .expect("Failed to create LLVM target");
+            let target_machine = target
+                .create_target_machine(
+                    &TargetMachine::get_default_triple(),
+                    &TargetMachine::get_host_cpu_name().to_string(),
+                    &TargetMachine::get_host_cpu_features().to_string(),
+                    OptimizationLevel::None,
+                    RelocMode::Default,
+                    CodeModel::JITDefault,
+                )
+                .expect("Failed to create LLVM target machine");
+
+            let options = PassBuilderOptions::create();
+            options.set_merge_functions(true);
+            module
+                .run_passes("inline,mem2reg", &target_machine, options)
+                .expect("Failed to run optimization passes");
+
+            if cfg!(debug_assertions) {
+                eprintln!("===== AFTER =====");
+                module.print_to_stderr();
+            }
         }
 
         let function = unsafe { execution_engine.get_function("wisp_process") }
