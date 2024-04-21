@@ -7,4 +7,5 @@ edition = "2021"
 
 [dependencies]
 inkwell = { version = "0.4.0", features = ["llvm17-0-prefer-dynamic"] }
+petgraph = "0.6.4"
 thiserror = "1.0"

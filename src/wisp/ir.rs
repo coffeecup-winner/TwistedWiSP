@@ -6,6 +6,19 @@ pub struct VarRef(pub u32);
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct LocalRef(pub u32);
 
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum GlobalRef {
+    Output,
+    Prev,
+    Next,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct FunctionInputIndex(pub u32);
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct FunctionOutputIndex(pub u32);
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct OutputIndex(pub u32);
 
@@ -33,7 +46,7 @@ pub enum ComparisonOpType {
     GreaterOrEqual,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Instruction {
     LoadPrev(VarRef),
     StoreNext(VarRef),
@@ -42,10 +55,19 @@ pub enum Instruction {
     LoadLocal(VarRef, LocalRef),
     StoreLocal(LocalRef, VarRef),
 
+    LoadGlobal(VarRef, GlobalRef),
+    StoreGlobal(GlobalRef, VarRef),
+
+    LoadFunctionInput(VarRef, FunctionInputIndex),
+    StoreFunctionOutput(FunctionOutputIndex, VarRef),
+
     BinaryOp(VarRef, BinaryOpType, Operand, Operand),
     ComparisonOp(VarRef, ComparisonOpType, Operand, Operand),
 
     Conditional(VarRef, Vec<Instruction>, Vec<Instruction>),
 
+    Call(String, Vec<VarRef>, Vec<VarRef>),
+
     Output(OutputIndex, VarRef),
+    Debug(VarRef),
 }
