@@ -11,7 +11,7 @@ use petgraph::{
 };
 
 use super::{
-    ir::{Instruction, VarRef},
+    ir::{Instruction, Operand, VarRef},
     runtime::Runtime,
 };
 
@@ -99,7 +99,7 @@ impl Flow {
                         let vref = *output_vrefs
                             .get(&(e.source(), e.weight().output_index))
                             .expect("Failed to find incoming signal's var ref");
-                        inputs.push(Some(vref));
+                        inputs.push(Some(Operand::Var(vref)));
                     }
                 }
                 if inputs.len() < idx + 1 {

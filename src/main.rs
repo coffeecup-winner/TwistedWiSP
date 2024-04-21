@@ -59,7 +59,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 Operand::Var(VarRef(0)),
                 Operand::Literal(0.01),
             ),
-            Instruction::StoreLocal(LocalRef(0), VarRef(0)),
+            Instruction::StoreLocal(LocalRef(0), Operand::Var(VarRef(0))),
             Instruction::ComparisonOp(
                 VarRef(1),
                 ComparisonOpType::Greater,
@@ -75,13 +75,13 @@ fn main() -> Result<(), Box<dyn Error>> {
                         Operand::Var(VarRef(0)),
                         Operand::Literal(1.0),
                     ),
-                    Instruction::StoreLocal(LocalRef(0), VarRef(0)),
+                    Instruction::StoreLocal(LocalRef(0), Operand::Var(VarRef(0))),
                 ],
                 vec![],
             ),
             Instruction::LoadLocal(VarRef(0), LocalRef(0)),
-            Instruction::StoreNext(VarRef(0)),
-            Instruction::StoreFunctionOutput(FunctionOutputIndex(0), VarRef(0)),
+            Instruction::StoreNext(Operand::Var(VarRef(0))),
+            Instruction::StoreFunctionOutput(FunctionOutputIndex(0), Operand::Var(VarRef(0))),
         ],
     );
 

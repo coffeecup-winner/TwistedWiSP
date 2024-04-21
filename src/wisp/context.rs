@@ -8,8 +8,7 @@ use inkwell::module::Module;
 use inkwell::passes::PassBuilderOptions;
 use inkwell::targets::{CodeModel, RelocMode, Target, TargetMachine};
 use inkwell::values::{
-    AnyValue, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue,
-    PointerValue,
+    AnyValue, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, PointerValue,
 };
 use inkwell::{AddressSpace, OptimizationLevel};
 use thiserror::Error;
@@ -18,7 +17,7 @@ use crate::wisp::function::DefaultInputValue;
 
 use super::flow::Flow;
 use super::function::{Function, FunctionInput};
-use super::ir::{FunctionInputIndex, GlobalRef, Instruction, LocalRef, Operand, VarRef};
+use super::ir::{GlobalRef, Instruction, LocalRef, Operand, VarRef};
 use super::runtime::Runtime;
 
 struct Globals {
@@ -123,18 +122,21 @@ pub enum SignalProcessCreationError {
     CustomLogicalError(String),
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct FunctionRefs<'ctx> {
+    function: FunctionValue<'ctx>,
+    outputs: Vec<Option<BasicValueEnum<'ctx>>>,
     vars: HashMap<VarRef, BasicValueEnum<'ctx>>,
     locals: HashMap<LocalRef, PointerValue<'ctx>>,
-    outputs: Vec<Option<BasicValueEnum<'ctx>>>,
 }
 
 impl<'ctx> FunctionRefs<'ctx> {
-    fn new(num_outputs: usize) -> Self {
+    fn new(function: FunctionValue<'ctx>, num_outputs: usize) -> Self {
         FunctionRefs {
+            function,
             outputs: vec![None; num_outputs],
-            ..Default::default()
+            vars: HashMap::new(),
+            locals: HashMap::new(),
         }
     }
 }
@@ -207,12 +209,9 @@ impl SignalProcessorContext {
         }
 
         let mut process_func_instructions = vec![
-            Instruction::LoadFunctionInput(VarRef(0), FunctionInputIndex(0)),
-            Instruction::StoreGlobal(GlobalRef::Prev, VarRef(0)),
-            Instruction::LoadFunctionInput(VarRef(1), FunctionInputIndex(1)),
-            Instruction::StoreGlobal(GlobalRef::Next, VarRef(1)),
-            Instruction::LoadFunctionInput(VarRef(2), FunctionInputIndex(2)),
-            Instruction::StoreGlobal(GlobalRef::Output, VarRef(2)),
+            Instruction::StoreGlobal(GlobalRef::Prev, Operand::Arg(0)),
+            Instruction::StoreGlobal(GlobalRef::Next, Operand::Arg(1)),
+            Instruction::StoreGlobal(GlobalRef::Output, Operand::Arg(2)),
         ];
         process_func_instructions.extend(flow.get_compiled_flow(runtime).iter().cloned());
         let func = Function::new(
@@ -287,7 +286,7 @@ impl SignalProcessorContext {
         let function = module
             .get_function(func.name())
             .ok_or_else(|| SignalProcessCreationError::UnknownFunction(func.name().to_owned()))?;
-        let mut refs = FunctionRefs::new(func.outputs().len());
+        let mut refs = FunctionRefs::new(function, func.outputs().len());
         self.translate_instructions(
             func.instructions(),
             module,
@@ -346,53 +345,51 @@ impl SignalProcessorContext {
                     let pp_prev = module
                         .get_global("wisp_global_prev")
                         .expect("Invalid global value");
-                    let p_prev = Self::build(builder, "load_prev", vref, |b, n| {
+                    let p_prev = Self::build(builder, "load_prev", |b, n| {
                         b.build_load(
                             self.context.f32_type().ptr_type(AddressSpace::default()),
                             pp_prev.as_pointer_value(),
                             n,
                         )
                     })?;
-                    let prev = Self::build(builder, "load_prev", vref, |b, n| {
+                    let prev = Self::build(builder, "load_prev", |b, n| {
                         b.build_load(self.context.f32_type(), p_prev.into_pointer_value(), n)
                     })?;
                     refs.vars.insert(*vref, prev);
                 }
-                StoreNext(vref) => {
+                StoreNext(op) => {
                     let pp_next = module
                         .get_global("wisp_global_next")
                         .expect("Invalid global value");
-                    let p_next = Self::build(builder, "load_next", vref, |b, n| {
+                    let p_next = Self::build(builder, "load_next", |b, n| {
                         b.build_load(
                             self.context.f32_type().ptr_type(AddressSpace::default()),
                             pp_next.as_pointer_value(),
                             n,
                         )
                     })?;
-                    let var = Self::get_var(refs, vref)?;
-                    Self::build(builder, "store_next", vref, |b, _| {
+                    let var = self.resolve_operand(runtime, refs, op)?;
+                    Self::build(builder, "store_next", |b, _| {
                         b.build_store(p_next.into_pointer_value(), var)
                     })?;
                 }
                 AllocLocal(lref) => {
-                    let local = Self::build(builder, "alloc_local", &VarRef(0), |b, _| {
+                    let local = Self::build(builder, "alloc_local", |b, _| {
                         b.build_alloca(self.context.f32_type(), &format!("local_{}", lref.0))
                     })?;
                     refs.locals.insert(*lref, local);
                 }
                 LoadLocal(vref, lref) => {
                     let local = Self::get_local(refs, lref)?;
-                    let value = Self::build(builder, "load_local", vref, |b, n| {
+                    let value = Self::build(builder, "load_local", |b, n| {
                         b.build_load(self.context.f32_type(), local, n)
                     })?;
                     refs.vars.insert(*vref, value);
                 }
-                StoreLocal(lref, vref) => {
+                StoreLocal(lref, op) => {
                     let local = Self::get_local(refs, lref)?;
-                    let value = Self::get_var(refs, vref)?;
-                    Self::build(builder, "store_local", vref, |b, _| {
-                        b.build_store(local, value)
-                    })?;
+                    let value = self.resolve_operand(runtime, refs, op)?;
+                    Self::build(builder, "store_local", |b, _| b.build_store(local, value))?;
                 }
                 LoadGlobal(vref, gref) => {
                     let global = match gref {
@@ -401,7 +398,7 @@ impl SignalProcessorContext {
                         GlobalRef::Next => module.get_global("wisp_global_next"),
                     }
                     .expect("Invalid global name");
-                    let value = Self::build(builder, "load_global", vref, |b, n| {
+                    let value = Self::build(builder, "load_global", |b, n| {
                         b.build_load(
                             self.context.f32_type().ptr_type(AddressSpace::default()),
                             global.as_pointer_value(),
@@ -410,24 +407,20 @@ impl SignalProcessorContext {
                     })?;
                     refs.vars.insert(*vref, value);
                 }
-                StoreGlobal(gref, vref) => {
+                StoreGlobal(gref, op) => {
                     let global = match gref {
                         GlobalRef::Output => module.get_global("wisp_global_output"),
                         GlobalRef::Prev => module.get_global("wisp_global_prev"),
                         GlobalRef::Next => module.get_global("wisp_global_next"),
                     }
                     .expect("Invalid global name");
-                    let value = Self::get_var(refs, vref)?;
-                    Self::build(builder, "store_global", vref, |b, _| {
+                    let value = self.resolve_operand(runtime, refs, op)?;
+                    Self::build(builder, "store_global", |b, _| {
                         b.build_store(global.as_pointer_value(), value)
                     })?;
                 }
-                LoadFunctionInput(vref, idx) => {
-                    let arg = Self::get_argument(function, idx.0)?;
-                    refs.vars.insert(*vref, arg);
-                }
-                StoreFunctionOutput(idx, vref) => {
-                    let value = Self::get_var(refs, vref)?;
+                StoreFunctionOutput(idx, op) => {
+                    let value = self.resolve_operand(runtime, refs, op)?;
                     let out = refs.outputs.get_mut(idx.0 as usize).ok_or_else(|| {
                         SignalProcessCreationError::InvalidNumberOfOutputs(
                             func.name().to_owned(),
@@ -435,33 +428,33 @@ impl SignalProcessorContext {
                             idx.0,
                         )
                     })?;
-                    *out = Some(value);
+                    *out = Some(value.as_basic_value_enum());
                 }
                 BinaryOp(vref, type_, op1, op2) => {
-                    let left = self.resolve_operand(runtime, refs, op1)?;
-                    let right = self.resolve_operand(runtime, refs, op2)?;
+                    let left = self.resolve_operand(runtime, refs, op1)?.into_float_value();
+                    let right = self.resolve_operand(runtime, refs, op2)?.into_float_value();
                     use crate::wisp::ir::BinaryOpType::*;
                     let res = match type_ {
-                        Add => Self::build(builder, "binop_add", vref, |b, n| {
+                        Add => Self::build(builder, "binop_add", |b, n| {
                             b.build_float_add(left, right, n)
                         }),
-                        Subtract => Self::build(builder, "binop_sub", vref, |b, n| {
+                        Subtract => Self::build(builder, "binop_sub", |b, n| {
                             b.build_float_sub(left, right, n)
                         }),
-                        Multiply => Self::build(builder, "binop_mul", vref, |b, n| {
+                        Multiply => Self::build(builder, "binop_mul", |b, n| {
                             b.build_float_mul(left, right, n)
                         }),
-                        Divide => Self::build(builder, "binop_div", vref, |b, n| {
+                        Divide => Self::build(builder, "binop_div", |b, n| {
                             b.build_float_div(left, right, n)
                         }),
                     }?;
                     refs.vars.insert(*vref, res.as_basic_value_enum());
                 }
                 ComparisonOp(vref, type_, op1, op2) => {
-                    let left = self.resolve_operand(runtime, refs, op1)?;
-                    let right = self.resolve_operand(runtime, refs, op2)?;
+                    let left = self.resolve_operand(runtime, refs, op1)?.into_float_value();
+                    let right = self.resolve_operand(runtime, refs, op2)?.into_float_value();
                     use crate::wisp::ir::ComparisonOpType::*;
-                    let res = Self::build(builder, "compop_eq", vref, |b, n| {
+                    let res = Self::build(builder, "compop_eq", |b, n| {
                         b.build_float_compare(
                             match type_ {
                                 Equal => inkwell::FloatPredicate::OEQ,
@@ -502,19 +495,19 @@ impl SignalProcessorContext {
 
                     // Tie blocks together
                     builder.position_at_end(current_block);
-                    Self::build(builder, "cond", vref, |b, _| {
+                    Self::build(builder, "cond", |b, _| {
                         b.build_conditional_branch(cond, then_block_first, else_block_first)
                     })?;
 
                     let next_block = self.context.append_basic_block(function, "post_cond");
 
                     builder.position_at_end(then_block_last);
-                    Self::build(builder, "then_jump", vref, |b, _| {
+                    Self::build(builder, "then_jump", |b, _| {
                         b.build_unconditional_branch(next_block)
                     })?;
 
                     builder.position_at_end(else_block_last);
-                    Self::build(builder, "else_jump", vref, |b, _| {
+                    Self::build(builder, "else_jump", |b, _| {
                         b.build_unconditional_branch(next_block)
                     })?;
 
@@ -540,7 +533,7 @@ impl SignalProcessorContext {
                     let mut args: Vec<BasicMetadataValueEnum> = vec![];
                     for (idx, input) in in_vrefs.iter().enumerate() {
                         let value = match input {
-                            Some(vref) => Self::get_var(refs, vref)?,
+                            Some(op) => self.resolve_operand(runtime, refs, op)?,
                             None => match func.inputs()[idx].fallback {
                                 Some(fallback) => match fallback {
                                     DefaultInputValue::Normal => {
@@ -567,9 +560,8 @@ impl SignalProcessorContext {
                         .get_function(name)
                         .ok_or_else(|| SignalProcessCreationError::UnknownFunction(name.clone()))?;
 
-                    let call_site = Self::build(builder, "call", &VarRef(0), |b, n| {
-                        b.build_call(func_value, &args, n)
-                    })?;
+                    let call_site =
+                        Self::build(builder, "call", |b, n| b.build_call(func_value, &args, n))?;
                     let res = call_site.as_any_value_enum();
                     match func.outputs().len() {
                         0 => { /* do nothing */ }
@@ -580,11 +572,11 @@ impl SignalProcessorContext {
                         _ => todo!(),
                     }
                 }
-                Output(idx, vref) => {
+                Output(idx, op) => {
                     let pp_output = module
                         .get_global("wisp_global_output")
                         .expect("Invalid global name");
-                    let p_output = Self::build(builder, "load_output", vref, |b, n| {
+                    let p_output = Self::build(builder, "load_output", |b, n| {
                         b.build_load(
                             self.context.f32_type().ptr_type(AddressSpace::default()),
                             pp_output.as_pointer_value(),
@@ -597,8 +589,8 @@ impl SignalProcessorContext {
                             &[self.context.i32_type().const_int(idx.0 as u64, false)],
                         )
                     };
-                    let value = Self::get_var(refs, vref)?.into_float_value();
-                    Self::build(builder, "output", vref, |b, _| b.build_store(output, value))?;
+                    let value = self.resolve_operand(runtime, refs, op)?;
+                    Self::build(builder, "output", |b, _| b.build_store(output, value))?;
                 }
                 Debug(vref) => {
                     // NOTE: This duplicates Call()
@@ -614,9 +606,7 @@ impl SignalProcessorContext {
                         SignalProcessCreationError::UnknownFunction("wisp_debug".into())
                     })?;
 
-                    Self::build(builder, "call", &VarRef(0), |b, n| {
-                        b.build_call(func_value, &args, n)
-                    })?;
+                    Self::build(builder, "call", |b, n| b.build_call(func_value, &args, n))?;
                 }
             }
         }
@@ -666,13 +656,12 @@ impl SignalProcessorContext {
     fn build<'ctx, F, R>(
         builder: &Builder<'ctx>,
         name: &str,
-        vref: &VarRef,
         func: F,
     ) -> Result<R, SignalProcessCreationError>
     where
         F: FnOnce(&Builder<'ctx>, &str) -> Result<R, BuilderError>,
     {
-        func(builder, &format!("tmp_{}_{}", name, vref.0))
+        func(builder, &format!("tmp_{}", name))
             .map_err(|_| SignalProcessCreationError::BuildInstruction(name.into()))
     }
 
@@ -680,21 +669,27 @@ impl SignalProcessorContext {
         &'ctx self,
         runtime: &Runtime,
         refs: &FunctionRefs<'ctx>,
-        op1: &Operand,
-    ) -> Result<FloatValue<'ctx>, SignalProcessCreationError> {
+        op: &Operand,
+    ) -> Result<BasicValueEnum<'ctx>, SignalProcessCreationError> {
         use crate::wisp::ir::Operand::*;
-        Ok(match op1 {
+        Ok(match op {
             Constant(c) => {
                 use crate::wisp::ir::Constant::*;
                 match c {
                     SampleRate => self
                         .context
                         .f32_type()
-                        .const_float(runtime.sample_rate() as f64),
+                        .const_float(runtime.sample_rate() as f64)
+                        .as_basic_value_enum(),
                 }
             }
-            Literal(v) => self.context.f32_type().const_float(*v as f64),
-            Var(vref) => Self::get_var(refs, vref)?.into_float_value(),
+            Literal(v) => self
+                .context
+                .f32_type()
+                .const_float(*v as f64)
+                .as_basic_value_enum(),
+            Var(vref) => Self::get_var(refs, vref)?,
+            Arg(idx) => Self::get_argument(refs.function, *idx)?,
         })
     }
 }

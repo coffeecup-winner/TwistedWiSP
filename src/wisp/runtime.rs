@@ -1,8 +1,10 @@
 use std::collections::{hash_map, HashMap};
 
+use crate::wisp::ir::Operand;
+
 use super::{
     function::{DefaultInputValue, Function, FunctionInput},
-    ir::{FunctionInputIndex, Instruction, OutputIndex, VarRef},
+    ir::{Instruction, OutputIndex},
 };
 
 #[derive(Debug, Default)]
@@ -32,11 +34,7 @@ impl Runtime {
         ]);
         let mut instructions = vec![];
         for i in 0..runtime.num_outputs {
-            instructions.push(Instruction::LoadFunctionInput(
-                VarRef(i),
-                FunctionInputIndex(i),
-            ));
-            instructions.push(Instruction::Output(OutputIndex(i), VarRef(i)));
+            instructions.push(Instruction::Output(OutputIndex(i), Operand::Arg(i)));
         }
         let out = Function::new("out".into(), out_inputs, vec![], instructions);
         runtime.register_function(out);
