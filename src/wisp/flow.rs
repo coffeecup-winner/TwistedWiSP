@@ -11,7 +11,7 @@ use petgraph::{
 };
 
 use super::{
-    ir::{Instruction, Operand, VarRef},
+    ir::{CallId, Instruction, Operand, VarRef},
     runtime::Runtime,
 };
 
@@ -114,6 +114,7 @@ impl Flow {
                 output_vrefs.insert((n, idx as u32), vref);
             }
             instructions.push(Instruction::Call(
+                CallId(n.index() as u32),
                 self.graph.node_weight(n).unwrap().clone(),
                 inputs,
                 outputs,

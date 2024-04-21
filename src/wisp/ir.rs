@@ -50,6 +50,9 @@ pub enum ComparisonOpType {
     GreaterOrEqual,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct CallId(pub u32);
+
 #[derive(Debug, Clone)]
 pub enum Instruction {
     LoadPrev(VarRef),
@@ -69,7 +72,7 @@ pub enum Instruction {
 
     Conditional(VarRef, Vec<Instruction>, Vec<Instruction>),
 
-    Call(String, Vec<Option<Operand>>, Vec<VarRef>),
+    Call(CallId, String, Vec<Option<Operand>>, Vec<VarRef>),
 
     Output(OutputIndex, Operand),
     Debug(VarRef),

@@ -514,7 +514,7 @@ impl SignalProcessorContext {
                     current_block = next_block;
                     builder.position_at_end(current_block);
                 }
-                Call(name, in_vrefs, out_vrefs) => {
+                Call(_id, name, in_vrefs, out_vrefs) => {
                     let func = Self::get_function(runtime, name)?;
                     if in_vrefs.len() != func.inputs().len() {
                         return Err(SignalProcessCreationError::InvalidNumberOfInputs(
