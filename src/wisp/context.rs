@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::{Builder, BuilderError};
 use inkwell::context::Context;
-use inkwell::execution_engine::JitFunction;
+use inkwell::execution_engine::ExecutionEngine;
 use inkwell::module::Module;
 use inkwell::passes::PassBuilderOptions;
 use inkwell::targets::{CodeModel, RelocMode, Target, TargetMachine};
@@ -24,21 +24,24 @@ struct Globals {
     p_prev: *const f32,
     p_next: *mut f32,
 }
+unsafe impl Send for Globals {}
+unsafe impl Sync for Globals {}
+
 type ProcessFn = unsafe extern "C" fn(buf_prev: *const f32, buf_next: *mut f32, output: *mut f32);
 
-pub struct SignalProcessor<'ctx> {
+pub struct SignalProcessor {
     _globals: Box<Globals>,
-    function: JitFunction<'ctx, ProcessFn>,
+    function: ProcessFn,
     num_outputs: usize,
     values0: Vec<f32>,
     values1: Vec<f32>,
     values_choice_flag: bool,
 }
 
-impl<'ctx> SignalProcessor<'ctx> {
+impl SignalProcessor {
     fn new(
         globals: Box<Globals>,
-        function: JitFunction<'ctx, ProcessFn>,
+        function: ProcessFn,
         num_outputs: usize,
         num_signals: usize,
     ) -> Self {
@@ -68,8 +71,7 @@ impl<'ctx> SignalProcessor<'ctx> {
             (&self.values1, &mut self.values0)
         };
         unsafe {
-            self.function
-                .call(prev.as_ptr(), next.as_mut_ptr(), output.as_mut_ptr());
+            (self.function)(prev.as_ptr(), next.as_mut_ptr(), output.as_mut_ptr());
         }
     }
 
@@ -145,11 +147,11 @@ impl SignalProcessorContext {
         }
     }
 
-    pub fn create_signal_processor(
-        &mut self,
+    pub fn create_signal_processor<'ctx>(
+        &'ctx mut self,
         flow: &Flow,
         runtime: &Runtime,
-    ) -> Result<SignalProcessor, SignalProcessCreationError> {
+    ) -> Result<(SignalProcessor, ExecutionEngine<'ctx>), SignalProcessCreationError> {
         self.id_gen += 1;
 
         let module = self.context.create_module(&format!("wisp_{}", self.id_gen));
@@ -259,11 +261,14 @@ impl SignalProcessorContext {
 
         let function = unsafe { execution_engine.get_function("wisp_process") }
             .map_err(|_| SignalProcessCreationError::LoadFunction)?;
-        Ok(SignalProcessor::new(
-            globals,
-            function,
-            runtime.num_outputs() as usize,
-            1,
+        Ok((
+            SignalProcessor::new(
+                globals,
+                unsafe { function.into_raw() },
+                runtime.num_outputs() as usize,
+                1,
+            ),
+            execution_engine,
         ))
     }
 
@@ -428,8 +433,8 @@ impl SignalProcessorContext {
                     *out = Some(value);
                 }
                 BinaryOp(vref, type_, op1, op2) => {
-                    let left = self.resolve_operand(refs, op1)?;
-                    let right = self.resolve_operand(refs, op2)?;
+                    let left = self.resolve_operand(runtime, refs, op1)?;
+                    let right = self.resolve_operand(runtime, refs, op2)?;
                     use crate::wisp::ir::BinaryOpType::*;
                     let res = match type_ {
                         Add => Self::build(builder, "binop_add", vref, |b, n| {
@@ -448,8 +453,8 @@ impl SignalProcessorContext {
                     refs.vars.insert(*vref, res.as_basic_value_enum());
                 }
                 ComparisonOp(vref, type_, op1, op2) => {
-                    let left = self.resolve_operand(refs, op1)?;
-                    let right = self.resolve_operand(refs, op2)?;
+                    let left = self.resolve_operand(runtime, refs, op1)?;
+                    let right = self.resolve_operand(runtime, refs, op2)?;
                     use crate::wisp::ir::ComparisonOpType::*;
                     let res = Self::build(builder, "compop_eq", vref, |b, n| {
                         b.build_float_compare(
@@ -650,12 +655,22 @@ impl SignalProcessorContext {
 
     fn resolve_operand<'ctx>(
         &'ctx self,
+        runtime: &Runtime,
         refs: &FunctionRefs<'ctx>,
         op1: &Operand,
     ) -> Result<FloatValue<'ctx>, SignalProcessCreationError> {
         use crate::wisp::ir::Operand::*;
         Ok(match op1 {
-            Constant(v) => self.context.f32_type().const_float(*v as f64),
+            Constant(c) => {
+                use crate::wisp::ir::Constant::*;
+                match c {
+                    SampleRate => self
+                        .context
+                        .f32_type()
+                        .const_float(runtime.sample_rate() as f64),
+                }
+            }
+            Literal(v) => self.context.f32_type().const_float(*v as f64),
             Var(vref) => Self::get_var(refs, vref)?.into_float_value(),
         })
     }

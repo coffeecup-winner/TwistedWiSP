@@ -24,8 +24,14 @@ pub struct OutputIndex(pub u32);
 
 #[derive(Debug, Clone, Copy)]
 pub enum Operand {
-    Constant(f32),
+    Constant(Constant),
+    Literal(f32),
     Var(VarRef),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Constant {
+    SampleRate,
 }
 
 #[derive(Debug, Clone, Copy)]

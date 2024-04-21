@@ -8,14 +8,16 @@ use super::{
 #[derive(Debug, Default)]
 pub struct Runtime {
     num_outputs: u32,
+    sample_rate: u32,
     functions: HashMap<String, Function>,
 }
 
 impl Runtime {
-    pub fn init(num_outputs: u32) -> Self {
+    pub fn init(num_outputs: u32, sample_rate: u32) -> Self {
         let mut runtime = Runtime {
             num_outputs,
-            ..Runtime::default()
+            sample_rate,
+            ..Default::default()
         };
         Self::register_builtin_functions(&mut runtime);
         runtime
@@ -36,6 +38,10 @@ impl Runtime {
 
     pub fn num_outputs(&self) -> u32 {
         self.num_outputs
+    }
+
+    pub fn sample_rate(&self) -> u32 {
+        self.sample_rate
     }
 
     pub fn register_function(&mut self, func: Function) {
