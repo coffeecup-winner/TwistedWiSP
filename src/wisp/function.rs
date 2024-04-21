@@ -1,7 +1,23 @@
 use super::ir::Instruction;
 
+#[derive(Debug, Default, Clone, Copy)]
+pub struct FunctionInput {
+    pub fallback: Option<DefaultInputValue>,
+}
+
 #[derive(Debug, Clone, Copy)]
-pub struct FunctionInput;
+pub enum DefaultInputValue {
+    // Default constant value
+    Value(f32),
+    // Normalled to the previous argument
+    Normal,
+}
+
+impl FunctionInput {
+    pub fn new(fallback: Option<DefaultInputValue>) -> Self {
+        FunctionInput { fallback }
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct FunctionOutput;

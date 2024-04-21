@@ -72,7 +72,7 @@ pub enum Instruction {
 
     Conditional(VarRef, Vec<Instruction>, Vec<Instruction>),
 
-    Call(String, Vec<VarRef>, Vec<VarRef>),
+    Call(String, Vec<Option<VarRef>>, Vec<VarRef>),
 
     Output(OutputIndex, VarRef),
     Debug(VarRef),

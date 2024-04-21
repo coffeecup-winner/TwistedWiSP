@@ -14,6 +14,8 @@ use inkwell::values::{
 use inkwell::{AddressSpace, OptimizationLevel};
 use thiserror::Error;
 
+use crate::wisp::function::DefaultInputValue;
+
 use super::flow::Flow;
 use super::function::{Function, FunctionInput};
 use super::ir::{FunctionInputIndex, GlobalRef, Instruction, LocalRef, Operand, VarRef};
@@ -107,6 +109,9 @@ pub enum SignalProcessCreationError {
 
     #[error("Invalid number of arguments for function {0}: expected {1}, found {2}")]
     InvalidNumberOfInputs(String, u32, u32),
+
+    #[error("Required input {1} for function {0} was not initialized")]
+    UninitializedInput(String, u32),
 
     #[error("Invalid number of outputs for function {0}: expected at most {1}, found {2}")]
     InvalidNumberOfOutputs(String, u32, u32),
@@ -212,7 +217,7 @@ impl SignalProcessorContext {
         process_func_instructions.extend(flow.get_compiled_flow(runtime).iter().cloned());
         let func = Function::new(
             "wisp_process".into(),
-            vec![FunctionInput, FunctionInput, FunctionInput],
+            vec![FunctionInput::default(); 3],
             vec![],
             process_func_instructions,
         );
@@ -532,13 +537,31 @@ impl SignalProcessorContext {
                             out_vrefs.len() as u32,
                         ));
                     }
-                    let args = in_vrefs
-                        .iter()
-                        .map(|vref| Self::get_var(refs, vref))
-                        .collect::<Result<Vec<_>, SignalProcessCreationError>>()?
-                        .into_iter()
-                        .map(|v| BasicMetadataValueEnum::FloatValue(v.into_float_value()))
-                        .collect::<Vec<_>>();
+                    let mut args: Vec<BasicMetadataValueEnum> = vec![];
+                    for (idx, input) in in_vrefs.iter().enumerate() {
+                        let value = match input {
+                            Some(vref) => Self::get_var(refs, vref)?,
+                            None => match func.inputs()[idx].fallback {
+                                Some(fallback) => match fallback {
+                                    DefaultInputValue::Normal => {
+                                        args[idx - 1].into_float_value().as_basic_value_enum()
+                                    }
+                                    DefaultInputValue::Value(v) => self
+                                        .context
+                                        .f32_type()
+                                        .const_float(v as f64)
+                                        .as_basic_value_enum(),
+                                },
+                                None => {
+                                    return Err(SignalProcessCreationError::UninitializedInput(
+                                        name.into(),
+                                        idx as u32,
+                                    ))
+                                }
+                            },
+                        };
+                        args.push(BasicMetadataValueEnum::FloatValue(value.into_float_value()));
+                    }
 
                     let func_value = module
                         .get_function(name)

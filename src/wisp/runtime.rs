@@ -1,7 +1,7 @@
 use std::collections::{hash_map, HashMap};
 
 use super::{
-    function::{Function, FunctionInput},
+    function::{DefaultInputValue, Function, FunctionInput},
     ir::{FunctionInputIndex, Instruction, OutputIndex, VarRef},
 };
 
@@ -24,15 +24,21 @@ impl Runtime {
     }
 
     fn register_builtin_functions(runtime: &mut Runtime) {
-        let out = Function::new(
-            "out".into(),
-            vec![FunctionInput; runtime.num_outputs as usize],
-            vec![],
-            vec![
-                Instruction::LoadFunctionInput(VarRef(0), FunctionInputIndex(0)),
-                Instruction::Output(OutputIndex(0), VarRef(0)),
-            ],
-        );
+        assert!(runtime.num_outputs > 0, "Invalid number of output channels");
+        let mut out_inputs = vec![FunctionInput::new(Some(DefaultInputValue::Value(0.0)))];
+        out_inputs.extend(vec![
+            FunctionInput::new(Some(DefaultInputValue::Normal));
+            runtime.num_outputs as usize - 1
+        ]);
+        let mut instructions = vec![];
+        for i in 0..runtime.num_outputs {
+            instructions.push(Instruction::LoadFunctionInput(
+                VarRef(i),
+                FunctionInputIndex(i),
+            ));
+            instructions.push(Instruction::Output(OutputIndex(i), VarRef(i)));
+        }
+        let out = Function::new("out".into(), out_inputs, vec![], instructions);
         runtime.register_function(out);
     }
 

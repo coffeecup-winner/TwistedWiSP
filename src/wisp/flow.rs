@@ -93,12 +93,17 @@ impl Flow {
                 .get_function(self.graph.node_weight(n).unwrap())
                 .expect("Failed to find function");
             let mut inputs = vec![];
-            for _ in func.inputs().iter() {
+            for (idx, _) in func.inputs().iter().enumerate() {
                 for e in self.graph.edges_directed(n, Direction::Incoming) {
-                    let vref = *output_vrefs
-                        .get(&(e.source(), e.weight().output_index))
-                        .expect("Failed to find incoming signal's var ref");
-                    inputs.push(vref);
+                    if e.weight().input_index == idx as u32 {
+                        let vref = *output_vrefs
+                            .get(&(e.source(), e.weight().output_index))
+                            .expect("Failed to find incoming signal's var ref");
+                        inputs.push(Some(vref));
+                    }
+                }
+                if inputs.len() < idx + 1 {
+                    inputs.push(None);
                 }
             }
             let mut outputs = vec![];
