@@ -3,8 +3,8 @@ use std::collections::{hash_map, HashMap};
 use crate::wisp::ir::Operand;
 
 use super::{
-    function::{DefaultInputValue, Function, FunctionInput},
-    ir::{Instruction, OutputIndex},
+    function::{DefaultInputValue, Function, FunctionDataItem, FunctionInput, FunctionOutput},
+    ir::{DataRef, FunctionOutputIndex, Instruction, OutputIndex, VarRef},
 };
 
 #[derive(Debug, Default)]
@@ -26,6 +26,11 @@ impl Runtime {
     }
 
     fn register_builtin_functions(runtime: &mut Runtime) {
+        runtime.register_function(Self::build_function_out(runtime));
+        runtime.register_function(Self::build_function_lag());
+    }
+
+    fn build_function_out(runtime: &Runtime) -> Function {
         assert!(runtime.num_outputs > 0, "Invalid number of output channels");
         let mut out_inputs = vec![FunctionInput::new(Some(DefaultInputValue::Value(0.0)))];
         out_inputs.extend(vec![
@@ -36,8 +41,22 @@ impl Runtime {
         for i in 0..runtime.num_outputs {
             instructions.push(Instruction::Output(OutputIndex(i), Operand::Arg(i)));
         }
-        let out = Function::new("out".into(), out_inputs, vec![], instructions);
-        runtime.register_function(out);
+        Function::new("out".into(), out_inputs, vec![], vec![], instructions, None)
+    }
+
+    fn build_function_lag() -> Function {
+        Function::new(
+            "lag".into(),
+            vec![FunctionInput::default()],
+            vec![FunctionOutput],
+            vec![FunctionDataItem::new("prev".into(), 0.0)],
+            vec![
+                Instruction::LoadData(VarRef(0), DataRef(0)),
+                Instruction::StoreFunctionOutput(FunctionOutputIndex(0), Operand::Arg(0)),
+                Instruction::StoreData(DataRef(0), Operand::Arg(0)),
+            ],
+            Some(DataRef(0)),
+        )
     }
 
     pub fn num_outputs(&self) -> u32 {

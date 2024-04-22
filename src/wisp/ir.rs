@@ -8,10 +8,12 @@ pub struct LocalRef(pub u32);
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum GlobalRef {
+    Data,
     Output,
-    Prev,
-    Next,
 }
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct DataRef(pub u32);
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct FunctionOutputIndex(pub u32);
@@ -55,9 +57,6 @@ pub struct CallId(pub u32);
 
 #[derive(Debug, Clone)]
 pub enum Instruction {
-    LoadPrev(VarRef),
-    StoreNext(Operand),
-
     AllocLocal(LocalRef),
     LoadLocal(VarRef, LocalRef),
     StoreLocal(LocalRef, Operand),
@@ -65,6 +64,10 @@ pub enum Instruction {
     LoadGlobal(VarRef, GlobalRef),
     StoreGlobal(GlobalRef, Operand),
 
+    LoadData(VarRef, DataRef),
+    StoreData(DataRef, Operand),
+
+    LoadLastValue(CallId, String, DataRef, VarRef),
     StoreFunctionOutput(FunctionOutputIndex, Operand),
 
     BinaryOp(VarRef, BinaryOpType, Operand, Operand),

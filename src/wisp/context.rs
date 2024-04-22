@@ -21,22 +21,19 @@ use super::ir::{GlobalRef, Instruction, LocalRef, Operand, VarRef};
 use super::runtime::Runtime;
 
 struct Globals {
+    p_data: *mut f32,
     p_output: *mut f32,
-    p_prev: *const f32,
-    p_next: *mut f32,
 }
 unsafe impl Send for Globals {}
 unsafe impl Sync for Globals {}
 
-type ProcessFn = unsafe extern "C" fn(buf_prev: *const f32, buf_next: *mut f32, output: *mut f32);
+type ProcessFn = unsafe extern "C" fn(data: *mut f32, output: *mut f32);
 
 pub struct SignalProcessor {
     _globals: Box<Globals>,
     function: ProcessFn,
     num_outputs: usize,
-    values0: Vec<f32>,
-    values1: Vec<f32>,
-    values_choice_flag: bool,
+    data: Vec<f32>,
 }
 
 impl SignalProcessor {
@@ -44,15 +41,13 @@ impl SignalProcessor {
         globals: Box<Globals>,
         function: ProcessFn,
         num_outputs: usize,
-        num_signals: usize,
+        data_length: usize,
     ) -> Self {
         SignalProcessor {
             _globals: globals,
             function,
             num_outputs,
-            values0: vec![0.0; num_signals],
-            values1: vec![0.0; num_signals],
-            values_choice_flag: false,
+            data: vec![0.0; data_length],
         }
     }
 
@@ -65,24 +60,14 @@ impl SignalProcessor {
     }
 
     pub fn process_one(&mut self, output: &mut [f32]) {
-        self.values_choice_flag = !self.values_choice_flag;
-        let (prev, next) = if self.values_choice_flag {
-            (&self.values0, &mut self.values1)
-        } else {
-            (&self.values1, &mut self.values0)
-        };
         unsafe {
-            (self.function)(prev.as_ptr(), next.as_mut_ptr(), output.as_mut_ptr());
+            (self.function)(self.data.as_mut_ptr(), output.as_mut_ptr());
         }
     }
 
     #[allow(dead_code)]
-    pub fn values(&self) -> &[f32] {
-        if self.values_choice_flag {
-            &self.values1
-        } else {
-            &self.values0
-        }
+    pub fn data(&self) -> &[f32] {
+        &self.data
     }
 }
 
@@ -116,7 +101,7 @@ pub enum SignalProcessCreationError {
     InvalidNumberOfOutputs(String, u32, u32),
 
     #[error("Output {1} for function {0} was not initialized")]
-    UninitialzedOutput(String, u32),
+    UninitializedOutput(String, u32),
 
     #[error("Logical error: {0}")]
     CustomLogicalError(String),
@@ -169,9 +154,8 @@ impl SignalProcessorContext {
 
         let f32_type = self.context.f32_type();
         let pf32_type = f32_type.ptr_type(AddressSpace::default());
+        let g_data = module.add_global(pf32_type, None, "wisp_global_data");
         let g_output = module.add_global(pf32_type, None, "wisp_global_output");
-        let g_prev = module.add_global(pf32_type, None, "wisp_global_prev");
-        let g_next = module.add_global(pf32_type, None, "wisp_global_next");
         let g_wisp_debug = module.add_function(
             "wisp_debug",
             self.context
@@ -180,13 +164,11 @@ impl SignalProcessorContext {
             None,
         );
         let mut globals = Box::new(Globals {
+            p_data: std::ptr::null_mut(),
             p_output: std::ptr::null_mut(),
-            p_prev: std::ptr::null(),
-            p_next: std::ptr::null_mut(),
         });
+        execution_engine.add_global_mapping(&g_data, &mut globals.p_data as *mut _ as usize);
         execution_engine.add_global_mapping(&g_output, &mut globals.p_output as *mut _ as usize);
-        execution_engine.add_global_mapping(&g_prev, &mut globals.p_prev as *mut _ as usize);
-        execution_engine.add_global_mapping(&g_next, &mut globals.p_next as *mut _ as usize);
         extern "C" fn wisp_debug(v: f32) {
             eprintln!("Debug: {}", v);
         }
@@ -195,7 +177,10 @@ impl SignalProcessorContext {
         for (name, func) in runtime.functions_iter() {
             // >1 returns is currently not supported
             assert!(func.outputs().len() < 2);
-            let arg_types = vec![f32_type.into(); func.inputs().len()];
+            let mut arg_types = vec![f32_type.into(); func.inputs().len()];
+            if !func.data().is_empty() {
+                arg_types.push(f32_type.ptr_type(AddressSpace::default()).into());
+            }
             let fn_type = if func.outputs().len() == 1 {
                 f32_type.fn_type(&arg_types, false)
             } else {
@@ -204,21 +189,23 @@ impl SignalProcessorContext {
             module.add_function(name, fn_type, None);
         }
 
+        let mut data_indices = HashMap::new();
         for (_, func) in runtime.functions_iter() {
-            self.build_function(&module, func, runtime, &builder)?;
+            self.build_function(&module, func, runtime, &builder, &mut data_indices)?;
         }
 
         let mut process_func_instructions = vec![
-            Instruction::StoreGlobal(GlobalRef::Prev, Operand::Arg(0)),
-            Instruction::StoreGlobal(GlobalRef::Next, Operand::Arg(1)),
-            Instruction::StoreGlobal(GlobalRef::Output, Operand::Arg(2)),
+            Instruction::StoreGlobal(GlobalRef::Data, Operand::Arg(0)),
+            Instruction::StoreGlobal(GlobalRef::Output, Operand::Arg(1)),
         ];
         process_func_instructions.extend(flow.get_compiled_flow(runtime).iter().cloned());
         let func = Function::new(
             "wisp_process".into(),
-            vec![FunctionInput::default(); 3],
+            vec![FunctionInput::default(); 2],
+            vec![],
             vec![],
             process_func_instructions,
+            None,
         );
 
         module.add_function(
@@ -229,7 +216,7 @@ impl SignalProcessorContext {
             None,
         );
 
-        self.build_function(&module, &func, runtime, &builder)?;
+        self.build_function(&module, &func, runtime, &builder, &mut data_indices)?;
 
         if cfg!(debug_assertions) {
             eprintln!("===== BEFORE =====");
@@ -270,7 +257,7 @@ impl SignalProcessorContext {
                 globals,
                 unsafe { function.into_raw() },
                 runtime.num_outputs() as usize,
-                1,
+                data_indices.len(),
             ),
             execution_engine,
         ))
@@ -282,6 +269,7 @@ impl SignalProcessorContext {
         func: &Function,
         runtime: &Runtime,
         builder: &'temp Builder<'ctx>,
+        data_indices: &'temp mut HashMap<String, u32>,
     ) -> Result<(), SignalProcessCreationError> {
         let function = module
             .get_function(func.name())
@@ -295,9 +283,10 @@ impl SignalProcessorContext {
             function,
             runtime,
             &mut refs,
+            data_indices,
         )?;
         if !refs.outputs.iter().all(|o| o.is_some()) {
-            return Err(SignalProcessCreationError::UninitialzedOutput(
+            return Err(SignalProcessCreationError::UninitializedOutput(
                 func.name().to_owned(),
                 refs.outputs
                     .iter()
@@ -333,6 +322,7 @@ impl SignalProcessorContext {
         function: FunctionValue<'ctx>,
         runtime: &Runtime,
         refs: &mut FunctionRefs<'ctx>,
+        data_indices: &'temp mut HashMap<String, u32>,
     ) -> Result<(BasicBlock<'ctx>, BasicBlock<'ctx>), SignalProcessCreationError> {
         let mut current_block = self.context.append_basic_block(function, "start");
         builder.position_at_end(current_block);
@@ -341,38 +331,6 @@ impl SignalProcessorContext {
         for insn in instructions {
             use super::ir::Instruction::*;
             match insn {
-                LoadPrev(vref) => {
-                    let pp_prev = module
-                        .get_global("wisp_global_prev")
-                        .expect("Invalid global value");
-                    let p_prev = Self::build(builder, "load_prev", |b, n| {
-                        b.build_load(
-                            self.context.f32_type().ptr_type(AddressSpace::default()),
-                            pp_prev.as_pointer_value(),
-                            n,
-                        )
-                    })?;
-                    let prev = Self::build(builder, "load_prev", |b, n| {
-                        b.build_load(self.context.f32_type(), p_prev.into_pointer_value(), n)
-                    })?;
-                    refs.vars.insert(*vref, prev);
-                }
-                StoreNext(op) => {
-                    let pp_next = module
-                        .get_global("wisp_global_next")
-                        .expect("Invalid global value");
-                    let p_next = Self::build(builder, "load_next", |b, n| {
-                        b.build_load(
-                            self.context.f32_type().ptr_type(AddressSpace::default()),
-                            pp_next.as_pointer_value(),
-                            n,
-                        )
-                    })?;
-                    let var = self.resolve_operand(runtime, refs, op)?;
-                    Self::build(builder, "store_next", |b, _| {
-                        b.build_store(p_next.into_pointer_value(), var)
-                    })?;
-                }
                 AllocLocal(lref) => {
                     let local = Self::build(builder, "alloc_local", |b, _| {
                         b.build_alloca(self.context.f32_type(), &format!("local_{}", lref.0))
@@ -393,9 +351,8 @@ impl SignalProcessorContext {
                 }
                 LoadGlobal(vref, gref) => {
                     let global = match gref {
+                        GlobalRef::Data => module.get_global("wisp_global_data"),
                         GlobalRef::Output => module.get_global("wisp_global_output"),
-                        GlobalRef::Prev => module.get_global("wisp_global_prev"),
-                        GlobalRef::Next => module.get_global("wisp_global_next"),
                     }
                     .expect("Invalid global name");
                     let value = Self::build(builder, "load_global", |b, n| {
@@ -409,14 +366,39 @@ impl SignalProcessorContext {
                 }
                 StoreGlobal(gref, op) => {
                     let global = match gref {
+                        GlobalRef::Data => module.get_global("wisp_global_data"),
                         GlobalRef::Output => module.get_global("wisp_global_output"),
-                        GlobalRef::Prev => module.get_global("wisp_global_prev"),
-                        GlobalRef::Next => module.get_global("wisp_global_next"),
                     }
                     .expect("Invalid global name");
                     let value = self.resolve_operand(runtime, refs, op)?;
                     Self::build(builder, "store_global", |b, _| {
                         b.build_store(global.as_pointer_value(), value)
+                    })?;
+                }
+                LoadData(vref, dref) => {
+                    let p_data = Self::get_argument(function, func.inputs().len() as u32)?;
+                    let p_data_item = unsafe {
+                        p_data.into_pointer_value().const_gep(
+                            self.context.f32_type(),
+                            &[self.context.i32_type().const_int(dref.0 as u64, false)],
+                        )
+                    };
+                    let data_item = Self::build(builder, "load_data_item", |b, n| {
+                        b.build_load(self.context.f32_type(), p_data_item, n)
+                    })?;
+                    refs.vars.insert(*vref, data_item);
+                }
+                StoreData(dref, op) => {
+                    let p_data = Self::get_argument(function, func.inputs().len() as u32)?;
+                    let p_data_item = unsafe {
+                        p_data.into_pointer_value().const_gep(
+                            self.context.f32_type(),
+                            &[self.context.i32_type().const_int(dref.0 as u64, false)],
+                        )
+                    };
+                    let value = self.resolve_operand(runtime, refs, op)?;
+                    Self::build(builder, "store_data_item", |b, _| {
+                        b.build_store(p_data_item, value)
                     })?;
                 }
                 StoreFunctionOutput(idx, op) => {
@@ -482,6 +464,7 @@ impl SignalProcessorContext {
                         function,
                         runtime,
                         refs,
+                        data_indices,
                     )?;
                     let (else_block_first, else_block_last) = self.translate_instructions(
                         else_branch,
@@ -491,6 +474,7 @@ impl SignalProcessorContext {
                         function,
                         runtime,
                         refs,
+                        data_indices,
                     )?;
 
                     // Tie blocks together
@@ -556,6 +540,35 @@ impl SignalProcessorContext {
                         args.push(BasicMetadataValueEnum::FloatValue(value.into_float_value()));
                     }
 
+                    if !func.data().is_empty() {
+                        // TODO: Calculate based on call chain
+                        let data_path = "data";
+                        let idx = if let Some(idx) = data_indices.get(data_path) {
+                            *idx
+                        } else {
+                            let idx = data_indices.len() as u32;
+                            data_indices.insert(data_path.into(), idx);
+                            idx
+                        };
+                        let pp_global_data = module
+                            .get_global("wisp_global_data")
+                            .expect("Invalid global name");
+                        let p_global_data = Self::build(builder, "load_global_data", |b, n| {
+                            b.build_load(
+                                self.context.f32_type().ptr_type(AddressSpace::default()),
+                                pp_global_data.as_pointer_value(),
+                                n,
+                            )
+                        })?;
+                        let p_func_data = unsafe {
+                            p_global_data.into_pointer_value().const_gep(
+                                self.context.f32_type(),
+                                &[self.context.i32_type().const_int(idx as u64, false)],
+                            )
+                        };
+                        args.push(BasicMetadataValueEnum::PointerValue(p_func_data));
+                    }
+
                     let func_value = module
                         .get_function(name)
                         .ok_or_else(|| SignalProcessCreationError::UnknownFunction(name.clone()))?;
@@ -571,6 +584,45 @@ impl SignalProcessorContext {
                         }
                         _ => todo!(),
                     }
+                }
+                LoadLastValue(_id, _name, dref, vref) => {
+                    // TODO: Remove duplication with Call() and LoadData()
+                    // TODO: Calculate based on call chain
+                    let data_path = "data";
+                    let idx = if let Some(idx) = data_indices.get(data_path) {
+                        *idx
+                    } else {
+                        let idx = data_indices.len() as u32;
+                        data_indices.insert(data_path.into(), idx);
+                        idx
+                    };
+                    let pp_global_data = module
+                        .get_global("wisp_global_data")
+                        .expect("Invalid global name");
+                    let p_global_data = Self::build(builder, "load_global_data", |b, n| {
+                        b.build_load(
+                            self.context.f32_type().ptr_type(AddressSpace::default()),
+                            pp_global_data.as_pointer_value(),
+                            n,
+                        )
+                    })?;
+                    let p_func_data = unsafe {
+                        p_global_data.into_pointer_value().const_gep(
+                            self.context.f32_type(),
+                            &[self.context.i32_type().const_int(idx as u64, false)],
+                        )
+                    };
+                    // LoadData
+                    let p_data_item = unsafe {
+                        p_func_data.const_gep(
+                            self.context.f32_type(),
+                            &[self.context.i32_type().const_int(dref.0 as u64, false)],
+                        )
+                    };
+                    let data_item = Self::build(builder, "load_data_item", |b, n| {
+                        b.build_load(self.context.f32_type(), p_data_item, n)
+                    })?;
+                    refs.vars.insert(*vref, data_item);
                 }
                 Output(idx, op) => {
                     let pp_output = module

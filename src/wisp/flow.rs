@@ -6,7 +6,7 @@ use std::{
 use petgraph::{
     graph::NodeIndex,
     stable_graph::StableGraph,
-    visit::{DfsPostOrder, EdgeRef, Reversed, Walker},
+    visit::{EdgeFiltered, EdgeRef, Topo, Walker},
     Directed, Direction,
 };
 
@@ -69,33 +69,48 @@ impl Flow {
     }
 
     fn compile(&self, runtime: &Runtime) -> Vec<Instruction> {
-        // This function walks the graph from `out` to the nodes leading into it
-        // in post order, so all producing nodes are visited before all consuming
-        // nodes. This allows compiling the signal flow as a series of function calls.
-        let out_idx = self
-            .graph
-            .node_indices()
-            .find(|n| self.graph.node_weight(*n).unwrap() == "out");
-        if out_idx.is_none() {
-            return vec![];
-        }
-        let out_idx = out_idx.unwrap();
+        // This function walks the graph in topological order, so all producing nodes
+        // are visited before all consuming nodes. To break graph cycles, lag outputs
+        // are ignored and lagged values are used instead. Since topological sort
+        // visits all nodes, the lag nodes are visited and updated later.
+        // This allows compiling the signal flow as a series of function calls
+        // (and lag value fetches).
 
-        let rev_graph = Reversed(&self.graph);
-        let dfs_post_order = DfsPostOrder::new(&rev_graph, out_idx);
-
-        let mut instructions = vec![];
+        let filtered_graph = EdgeFiltered::from_fn(&self.graph, |e| {
+            runtime
+                .get_function(self.graph.node_weight(e.source()).unwrap())
+                .unwrap()
+                .lag_value()
+                .is_none()
+        });
 
         let mut vref_id = 0;
         let mut output_vrefs = HashMap::new();
-        for n in dfs_post_order.iter(&rev_graph) {
+        let mut instructions = vec![];
+
+        let topo = Topo::new(&filtered_graph);
+        for n in topo.iter(&filtered_graph) {
             let func = runtime
                 .get_function(self.graph.node_weight(n).unwrap())
                 .expect("Failed to find function");
+
             let mut inputs = vec![];
             for (idx, _) in func.inputs().iter().enumerate() {
                 for e in self.graph.edges_directed(n, Direction::Incoming) {
-                    if e.weight().input_index == idx as u32 {
+                    let source_func = runtime
+                        .get_function(self.graph.node_weight(e.source()).unwrap())
+                        .unwrap();
+                    if let Some(dref) = source_func.lag_value() {
+                        let vref = VarRef(vref_id);
+                        instructions.push(Instruction::LoadLastValue(
+                            CallId(n.index() as u32),
+                            func.name().into(),
+                            dref,
+                            vref,
+                        ));
+                        vref_id += 1;
+                        inputs.push(Some(Operand::Var(vref)));
+                    } else if e.weight().input_index == idx as u32 {
                         let vref = *output_vrefs
                             .get(&(e.source(), e.weight().output_index))
                             .expect("Failed to find incoming signal's var ref");

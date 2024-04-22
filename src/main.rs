@@ -10,7 +10,7 @@ use std::{
 
 use crate::wisp::{
     flow::Flow,
-    function::{Function, FunctionOutput},
+    function::{Function, FunctionInput, FunctionOutput},
     ir::{
         BinaryOpType, ComparisonOpType, FunctionOutputIndex, Instruction, LocalRef, Operand, VarRef,
     },
@@ -48,15 +48,15 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let func = Function::new(
         "test".into(),
-        vec![],
+        vec![FunctionInput::default()],
         vec![FunctionOutput],
+        vec![],
         vec![
-            Instruction::LoadPrev(VarRef(0)),
             Instruction::AllocLocal(LocalRef(0)),
             Instruction::BinaryOp(
                 VarRef(0),
                 BinaryOpType::Add,
-                Operand::Var(VarRef(0)),
+                Operand::Arg(0),
                 Operand::Literal(0.01),
             ),
             Instruction::StoreLocal(LocalRef(0), Operand::Var(VarRef(0))),
@@ -80,15 +80,18 @@ fn main() -> Result<(), Box<dyn Error>> {
                 vec![],
             ),
             Instruction::LoadLocal(VarRef(0), LocalRef(0)),
-            Instruction::StoreNext(Operand::Var(VarRef(0))),
             Instruction::StoreFunctionOutput(FunctionOutputIndex(0), Operand::Var(VarRef(0))),
         ],
+        None,
     );
 
     let mut flow = Flow::new();
     let idx_test = flow.add_function("test".into());
     let idx_out = flow.add_function("out".into());
+    let idx_lag = flow.add_function("lag".into());
     flow.connect(idx_test, 0, idx_out, 0);
+    flow.connect(idx_test, 0, idx_lag, 0);
+    flow.connect(idx_lag, 0, idx_test, 0);
 
     let mut runtime = Runtime::init(device.num_output_channels(), device.sample_rate());
     runtime.register_function(func);
