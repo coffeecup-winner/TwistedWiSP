@@ -108,20 +108,46 @@ pub enum SignalProcessCreationError {
 }
 
 #[derive(Debug)]
-struct FunctionRefs<'ctx> {
+struct FunctionContext<'ctx, 'temp> {
+    func: &'temp Function,
     function: FunctionValue<'ctx>,
     outputs: Vec<Option<BasicValueEnum<'ctx>>>,
     vars: HashMap<VarRef, BasicValueEnum<'ctx>>,
     locals: HashMap<LocalRef, PointerValue<'ctx>>,
 }
 
-impl<'ctx> FunctionRefs<'ctx> {
-    fn new(function: FunctionValue<'ctx>, num_outputs: usize) -> Self {
-        FunctionRefs {
+impl<'ctx, 'temp> FunctionContext<'ctx, 'temp> {
+    fn new(func: &'temp Function, function: FunctionValue<'ctx>, num_outputs: usize) -> Self {
+        FunctionContext {
+            func,
             function,
             outputs: vec![None; num_outputs],
             vars: HashMap::new(),
             locals: HashMap::new(),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct ModuleContext<'ctx, 'temp> {
+    runtime: &'temp Runtime,
+    module: &'temp Module<'ctx>,
+    builder: &'temp Builder<'ctx>,
+    data_indices: HashMap<String, u32>,
+}
+
+impl<'ctx, 'temp> ModuleContext<'ctx, 'temp> {
+    fn new(
+        runtime: &'temp Runtime,
+        module: &'temp Module<'ctx>,
+        builder: &'temp Builder<'ctx>,
+        data_indices: HashMap<String, u32>,
+    ) -> Self {
+        ModuleContext {
+            runtime,
+            module,
+            builder,
+            data_indices,
         }
     }
 }
@@ -189,9 +215,9 @@ impl SignalProcessorContext {
             module.add_function(name, fn_type, None);
         }
 
-        let mut data_indices = HashMap::new();
+        let mut mctx = ModuleContext::new(runtime, &module, &builder, HashMap::new());
         for (_, func) in runtime.functions_iter() {
-            self.build_function(&module, func, runtime, &builder, &mut data_indices)?;
+            self.build_function(&mut mctx, func)?;
         }
 
         let mut process_func_instructions = vec![
@@ -216,7 +242,7 @@ impl SignalProcessorContext {
             None,
         );
 
-        self.build_function(&module, &func, runtime, &builder, &mut data_indices)?;
+        self.build_function(&mut mctx, &func)?;
 
         if cfg!(debug_assertions) {
             eprintln!("===== BEFORE =====");
@@ -257,38 +283,27 @@ impl SignalProcessorContext {
                 globals,
                 unsafe { function.into_raw() },
                 runtime.num_outputs() as usize,
-                data_indices.len(),
+                mctx.data_indices.len(),
             ),
             execution_engine,
         ))
     }
 
-    fn build_function<'ctx, 'temp>(
+    fn build_function<'ctx>(
         &'ctx self,
-        module: &'temp Module<'ctx>,
+        mctx: &mut ModuleContext<'ctx, '_>,
         func: &Function,
-        runtime: &Runtime,
-        builder: &'temp Builder<'ctx>,
-        data_indices: &'temp mut HashMap<String, u32>,
     ) -> Result<(), SignalProcessCreationError> {
-        let function = module
+        let function = mctx
+            .module
             .get_function(func.name())
             .ok_or_else(|| SignalProcessCreationError::UnknownFunction(func.name().to_owned()))?;
-        let mut refs = FunctionRefs::new(function, func.outputs().len());
-        self.translate_instructions(
-            func.instructions(),
-            module,
-            builder,
-            func,
-            function,
-            runtime,
-            &mut refs,
-            data_indices,
-        )?;
-        if !refs.outputs.iter().all(|o| o.is_some()) {
+        let mut fctx = FunctionContext::new(func, function, func.outputs().len());
+        self.translate_instructions(mctx, &mut fctx, func.instructions())?;
+        if !fctx.outputs.iter().all(|o| o.is_some()) {
             return Err(SignalProcessCreationError::UninitializedOutput(
                 func.name().to_owned(),
-                refs.outputs
+                fctx.outputs
                     .iter()
                     .enumerate()
                     .find(|(_, o)| o.is_none())
@@ -298,13 +313,13 @@ impl SignalProcessorContext {
         }
         match func.outputs().len() {
             0 => {
-                builder
+                mctx.builder
                     .build_return(None)
                     .map_err(|_| SignalProcessCreationError::BuildInstruction("return".into()))?;
             }
             1 => {
-                builder
-                    .build_return(Some(&refs.outputs[0].expect("Invalid function output")))
+                mctx.builder
+                    .build_return(Some(&fctx.outputs[0].expect("Invalid function output")))
                     .map_err(|_| SignalProcessCreationError::BuildInstruction("return".into()))?;
             }
             _ => todo!(),
@@ -312,131 +327,137 @@ impl SignalProcessorContext {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn translate_instructions<'ctx, 'temp>(
+    fn translate_instructions<'ctx>(
         &'ctx self,
-        instructions: &'temp [Instruction],
-        module: &'temp Module<'ctx>,
-        builder: &'temp Builder<'ctx>,
-        func: &Function,
-        function: FunctionValue<'ctx>,
-        runtime: &Runtime,
-        refs: &mut FunctionRefs<'ctx>,
-        data_indices: &'temp mut HashMap<String, u32>,
+        mctx: &mut ModuleContext<'ctx, '_>,
+        fctx: &mut FunctionContext<'ctx, '_>,
+        instructions: &[Instruction],
     ) -> Result<(BasicBlock<'ctx>, BasicBlock<'ctx>), SignalProcessCreationError> {
-        let mut current_block = self.context.append_basic_block(function, "start");
-        builder.position_at_end(current_block);
+        let mut current_block = self.context.append_basic_block(fctx.function, "start");
+        mctx.builder.position_at_end(current_block);
         let start_block = current_block;
 
         for insn in instructions {
             use super::ir::Instruction::*;
             match insn {
                 AllocLocal(lref) => {
-                    let local = Self::build(builder, "alloc_local", |b, _| {
+                    let local = Self::build(mctx.builder, "alloc_local", |b, _| {
                         b.build_alloca(self.context.f32_type(), &format!("local_{}", lref.0))
                     })?;
-                    refs.locals.insert(*lref, local);
+                    fctx.locals.insert(*lref, local);
                 }
                 LoadLocal(vref, lref) => {
-                    let local = Self::get_local(refs, lref)?;
-                    let value = Self::build(builder, "load_local", |b, n| {
+                    let local = Self::get_local(fctx, lref)?;
+                    let value = Self::build(mctx.builder, "load_local", |b, n| {
                         b.build_load(self.context.f32_type(), local, n)
                     })?;
-                    refs.vars.insert(*vref, value);
+                    fctx.vars.insert(*vref, value);
                 }
                 StoreLocal(lref, op) => {
-                    let local = Self::get_local(refs, lref)?;
-                    let value = self.resolve_operand(runtime, refs, op)?;
-                    Self::build(builder, "store_local", |b, _| b.build_store(local, value))?;
+                    let local = Self::get_local(fctx, lref)?;
+                    let value = self.resolve_operand(mctx.runtime, fctx, op)?;
+                    Self::build(mctx.builder, "store_local", |b, _| {
+                        b.build_store(local, value)
+                    })?;
                 }
                 LoadGlobal(vref, gref) => {
                     let global = match gref {
-                        GlobalRef::Data => module.get_global("wisp_global_data"),
-                        GlobalRef::Output => module.get_global("wisp_global_output"),
+                        GlobalRef::Data => mctx.module.get_global("wisp_global_data"),
+                        GlobalRef::Output => mctx.module.get_global("wisp_global_output"),
                     }
                     .expect("Invalid global name");
-                    let value = Self::build(builder, "load_global", |b, n| {
+                    let value = Self::build(mctx.builder, "load_global", |b, n| {
                         b.build_load(
                             self.context.f32_type().ptr_type(AddressSpace::default()),
                             global.as_pointer_value(),
                             n,
                         )
                     })?;
-                    refs.vars.insert(*vref, value);
+                    fctx.vars.insert(*vref, value);
                 }
                 StoreGlobal(gref, op) => {
                     let global = match gref {
-                        GlobalRef::Data => module.get_global("wisp_global_data"),
-                        GlobalRef::Output => module.get_global("wisp_global_output"),
+                        GlobalRef::Data => mctx.module.get_global("wisp_global_data"),
+                        GlobalRef::Output => mctx.module.get_global("wisp_global_output"),
                     }
                     .expect("Invalid global name");
-                    let value = self.resolve_operand(runtime, refs, op)?;
-                    Self::build(builder, "store_global", |b, _| {
+                    let value = self.resolve_operand(mctx.runtime, fctx, op)?;
+                    Self::build(mctx.builder, "store_global", |b, _| {
                         b.build_store(global.as_pointer_value(), value)
                     })?;
                 }
                 LoadData(vref, dref) => {
-                    let p_data = Self::get_argument(function, func.inputs().len() as u32)?;
+                    let p_data =
+                        Self::get_argument(fctx.function, fctx.func.inputs().len() as u32)?;
                     let p_data_item = unsafe {
                         p_data.into_pointer_value().const_gep(
                             self.context.f32_type(),
                             &[self.context.i32_type().const_int(dref.0 as u64, false)],
                         )
                     };
-                    let data_item = Self::build(builder, "load_data_item", |b, n| {
+                    let data_item = Self::build(mctx.builder, "load_data_item", |b, n| {
                         b.build_load(self.context.f32_type(), p_data_item, n)
                     })?;
-                    refs.vars.insert(*vref, data_item);
+                    fctx.vars.insert(*vref, data_item);
                 }
                 StoreData(dref, op) => {
-                    let p_data = Self::get_argument(function, func.inputs().len() as u32)?;
+                    let p_data =
+                        Self::get_argument(fctx.function, fctx.func.inputs().len() as u32)?;
                     let p_data_item = unsafe {
                         p_data.into_pointer_value().const_gep(
                             self.context.f32_type(),
                             &[self.context.i32_type().const_int(dref.0 as u64, false)],
                         )
                     };
-                    let value = self.resolve_operand(runtime, refs, op)?;
-                    Self::build(builder, "store_data_item", |b, _| {
+                    let value = self.resolve_operand(mctx.runtime, fctx, op)?;
+                    Self::build(mctx.builder, "store_data_item", |b, _| {
                         b.build_store(p_data_item, value)
                     })?;
                 }
                 StoreFunctionOutput(idx, op) => {
-                    let value = self.resolve_operand(runtime, refs, op)?;
-                    let out = refs.outputs.get_mut(idx.0 as usize).ok_or_else(|| {
+                    let value = self.resolve_operand(mctx.runtime, fctx, op)?;
+                    let out = fctx.outputs.get_mut(idx.0 as usize).ok_or_else(|| {
                         SignalProcessCreationError::InvalidNumberOfOutputs(
-                            func.name().to_owned(),
-                            func.outputs().len() as u32,
+                            fctx.func.name().to_owned(),
+                            fctx.func.outputs().len() as u32,
                             idx.0,
                         )
                     })?;
                     *out = Some(value.as_basic_value_enum());
                 }
                 BinaryOp(vref, type_, op1, op2) => {
-                    let left = self.resolve_operand(runtime, refs, op1)?.into_float_value();
-                    let right = self.resolve_operand(runtime, refs, op2)?.into_float_value();
+                    let left = self
+                        .resolve_operand(mctx.runtime, fctx, op1)?
+                        .into_float_value();
+                    let right = self
+                        .resolve_operand(mctx.runtime, fctx, op2)?
+                        .into_float_value();
                     use crate::wisp::ir::BinaryOpType::*;
                     let res = match type_ {
-                        Add => Self::build(builder, "binop_add", |b, n| {
+                        Add => Self::build(mctx.builder, "binop_add", |b, n| {
                             b.build_float_add(left, right, n)
                         }),
-                        Subtract => Self::build(builder, "binop_sub", |b, n| {
+                        Subtract => Self::build(mctx.builder, "binop_sub", |b, n| {
                             b.build_float_sub(left, right, n)
                         }),
-                        Multiply => Self::build(builder, "binop_mul", |b, n| {
+                        Multiply => Self::build(mctx.builder, "binop_mul", |b, n| {
                             b.build_float_mul(left, right, n)
                         }),
-                        Divide => Self::build(builder, "binop_div", |b, n| {
+                        Divide => Self::build(mctx.builder, "binop_div", |b, n| {
                             b.build_float_div(left, right, n)
                         }),
                     }?;
-                    refs.vars.insert(*vref, res.as_basic_value_enum());
+                    fctx.vars.insert(*vref, res.as_basic_value_enum());
                 }
                 ComparisonOp(vref, type_, op1, op2) => {
-                    let left = self.resolve_operand(runtime, refs, op1)?.into_float_value();
-                    let right = self.resolve_operand(runtime, refs, op2)?.into_float_value();
+                    let left = self
+                        .resolve_operand(mctx.runtime, fctx, op1)?
+                        .into_float_value();
+                    let right = self
+                        .resolve_operand(mctx.runtime, fctx, op2)?
+                        .into_float_value();
                     use crate::wisp::ir::ComparisonOpType::*;
-                    let res = Self::build(builder, "compop_eq", |b, n| {
+                    let res = Self::build(mctx.builder, "compop_eq", |b, n| {
                         b.build_float_compare(
                             match type_ {
                                 Equal => inkwell::FloatPredicate::OEQ,
@@ -451,55 +472,39 @@ impl SignalProcessorContext {
                             n,
                         )
                     })?;
-                    refs.vars.insert(*vref, res.as_basic_value_enum());
+                    fctx.vars.insert(*vref, res.as_basic_value_enum());
                 }
                 Conditional(vref, then_branch, else_branch) => {
                     // Generate code
-                    let cond = Self::get_var(refs, vref)?.into_int_value();
-                    let (then_block_first, then_block_last) = self.translate_instructions(
-                        then_branch,
-                        module,
-                        builder,
-                        func,
-                        function,
-                        runtime,
-                        refs,
-                        data_indices,
-                    )?;
-                    let (else_block_first, else_block_last) = self.translate_instructions(
-                        else_branch,
-                        module,
-                        builder,
-                        func,
-                        function,
-                        runtime,
-                        refs,
-                        data_indices,
-                    )?;
+                    let cond = Self::get_var(fctx, vref)?.into_int_value();
+                    let (then_block_first, then_block_last) =
+                        self.translate_instructions(mctx, fctx, then_branch)?;
+                    let (else_block_first, else_block_last) =
+                        self.translate_instructions(mctx, fctx, else_branch)?;
 
                     // Tie blocks together
-                    builder.position_at_end(current_block);
-                    Self::build(builder, "cond", |b, _| {
+                    mctx.builder.position_at_end(current_block);
+                    Self::build(mctx.builder, "cond", |b, _| {
                         b.build_conditional_branch(cond, then_block_first, else_block_first)
                     })?;
 
-                    let next_block = self.context.append_basic_block(function, "post_cond");
+                    let next_block = self.context.append_basic_block(fctx.function, "post_cond");
 
-                    builder.position_at_end(then_block_last);
-                    Self::build(builder, "then_jump", |b, _| {
+                    mctx.builder.position_at_end(then_block_last);
+                    Self::build(mctx.builder, "then_jump", |b, _| {
                         b.build_unconditional_branch(next_block)
                     })?;
 
-                    builder.position_at_end(else_block_last);
-                    Self::build(builder, "else_jump", |b, _| {
+                    mctx.builder.position_at_end(else_block_last);
+                    Self::build(mctx.builder, "else_jump", |b, _| {
                         b.build_unconditional_branch(next_block)
                     })?;
 
                     current_block = next_block;
-                    builder.position_at_end(current_block);
+                    mctx.builder.position_at_end(current_block);
                 }
                 Call(_id, name, in_vrefs, out_vrefs) => {
-                    let func = Self::get_function(runtime, name)?;
+                    let func = Self::get_function(mctx.runtime, name)?;
                     if in_vrefs.len() != func.inputs().len() {
                         return Err(SignalProcessCreationError::InvalidNumberOfInputs(
                             name.into(),
@@ -517,7 +522,7 @@ impl SignalProcessorContext {
                     let mut args: Vec<BasicMetadataValueEnum> = vec![];
                     for (idx, input) in in_vrefs.iter().enumerate() {
                         let value = match input {
-                            Some(op) => self.resolve_operand(runtime, refs, op)?,
+                            Some(op) => self.resolve_operand(mctx.runtime, fctx, op)?,
                             None => match func.inputs()[idx].fallback {
                                 Some(fallback) => match fallback {
                                     DefaultInputValue::Normal => {
@@ -543,23 +548,25 @@ impl SignalProcessorContext {
                     if !func.data().is_empty() {
                         // TODO: Calculate based on call chain
                         let data_path = "data";
-                        let idx = if let Some(idx) = data_indices.get(data_path) {
+                        let idx = if let Some(idx) = mctx.data_indices.get(data_path) {
                             *idx
                         } else {
-                            let idx = data_indices.len() as u32;
-                            data_indices.insert(data_path.into(), idx);
+                            let idx = mctx.data_indices.len() as u32;
+                            mctx.data_indices.insert(data_path.into(), idx);
                             idx
                         };
-                        let pp_global_data = module
+                        let pp_global_data = mctx
+                            .module
                             .get_global("wisp_global_data")
                             .expect("Invalid global name");
-                        let p_global_data = Self::build(builder, "load_global_data", |b, n| {
-                            b.build_load(
-                                self.context.f32_type().ptr_type(AddressSpace::default()),
-                                pp_global_data.as_pointer_value(),
-                                n,
-                            )
-                        })?;
+                        let p_global_data =
+                            Self::build(mctx.builder, "load_global_data", |b, n| {
+                                b.build_load(
+                                    self.context.f32_type().ptr_type(AddressSpace::default()),
+                                    pp_global_data.as_pointer_value(),
+                                    n,
+                                )
+                            })?;
                         let p_func_data = unsafe {
                             p_global_data.into_pointer_value().const_gep(
                                 self.context.f32_type(),
@@ -569,17 +576,19 @@ impl SignalProcessorContext {
                         args.push(BasicMetadataValueEnum::PointerValue(p_func_data));
                     }
 
-                    let func_value = module
+                    let func_value = mctx
+                        .module
                         .get_function(name)
                         .ok_or_else(|| SignalProcessCreationError::UnknownFunction(name.clone()))?;
 
-                    let call_site =
-                        Self::build(builder, "call", |b, n| b.build_call(func_value, &args, n))?;
+                    let call_site = Self::build(mctx.builder, "call", |b, n| {
+                        b.build_call(func_value, &args, n)
+                    })?;
                     let res = call_site.as_any_value_enum();
                     match func.outputs().len() {
                         0 => { /* do nothing */ }
                         1 => {
-                            refs.vars
+                            fctx.vars
                                 .insert(out_vrefs[0], res.into_float_value().as_basic_value_enum());
                         }
                         _ => todo!(),
@@ -589,17 +598,18 @@ impl SignalProcessorContext {
                     // TODO: Remove duplication with Call() and LoadData()
                     // TODO: Calculate based on call chain
                     let data_path = "data";
-                    let idx = if let Some(idx) = data_indices.get(data_path) {
+                    let idx = if let Some(idx) = mctx.data_indices.get(data_path) {
                         *idx
                     } else {
-                        let idx = data_indices.len() as u32;
-                        data_indices.insert(data_path.into(), idx);
+                        let idx = mctx.data_indices.len() as u32;
+                        mctx.data_indices.insert(data_path.into(), idx);
                         idx
                     };
-                    let pp_global_data = module
+                    let pp_global_data = mctx
+                        .module
                         .get_global("wisp_global_data")
                         .expect("Invalid global name");
-                    let p_global_data = Self::build(builder, "load_global_data", |b, n| {
+                    let p_global_data = Self::build(mctx.builder, "load_global_data", |b, n| {
                         b.build_load(
                             self.context.f32_type().ptr_type(AddressSpace::default()),
                             pp_global_data.as_pointer_value(),
@@ -619,16 +629,17 @@ impl SignalProcessorContext {
                             &[self.context.i32_type().const_int(dref.0 as u64, false)],
                         )
                     };
-                    let data_item = Self::build(builder, "load_data_item", |b, n| {
+                    let data_item = Self::build(mctx.builder, "load_data_item", |b, n| {
                         b.build_load(self.context.f32_type(), p_data_item, n)
                     })?;
-                    refs.vars.insert(*vref, data_item);
+                    fctx.vars.insert(*vref, data_item);
                 }
                 Output(idx, op) => {
-                    let pp_output = module
+                    let pp_output = mctx
+                        .module
                         .get_global("wisp_global_output")
                         .expect("Invalid global name");
-                    let p_output = Self::build(builder, "load_output", |b, n| {
+                    let p_output = Self::build(mctx.builder, "load_output", |b, n| {
                         b.build_load(
                             self.context.f32_type().ptr_type(AddressSpace::default()),
                             pp_output.as_pointer_value(),
@@ -641,24 +652,26 @@ impl SignalProcessorContext {
                             &[self.context.i32_type().const_int(idx.0 as u64, false)],
                         )
                     };
-                    let value = self.resolve_operand(runtime, refs, op)?;
-                    Self::build(builder, "output", |b, _| b.build_store(output, value))?;
+                    let value = self.resolve_operand(mctx.runtime, fctx, op)?;
+                    Self::build(mctx.builder, "output", |b, _| b.build_store(output, value))?;
                 }
                 Debug(vref) => {
                     // NOTE: This duplicates Call()
                     let args = [vref]
                         .iter()
-                        .map(|vref| Self::get_var(refs, vref))
+                        .map(|vref| Self::get_var(fctx, vref))
                         .collect::<Result<Vec<_>, SignalProcessCreationError>>()?
                         .into_iter()
                         .map(|v| BasicMetadataValueEnum::FloatValue(v.into_float_value()))
                         .collect::<Vec<_>>();
 
-                    let func_value = module.get_function("wisp_debug").ok_or_else(|| {
+                    let func_value = mctx.module.get_function("wisp_debug").ok_or_else(|| {
                         SignalProcessCreationError::UnknownFunction("wisp_debug".into())
                     })?;
 
-                    Self::build(builder, "call", |b, n| b.build_call(func_value, &args, n))?;
+                    Self::build(mctx.builder, "call", |b, n| {
+                        b.build_call(func_value, &args, n)
+                    })?;
                 }
             }
         }
@@ -686,20 +699,20 @@ impl SignalProcessorContext {
     }
 
     fn get_var<'ctx>(
-        refs: &FunctionRefs<'ctx>,
+        fctx: &FunctionContext<'ctx, '_>,
         vref: &VarRef,
     ) -> Result<BasicValueEnum<'ctx>, SignalProcessCreationError> {
-        Ok(*refs
+        Ok(*fctx
             .vars
             .get(vref)
             .ok_or(SignalProcessCreationError::UninitializedVar(vref.0))?)
     }
 
     fn get_local<'ctx>(
-        refs: &FunctionRefs<'ctx>,
+        fctx: &FunctionContext<'ctx, '_>,
         lref: &LocalRef,
     ) -> Result<PointerValue<'ctx>, SignalProcessCreationError> {
-        Ok(*refs
+        Ok(*fctx
             .locals
             .get(lref)
             .ok_or(SignalProcessCreationError::UninitializedLocal(lref.0))?)
@@ -720,7 +733,7 @@ impl SignalProcessorContext {
     fn resolve_operand<'ctx>(
         &'ctx self,
         runtime: &Runtime,
-        refs: &FunctionRefs<'ctx>,
+        fctx: &FunctionContext<'ctx, '_>,
         op: &Operand,
     ) -> Result<BasicValueEnum<'ctx>, SignalProcessCreationError> {
         use crate::wisp::ir::Operand::*;
@@ -740,8 +753,8 @@ impl SignalProcessorContext {
                 .f32_type()
                 .const_float(*v as f64)
                 .as_basic_value_enum(),
-            Var(vref) => Self::get_var(refs, vref)?,
-            Arg(idx) => Self::get_argument(refs.function, *idx)?,
+            Var(vref) => Self::get_var(fctx, vref)?,
+            Arg(idx) => Self::get_argument(fctx.function, *idx)?,
         })
     }
 }
