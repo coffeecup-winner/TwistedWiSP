@@ -14,7 +14,6 @@ use crate::wisp::{
     ir::{
         BinaryOpType, ComparisonOpType, FunctionOutputIndex, Instruction, LocalRef, Operand, VarRef,
     },
-    runtime::Runtime,
     WispContext,
 };
 
@@ -45,7 +44,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let device = ConfiguredAudioDevice::open(args.audio_host, args.audio_device)?;
 
-    let mut context = WispContext::new();
+    let mut wisp = WispContext::new(device.num_output_channels(), device.sample_rate());
 
     let func = Function::new(
         "test".into(),
@@ -94,10 +93,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     flow.connect(idx_test, 0, idx_lag, 0);
     flow.connect(idx_lag, 0, idx_test, 0);
 
-    let mut runtime = Runtime::init(device.num_output_channels(), device.sample_rate());
-    runtime.register_function(func);
+    wisp.add_function(func);
 
-    let (mut processor, _ee) = context.create_signal_processor(&flow, &runtime)?;
+    let (mut processor, _ee) = wisp.create_signal_processor(&flow)?;
     let mut v = vec![0.0; 64];
     let start = std::time::Instant::now();
     processor.process(&mut v);

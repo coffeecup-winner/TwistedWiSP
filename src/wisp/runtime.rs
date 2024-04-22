@@ -26,8 +26,8 @@ impl Runtime {
     }
 
     fn register_builtin_functions(runtime: &mut Runtime) {
-        runtime.register_function(Self::build_function_out(runtime));
-        runtime.register_function(Self::build_function_lag());
+        runtime.add_function(Self::build_function_out(runtime));
+        runtime.add_function(Self::build_function_lag());
     }
 
     fn build_function_out(runtime: &Runtime) -> Function {
@@ -67,7 +67,7 @@ impl Runtime {
         self.sample_rate
     }
 
-    pub fn register_function(&mut self, func: Function) {
+    pub fn add_function(&mut self, func: Function) {
         self.functions.insert(func.name().into(), func);
     }
 
