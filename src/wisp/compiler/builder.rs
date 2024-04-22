@@ -7,7 +7,7 @@ use inkwell::{
     passes::PassBuilderOptions,
     targets::{CodeModel, RelocMode, Target, TargetMachine},
     values::{AnyValue, BasicMetadataValueEnum, BasicValue, BasicValueEnum},
-    AddressSpace, OptimizationLevel,
+    OptimizationLevel,
 };
 
 use crate::wisp::{
@@ -44,28 +44,25 @@ impl SignalProcessorBuilder {
         self.id_gen += 1;
 
         let module = self.context.create_module(&format!("wisp_{}", self.id_gen));
-        let builder = self.context.create_builder();
         let execution_engine = module
             .create_jit_execution_engine(OptimizationLevel::None)
             .map_err(|_| SignalProcessCreationError::InitEE)?;
 
-        let f32_type = self.context.f32_type();
-        let pf32_type = f32_type.ptr_type(AddressSpace::default());
-        let g_data = module.add_global(pf32_type, None, "wisp_global_data");
-        let g_output = module.add_global(pf32_type, None, "wisp_global_output");
+        let mut mctx = ModuleContext::new(&self.context, runtime, &module, HashMap::new());
+
+        let g_data = module.add_global(mctx.types.pf32, None, "wisp_global_data");
+        let g_output = module.add_global(mctx.types.pf32, None, "wisp_global_output");
         let g_wisp_debug = module.add_function(
             "wisp_debug",
-            self.context
-                .void_type()
-                .fn_type(&[f32_type.into(); 1], false),
+            mctx.types.void.fn_type(&[mctx.types.f32.into(); 1], false),
             None,
         );
-        let mut globals = Box::new(SignalProcessorContext {
+        let mut spctx = Box::new(SignalProcessorContext {
             p_data: std::ptr::null_mut(),
             p_output: std::ptr::null_mut(),
         });
-        execution_engine.add_global_mapping(&g_data, &mut globals.p_data as *mut _ as usize);
-        execution_engine.add_global_mapping(&g_output, &mut globals.p_output as *mut _ as usize);
+        execution_engine.add_global_mapping(&g_data, &mut spctx.p_data as *mut _ as usize);
+        execution_engine.add_global_mapping(&g_output, &mut spctx.p_output as *mut _ as usize);
         extern "C" fn wisp_debug(v: f32) {
             eprintln!("Debug: {}", v);
         }
@@ -74,19 +71,18 @@ impl SignalProcessorBuilder {
         for (name, func) in runtime.functions_iter() {
             // >1 returns is currently not supported
             assert!(func.outputs().len() < 2);
-            let mut arg_types = vec![f32_type.into(); func.inputs().len()];
+            let mut arg_types = vec![mctx.types.f32.into(); func.inputs().len()];
             if !func.data().is_empty() {
-                arg_types.push(f32_type.ptr_type(AddressSpace::default()).into());
+                arg_types.push(mctx.types.pf32.into());
             }
             let fn_type = if func.outputs().len() == 1 {
-                f32_type.fn_type(&arg_types, false)
+                mctx.types.f32.fn_type(&arg_types, false)
             } else {
-                self.context.void_type().fn_type(&arg_types, false)
+                mctx.types.void.fn_type(&arg_types, false)
             };
             module.add_function(name, fn_type, None);
         }
 
-        let mut mctx = ModuleContext::new(runtime, &module, &builder, HashMap::new());
         for (_, func) in runtime.functions_iter() {
             self.build_function(&mut mctx, func)?;
         }
@@ -127,7 +123,7 @@ impl SignalProcessorBuilder {
             .map_err(|_| SignalProcessCreationError::LoadFunction)?;
         Ok((
             SignalProcessor::new(
-                globals,
+                spctx,
                 unsafe { function.into_raw() },
                 runtime.num_outputs() as usize,
                 mctx.data_indices.len(),
@@ -189,7 +185,7 @@ impl SignalProcessorBuilder {
             match insn {
                 AllocLocal(lref) => {
                     let local = mctx.build("alloc_local", |b, _| {
-                        b.build_alloca(self.context.f32_type(), &format!("local_{}", lref.0))
+                        b.build_alloca(mctx.types.f32, &format!("local_{}", lref.0))
                     })?;
                     fctx.locals.insert(*lref, local);
                 }
@@ -198,20 +194,18 @@ impl SignalProcessorBuilder {
                     let value = match loc {
                         Local(lref) => {
                             let local = fctx.get_local(lref)?;
-                            mctx.build("load_local", |b, n| {
-                                b.build_load(self.context.f32_type(), local, n)
-                            })?
+                            mctx.build("load_local", |b, n| b.build_load(mctx.types.f32, local, n))?
                         }
                         Data(dref) => {
                             let p_data = fctx.get_argument(fctx.func.inputs().len() as u32)?;
                             let p_data_item = unsafe {
                                 p_data.into_pointer_value().const_gep(
-                                    self.context.f32_type(),
-                                    &[self.context.i32_type().const_int(dref.0 as u64, false)],
+                                    mctx.types.f32,
+                                    &[mctx.types.i32.const_int(dref.0 as u64, false)],
                                 )
                             };
                             mctx.build("load_data_item", |b, n| {
-                                b.build_load(self.context.f32_type(), p_data_item, n)
+                                b.build_load(mctx.types.f32, p_data_item, n)
                             })?
                         }
                         LastValue(id, dref) => {
@@ -228,34 +222,30 @@ impl SignalProcessorBuilder {
                                 .get_global("wisp_global_data")
                                 .expect("Invalid global name");
                             let p_global_data = mctx.build("load_global_data", |b, n| {
-                                b.build_load(
-                                    self.context.f32_type().ptr_type(AddressSpace::default()),
-                                    pp_global_data.as_pointer_value(),
-                                    n,
-                                )
+                                b.build_load(mctx.types.pf32, pp_global_data.as_pointer_value(), n)
                             })?;
                             let p_func_data = unsafe {
                                 p_global_data.into_pointer_value().const_gep(
-                                    self.context.f32_type(),
-                                    &[self.context.i32_type().const_int(idx as u64, false)],
+                                    mctx.types.f32,
+                                    &[mctx.types.i32.const_int(idx as u64, false)],
                                 )
                             };
                             // LoadData
                             let p_data_item = unsafe {
                                 p_func_data.const_gep(
-                                    self.context.f32_type(),
-                                    &[self.context.i32_type().const_int(dref.0 as u64, false)],
+                                    mctx.types.f32,
+                                    &[mctx.types.i32.const_int(dref.0 as u64, false)],
                                 )
                             };
                             mctx.build("load_data_item", |b, n| {
-                                b.build_load(self.context.f32_type(), p_data_item, n)
+                                b.build_load(mctx.types.f32, p_data_item, n)
                             })?
                         }
                     };
                     fctx.vars.insert(*vref, value);
                 }
                 Store(loc, op) => {
-                    let value = self.resolve_operand(mctx.runtime, fctx, op)?;
+                    let value = Self::resolve_operand(mctx, fctx, op)?;
                     use crate::wisp::ir::TargetLocation::*;
                     match loc {
                         Local(lref) => {
@@ -266,8 +256,8 @@ impl SignalProcessorBuilder {
                             let p_data = fctx.get_argument(fctx.func.inputs().len() as u32)?;
                             let p_data_item = unsafe {
                                 p_data.into_pointer_value().const_gep(
-                                    self.context.f32_type(),
-                                    &[self.context.i32_type().const_int(dref.0 as u64, false)],
+                                    mctx.types.f32,
+                                    &[mctx.types.i32.const_int(dref.0 as u64, false)],
                                 )
                             };
                             mctx.build("store_data_item", |b, _| {
@@ -290,16 +280,12 @@ impl SignalProcessorBuilder {
                                 .get_global("wisp_global_output")
                                 .expect("Invalid global name");
                             let p_output = mctx.build("load_output", |b, n| {
-                                b.build_load(
-                                    self.context.f32_type().ptr_type(AddressSpace::default()),
-                                    pp_output.as_pointer_value(),
-                                    n,
-                                )
+                                b.build_load(mctx.types.pf32, pp_output.as_pointer_value(), n)
                             })?;
                             let output = unsafe {
                                 p_output.into_pointer_value().const_gep(
-                                    self.context.f32_type(),
-                                    &[self.context.i32_type().const_int(idx.0 as u64, false)],
+                                    mctx.types.f32,
+                                    &[mctx.types.i32.const_int(idx.0 as u64, false)],
                                 )
                             };
                             mctx.build("output", |b, _| b.build_store(output, value))?;
@@ -307,12 +293,8 @@ impl SignalProcessorBuilder {
                     }
                 }
                 BinaryOp(vref, type_, op1, op2) => {
-                    let left = self
-                        .resolve_operand(mctx.runtime, fctx, op1)?
-                        .into_float_value();
-                    let right = self
-                        .resolve_operand(mctx.runtime, fctx, op2)?
-                        .into_float_value();
+                    let left = Self::resolve_operand(mctx, fctx, op1)?.into_float_value();
+                    let right = Self::resolve_operand(mctx, fctx, op2)?.into_float_value();
                     use crate::wisp::ir::BinaryOpType::*;
                     let res = match type_ {
                         Add => mctx.build("binop_add", |b, n| b.build_float_add(left, right, n)),
@@ -327,12 +309,8 @@ impl SignalProcessorBuilder {
                     fctx.vars.insert(*vref, res.as_basic_value_enum());
                 }
                 ComparisonOp(vref, type_, op1, op2) => {
-                    let left = self
-                        .resolve_operand(mctx.runtime, fctx, op1)?
-                        .into_float_value();
-                    let right = self
-                        .resolve_operand(mctx.runtime, fctx, op2)?
-                        .into_float_value();
+                    let left = Self::resolve_operand(mctx, fctx, op1)?.into_float_value();
+                    let right = Self::resolve_operand(mctx, fctx, op2)?.into_float_value();
                     use crate::wisp::ir::ComparisonOpType::*;
                     let res = mctx.build("compop_eq", |b, n| {
                         b.build_float_compare(
@@ -395,17 +373,15 @@ impl SignalProcessorBuilder {
                     let mut args: Vec<BasicMetadataValueEnum> = vec![];
                     for (idx, input) in in_vrefs.iter().enumerate() {
                         let value = match input {
-                            Some(op) => self.resolve_operand(mctx.runtime, fctx, op)?,
+                            Some(op) => Self::resolve_operand(mctx, fctx, op)?,
                             None => match func.inputs()[idx].fallback {
                                 Some(fallback) => match fallback {
                                     DefaultInputValue::Normal => {
                                         args[idx - 1].into_float_value().as_basic_value_enum()
                                     }
-                                    DefaultInputValue::Value(v) => self
-                                        .context
-                                        .f32_type()
-                                        .const_float(v as f64)
-                                        .as_basic_value_enum(),
+                                    DefaultInputValue::Value(v) => {
+                                        mctx.types.f32.const_float(v as f64).as_basic_value_enum()
+                                    }
                                 },
                                 None => {
                                     return Err(SignalProcessCreationError::UninitializedInput(
@@ -431,16 +407,12 @@ impl SignalProcessorBuilder {
                             .get_global("wisp_global_data")
                             .expect("Invalid global name");
                         let p_global_data = mctx.build("load_global_data", |b, n| {
-                            b.build_load(
-                                self.context.f32_type().ptr_type(AddressSpace::default()),
-                                pp_global_data.as_pointer_value(),
-                                n,
-                            )
+                            b.build_load(mctx.types.pf32, pp_global_data.as_pointer_value(), n)
                         })?;
                         let p_func_data = unsafe {
                             p_global_data.into_pointer_value().const_gep(
-                                self.context.f32_type(),
-                                &[self.context.i32_type().const_int(idx as u64, false)],
+                                mctx.types.f32,
+                                &[mctx.types.i32.const_int(idx as u64, false)],
                             )
                         };
                         args.push(BasicMetadataValueEnum::PointerValue(p_func_data));
@@ -485,8 +457,7 @@ impl SignalProcessorBuilder {
     }
 
     fn resolve_operand<'ctx>(
-        &'ctx self,
-        runtime: &Runtime,
+        mctx: &ModuleContext<'ctx, '_>,
         fctx: &FunctionContext<'ctx, '_>,
         op: &Operand,
     ) -> Result<BasicValueEnum<'ctx>, SignalProcessCreationError> {
@@ -495,18 +466,14 @@ impl SignalProcessorBuilder {
             Constant(c) => {
                 use crate::wisp::ir::Constant::*;
                 match c {
-                    SampleRate => self
-                        .context
-                        .f32_type()
-                        .const_float(runtime.sample_rate() as f64)
+                    SampleRate => mctx
+                        .types
+                        .f32
+                        .const_float(mctx.runtime.sample_rate() as f64)
                         .as_basic_value_enum(),
                 }
             }
-            Literal(v) => self
-                .context
-                .f32_type()
-                .const_float(*v as f64)
-                .as_basic_value_enum(),
+            Literal(v) => mctx.types.f32.const_float(*v as f64).as_basic_value_enum(),
             Var(vref) => fctx.get_var(vref)?,
             Arg(idx) => fctx.get_argument(*idx)?,
         })

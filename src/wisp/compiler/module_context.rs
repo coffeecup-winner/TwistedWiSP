@@ -2,7 +2,10 @@ use std::collections::HashMap;
 
 use inkwell::{
     builder::{Builder, BuilderError},
+    context::Context,
     module::Module,
+    types::{FloatType, IntType, PointerType, VoidType},
+    AddressSpace,
 };
 
 use crate::wisp::{function::Function, ir::CallId, runtime::Runtime};
@@ -10,24 +13,45 @@ use crate::wisp::{function::Function, ir::CallId, runtime::Runtime};
 use super::error::SignalProcessCreationError;
 
 #[derive(Debug)]
+pub(super) struct ModuleTypes<'ctx> {
+    pub void: VoidType<'ctx>,
+    pub i32: IntType<'ctx>,
+    pub f32: FloatType<'ctx>,
+    pub pf32: PointerType<'ctx>,
+}
+
+impl<'ctx> ModuleTypes<'ctx> {
+    pub fn new(context: &'ctx Context) -> Self {
+        ModuleTypes {
+            void: context.void_type(),
+            i32: context.i32_type(),
+            f32: context.f32_type(),
+            pf32: context.f32_type().ptr_type(AddressSpace::default()),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub(super) struct ModuleContext<'ctx, 'temp> {
     pub runtime: &'temp Runtime,
+    pub types: ModuleTypes<'ctx>,
     pub module: &'temp Module<'ctx>,
-    pub builder: &'temp Builder<'ctx>,
+    pub builder: Builder<'ctx>,
     pub data_indices: HashMap<CallId, u32>,
 }
 
 impl<'ctx, 'temp> ModuleContext<'ctx, 'temp> {
     pub fn new(
+        context: &'ctx Context,
         runtime: &'temp Runtime,
         module: &'temp Module<'ctx>,
-        builder: &'temp Builder<'ctx>,
         data_indices: HashMap<CallId, u32>,
     ) -> Self {
         ModuleContext {
             runtime,
+            types: ModuleTypes::new(context),
             module,
-            builder,
+            builder: context.create_builder(),
             data_indices,
         }
     }
@@ -42,7 +66,7 @@ impl<'ctx, 'temp> ModuleContext<'ctx, 'temp> {
     where
         F: FnOnce(&Builder<'ctx>, &str) -> Result<R, BuilderError>,
     {
-        func(self.builder, &format!("tmp_{}", name))
+        func(&self.builder, &format!("tmp_{}", name))
             .map_err(|_| SignalProcessCreationError::BuildInstruction(name.into()))
     }
 }
