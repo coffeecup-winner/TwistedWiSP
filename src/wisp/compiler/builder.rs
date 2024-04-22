@@ -13,7 +13,7 @@ use inkwell::{
 use crate::wisp::{
     flow::Flow,
     function::{DefaultInputValue, Function, FunctionInput},
-    ir::{GlobalRef, Instruction, Location, Operand},
+    ir::{GlobalRef, Instruction, Operand, TargetLocation},
     runtime::Runtime,
 };
 
@@ -93,8 +93,8 @@ impl SignalProcessorBuilder {
         }
 
         let mut process_func_instructions = vec![
-            Instruction::Store(Location::Global(GlobalRef::Data), Operand::Arg(0)),
-            Instruction::Store(Location::Global(GlobalRef::Output), Operand::Arg(1)),
+            Instruction::Store(TargetLocation::Global(GlobalRef::Data), Operand::Arg(0)),
+            Instruction::Store(TargetLocation::Global(GlobalRef::Output), Operand::Arg(1)),
         ];
         process_func_instructions.extend(flow.get_compiled_flow(runtime).iter().cloned());
         let func = Function::new(
@@ -219,7 +219,7 @@ impl SignalProcessorBuilder {
                     fctx.locals.insert(*lref, local);
                 }
                 Load(vref, loc) => {
-                    use crate::wisp::ir::Location::*;
+                    use crate::wisp::ir::SourceLocation::*;
                     let value = match loc {
                         Local(lref) => {
                             let local = fctx.get_local(lref)?;
@@ -253,12 +253,49 @@ impl SignalProcessorBuilder {
                                 b.build_load(self.context.f32_type(), p_data_item, n)
                             })?
                         }
+                        LastValue(id, dref) => {
+                            // TODO: Remove duplication with Call() and LoadData()
+                            let idx = if let Some(idx) = mctx.data_indices.get(id) {
+                                *idx
+                            } else {
+                                let idx = mctx.data_indices.len() as u32;
+                                mctx.data_indices.insert(*id, idx);
+                                idx
+                            };
+                            let pp_global_data = mctx
+                                .module
+                                .get_global("wisp_global_data")
+                                .expect("Invalid global name");
+                            let p_global_data = mctx.build("load_global_data", |b, n| {
+                                b.build_load(
+                                    self.context.f32_type().ptr_type(AddressSpace::default()),
+                                    pp_global_data.as_pointer_value(),
+                                    n,
+                                )
+                            })?;
+                            let p_func_data = unsafe {
+                                p_global_data.into_pointer_value().const_gep(
+                                    self.context.f32_type(),
+                                    &[self.context.i32_type().const_int(idx as u64, false)],
+                                )
+                            };
+                            // LoadData
+                            let p_data_item = unsafe {
+                                p_func_data.const_gep(
+                                    self.context.f32_type(),
+                                    &[self.context.i32_type().const_int(dref.0 as u64, false)],
+                                )
+                            };
+                            mctx.build("load_data_item", |b, n| {
+                                b.build_load(self.context.f32_type(), p_data_item, n)
+                            })?
+                        }
                     };
                     fctx.vars.insert(*vref, value);
                 }
                 Store(loc, op) => {
                     let value = self.resolve_operand(mctx.runtime, fctx, op)?;
-                    use crate::wisp::ir::Location::*;
+                    use crate::wisp::ir::TargetLocation::*;
                     match loc {
                         Local(lref) => {
                             let local = fctx.get_local(lref)?;
@@ -286,18 +323,37 @@ impl SignalProcessorBuilder {
                                 b.build_store(p_data_item, value)
                             })?;
                         }
+                        FunctionOutput(idx) => {
+                            let out = fctx.outputs.get_mut(idx.0 as usize).ok_or_else(|| {
+                                SignalProcessCreationError::InvalidNumberOfOutputs(
+                                    fctx.func.name().to_owned(),
+                                    fctx.func.outputs().len() as u32,
+                                    idx.0,
+                                )
+                            })?;
+                            *out = Some(value.as_basic_value_enum());
+                        }
+                        SignalOutput(idx) => {
+                            let pp_output = mctx
+                                .module
+                                .get_global("wisp_global_output")
+                                .expect("Invalid global name");
+                            let p_output = mctx.build("load_output", |b, n| {
+                                b.build_load(
+                                    self.context.f32_type().ptr_type(AddressSpace::default()),
+                                    pp_output.as_pointer_value(),
+                                    n,
+                                )
+                            })?;
+                            let output = unsafe {
+                                p_output.into_pointer_value().const_gep(
+                                    self.context.f32_type(),
+                                    &[self.context.i32_type().const_int(idx.0 as u64, false)],
+                                )
+                            };
+                            mctx.build("output", |b, _| b.build_store(output, value))?;
+                        }
                     }
-                }
-                StoreFunctionOutput(idx, op) => {
-                    let value = self.resolve_operand(mctx.runtime, fctx, op)?;
-                    let out = fctx.outputs.get_mut(idx.0 as usize).ok_or_else(|| {
-                        SignalProcessCreationError::InvalidNumberOfOutputs(
-                            fctx.func.name().to_owned(),
-                            fctx.func.outputs().len() as u32,
-                            idx.0,
-                        )
-                    })?;
-                    *out = Some(value.as_basic_value_enum());
                 }
                 BinaryOp(vref, type_, op1, op2) => {
                     let left = self
@@ -455,65 +511,6 @@ impl SignalProcessorBuilder {
                         }
                         _ => todo!(),
                     }
-                }
-                LoadLastValue(id, dref, vref) => {
-                    // TODO: Remove duplication with Call() and LoadData()
-                    let idx = if let Some(idx) = mctx.data_indices.get(id) {
-                        *idx
-                    } else {
-                        let idx = mctx.data_indices.len() as u32;
-                        mctx.data_indices.insert(*id, idx);
-                        idx
-                    };
-                    let pp_global_data = mctx
-                        .module
-                        .get_global("wisp_global_data")
-                        .expect("Invalid global name");
-                    let p_global_data = mctx.build("load_global_data", |b, n| {
-                        b.build_load(
-                            self.context.f32_type().ptr_type(AddressSpace::default()),
-                            pp_global_data.as_pointer_value(),
-                            n,
-                        )
-                    })?;
-                    let p_func_data = unsafe {
-                        p_global_data.into_pointer_value().const_gep(
-                            self.context.f32_type(),
-                            &[self.context.i32_type().const_int(idx as u64, false)],
-                        )
-                    };
-                    // LoadData
-                    let p_data_item = unsafe {
-                        p_func_data.const_gep(
-                            self.context.f32_type(),
-                            &[self.context.i32_type().const_int(dref.0 as u64, false)],
-                        )
-                    };
-                    let data_item = mctx.build("load_data_item", |b, n| {
-                        b.build_load(self.context.f32_type(), p_data_item, n)
-                    })?;
-                    fctx.vars.insert(*vref, data_item);
-                }
-                Output(idx, op) => {
-                    let pp_output = mctx
-                        .module
-                        .get_global("wisp_global_output")
-                        .expect("Invalid global name");
-                    let p_output = mctx.build("load_output", |b, n| {
-                        b.build_load(
-                            self.context.f32_type().ptr_type(AddressSpace::default()),
-                            pp_output.as_pointer_value(),
-                            n,
-                        )
-                    })?;
-                    let output = unsafe {
-                        p_output.into_pointer_value().const_gep(
-                            self.context.f32_type(),
-                            &[self.context.i32_type().const_int(idx.0 as u64, false)],
-                        )
-                    };
-                    let value = self.resolve_operand(mctx.runtime, fctx, op)?;
-                    mctx.build("output", |b, _| b.build_store(output, value))?;
                 }
                 Debug(vref) => {
                     // NOTE: This duplicates Call()

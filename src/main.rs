@@ -12,8 +12,8 @@ use crate::wisp::{
     flow::Flow,
     function::{Function, FunctionInput, FunctionOutput},
     ir::{
-        BinaryOpType, ComparisonOpType, FunctionOutputIndex, Instruction, LocalRef, Location,
-        Operand, VarRef,
+        BinaryOpType, ComparisonOpType, FunctionOutputIndex, Instruction, LocalRef, Operand,
+        SourceLocation, TargetLocation, VarRef,
     },
     WispContext,
 };
@@ -60,7 +60,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 Operand::Arg(0),
                 Operand::Literal(0.01),
             ),
-            Instruction::Store(Location::Local(LocalRef(0)), Operand::Var(VarRef(0))),
+            Instruction::Store(TargetLocation::Local(LocalRef(0)), Operand::Var(VarRef(0))),
             Instruction::ComparisonOp(
                 VarRef(1),
                 ComparisonOpType::Greater,
@@ -76,12 +76,15 @@ fn main() -> Result<(), Box<dyn Error>> {
                         Operand::Var(VarRef(0)),
                         Operand::Literal(1.0),
                     ),
-                    Instruction::Store(Location::Local(LocalRef(0)), Operand::Var(VarRef(0))),
+                    Instruction::Store(TargetLocation::Local(LocalRef(0)), Operand::Var(VarRef(0))),
                 ],
                 vec![],
             ),
-            Instruction::Load(VarRef(0), Location::Local(LocalRef(0))),
-            Instruction::StoreFunctionOutput(FunctionOutputIndex(0), Operand::Var(VarRef(0))),
+            Instruction::Load(VarRef(0), SourceLocation::Local(LocalRef(0))),
+            Instruction::Store(
+                TargetLocation::FunctionOutput(FunctionOutputIndex(0)),
+                Operand::Var(VarRef(0)),
+            ),
         ],
         None,
     );

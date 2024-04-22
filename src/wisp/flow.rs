@@ -11,7 +11,7 @@ use petgraph::{
 };
 
 use super::{
-    ir::{CallId, Instruction, Operand, VarRef},
+    ir::{CallId, Instruction, Operand, SourceLocation, VarRef},
     runtime::Runtime,
 };
 
@@ -102,10 +102,9 @@ impl Flow {
                         .unwrap();
                     if let Some(dref) = source_func.lag_value() {
                         let vref = VarRef(vref_id);
-                        instructions.push(Instruction::LoadLastValue(
-                            CallId(e.source().index() as u32),
-                            dref,
+                        instructions.push(Instruction::Load(
                             vref,
+                            SourceLocation::LastValue(CallId(e.source().index() as u32), dref),
                         ));
                         vref_id += 1;
                         inputs.push(Some(Operand::Var(vref)));

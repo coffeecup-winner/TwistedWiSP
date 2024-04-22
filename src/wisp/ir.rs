@@ -19,7 +19,7 @@ pub struct DataRef(pub u32);
 pub struct FunctionOutputIndex(pub u32);
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub struct OutputIndex(pub u32);
+pub struct SignalOutputIndex(pub u32);
 
 #[derive(Debug, Clone, Copy)]
 pub enum Operand {
@@ -56,21 +56,28 @@ pub enum ComparisonOpType {
 pub struct CallId(pub u32);
 
 #[derive(Debug, Clone, Copy)]
-pub enum Location {
+pub enum SourceLocation {
     Local(LocalRef),
     Global(GlobalRef),
     Data(DataRef),
+    LastValue(CallId, DataRef),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum TargetLocation {
+    Local(LocalRef),
+    Global(GlobalRef),
+    Data(DataRef),
+    FunctionOutput(FunctionOutputIndex),
+    SignalOutput(SignalOutputIndex),
 }
 
 #[derive(Debug, Clone)]
 pub enum Instruction {
     AllocLocal(LocalRef),
 
-    Load(VarRef, Location),
-    Store(Location, Operand),
-
-    LoadLastValue(CallId, DataRef, VarRef),
-    StoreFunctionOutput(FunctionOutputIndex, Operand),
+    Load(VarRef, SourceLocation),
+    Store(TargetLocation, Operand),
 
     BinaryOp(VarRef, BinaryOpType, Operand, Operand),
     ComparisonOp(VarRef, ComparisonOpType, Operand, Operand),
@@ -79,6 +86,5 @@ pub enum Instruction {
 
     Call(CallId, String, Vec<Option<Operand>>, Vec<VarRef>),
 
-    Output(OutputIndex, Operand),
     Debug(VarRef),
 }

@@ -4,7 +4,10 @@ use crate::wisp::ir::Operand;
 
 use super::{
     function::{DefaultInputValue, Function, FunctionDataItem, FunctionInput, FunctionOutput},
-    ir::{DataRef, FunctionOutputIndex, Instruction, Location, OutputIndex, VarRef},
+    ir::{
+        DataRef, FunctionOutputIndex, Instruction, SignalOutputIndex, SourceLocation,
+        TargetLocation, VarRef,
+    },
 };
 
 #[derive(Debug, Default)]
@@ -39,7 +42,10 @@ impl Runtime {
         ]);
         let mut instructions = vec![];
         for i in 0..runtime.num_outputs {
-            instructions.push(Instruction::Output(OutputIndex(i), Operand::Arg(i)));
+            instructions.push(Instruction::Store(
+                TargetLocation::SignalOutput(SignalOutputIndex(i)),
+                Operand::Arg(i),
+            ));
         }
         Function::new("out".into(), out_inputs, vec![], vec![], instructions, None)
     }
@@ -51,9 +57,12 @@ impl Runtime {
             vec![FunctionOutput],
             vec![FunctionDataItem::new("prev".into(), 0.0)],
             vec![
-                Instruction::Load(VarRef(0), Location::Data(DataRef(0))),
-                Instruction::StoreFunctionOutput(FunctionOutputIndex(0), Operand::Arg(0)),
-                Instruction::Store(Location::Data(DataRef(0)), Operand::Arg(0)),
+                Instruction::Load(VarRef(0), SourceLocation::Data(DataRef(0))),
+                Instruction::Store(
+                    TargetLocation::FunctionOutput(FunctionOutputIndex(0)),
+                    Operand::Arg(0),
+                ),
+                Instruction::Store(TargetLocation::Data(DataRef(0)), Operand::Arg(0)),
             ],
             Some(DataRef(0)),
         )
