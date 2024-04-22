@@ -52,7 +52,7 @@ pub enum ComparisonOpType {
     GreaterOrEqual,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct CallId(pub u32);
 
 #[derive(Debug, Clone)]
@@ -67,7 +67,7 @@ pub enum Instruction {
     LoadData(VarRef, DataRef),
     StoreData(DataRef, Operand),
 
-    LoadLastValue(CallId, String, DataRef, VarRef),
+    LoadLastValue(CallId, DataRef, VarRef),
     StoreFunctionOutput(FunctionOutputIndex, Operand),
 
     BinaryOp(VarRef, BinaryOpType, Operand, Operand),

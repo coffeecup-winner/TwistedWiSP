@@ -361,7 +361,7 @@ impl SignalProcessorBuilder {
                     current_block = next_block;
                     mctx.builder.position_at_end(current_block);
                 }
-                Call(_id, name, in_vrefs, out_vrefs) => {
+                Call(id, name, in_vrefs, out_vrefs) => {
                     let func = mctx.get_function(name)?;
                     if in_vrefs.len() != func.inputs().len() {
                         return Err(SignalProcessCreationError::InvalidNumberOfInputs(
@@ -404,13 +404,11 @@ impl SignalProcessorBuilder {
                     }
 
                     if !func.data().is_empty() {
-                        // TODO: Calculate based on call chain
-                        let data_path = "data";
-                        let idx = if let Some(idx) = mctx.data_indices.get(data_path) {
+                        let idx = if let Some(idx) = mctx.data_indices.get(id) {
                             *idx
                         } else {
                             let idx = mctx.data_indices.len() as u32;
-                            mctx.data_indices.insert(data_path.into(), idx);
+                            mctx.data_indices.insert(*id, idx);
                             idx
                         };
                         let pp_global_data = mctx
@@ -450,15 +448,13 @@ impl SignalProcessorBuilder {
                         _ => todo!(),
                     }
                 }
-                LoadLastValue(_id, _name, dref, vref) => {
+                LoadLastValue(id, dref, vref) => {
                     // TODO: Remove duplication with Call() and LoadData()
-                    // TODO: Calculate based on call chain
-                    let data_path = "data";
-                    let idx = if let Some(idx) = mctx.data_indices.get(data_path) {
+                    let idx = if let Some(idx) = mctx.data_indices.get(id) {
                         *idx
                     } else {
                         let idx = mctx.data_indices.len() as u32;
-                        mctx.data_indices.insert(data_path.into(), idx);
+                        mctx.data_indices.insert(*id, idx);
                         idx
                     };
                     let pp_global_data = mctx

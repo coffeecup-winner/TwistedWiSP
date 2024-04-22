@@ -5,7 +5,7 @@ use inkwell::{
     module::Module,
 };
 
-use crate::wisp::{function::Function, runtime::Runtime};
+use crate::wisp::{function::Function, ir::CallId, runtime::Runtime};
 
 use super::error::SignalProcessCreationError;
 
@@ -14,7 +14,7 @@ pub(super) struct ModuleContext<'ctx, 'temp> {
     pub runtime: &'temp Runtime,
     pub module: &'temp Module<'ctx>,
     pub builder: &'temp Builder<'ctx>,
-    pub data_indices: HashMap<String, u32>,
+    pub data_indices: HashMap<CallId, u32>,
 }
 
 impl<'ctx, 'temp> ModuleContext<'ctx, 'temp> {
@@ -22,7 +22,7 @@ impl<'ctx, 'temp> ModuleContext<'ctx, 'temp> {
         runtime: &'temp Runtime,
         module: &'temp Module<'ctx>,
         builder: &'temp Builder<'ctx>,
-        data_indices: HashMap<String, u32>,
+        data_indices: HashMap<CallId, u32>,
     ) -> Self {
         ModuleContext {
             runtime,

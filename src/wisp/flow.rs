@@ -103,8 +103,7 @@ impl Flow {
                     if let Some(dref) = source_func.lag_value() {
                         let vref = VarRef(vref_id);
                         instructions.push(Instruction::LoadLastValue(
-                            CallId(n.index() as u32),
-                            func.name().into(),
+                            CallId(e.source().index() as u32),
                             dref,
                             vref,
                         ));
