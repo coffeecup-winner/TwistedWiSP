@@ -106,7 +106,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let end = std::time::Instant::now();
     let duration_ns = (end - start).as_nanos();
     println!("Result: {:?}", v);
-    let time_limit_ns = 1_000_000_000 / 44100 * 64;
+    let time_limit_ns =
+        1_000_000_000 / device.sample_rate() * v.len() as u32 / device.num_output_channels();
     println!(
         "Took {}.{}µs (CPU usage: {:.2}%)",
         duration_ns / 1000,
