@@ -60,7 +60,7 @@ impl Runtime {
                 Instruction::Load(VarRef(0), SourceLocation::Data(DataRef(0))),
                 Instruction::Store(
                     TargetLocation::FunctionOutput(FunctionOutputIndex(0)),
-                    Operand::Arg(0),
+                    Operand::Var(VarRef(0)),
                 ),
                 Instruction::Store(TargetLocation::Data(DataRef(0)), Operand::Arg(0)),
             ],
