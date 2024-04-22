@@ -68,10 +68,11 @@ impl SignalProcessorBuilder {
         for (name, func) in runtime.functions_iter() {
             // >1 returns is currently not supported
             assert!(func.outputs().len() < 2);
-            let mut arg_types = vec![mctx.types.f32.into(); func.inputs().len()];
+            let mut arg_types = vec![];
             if mctx.data_layout.contains_key(name) {
                 arg_types.push(mctx.types.pf32.into());
             }
+            arg_types.extend(&vec![mctx.types.f32.into(); func.inputs().len()]);
             let fn_type = if func.outputs().len() == 1 {
                 mctx.types.f32.fn_type(&arg_types, false)
             } else {
@@ -159,7 +160,23 @@ impl SignalProcessorBuilder {
             .module
             .get_function(func.name())
             .ok_or_else(|| SignalProcessCreationError::UnknownFunction(func.name().to_owned()))?;
-        let mut fctx = FunctionContext::new(func, function, func.outputs().len());
+        let data_arg = if mctx.data_layout.contains_key(func.name()) {
+            Some(
+                function
+                    .get_first_param()
+                    .ok_or_else(|| {
+                        SignalProcessCreationError::InvalidNumberOfInputs(
+                            func.name().into(),
+                            func.inputs().len() as u32 + 1,
+                            0,
+                        )
+                    })?
+                    .into_pointer_value(),
+            )
+        } else {
+            None
+        };
+        let mut fctx = FunctionContext::new(func, function, data_arg, func.outputs().len());
         self.translate_instructions(mctx, &mut fctx, func.instructions())?;
         if !fctx.outputs.iter().all(|o| o.is_some()) {
             return Err(SignalProcessCreationError::UninitializedOutput(
@@ -215,9 +232,9 @@ impl SignalProcessorBuilder {
                             mctx.build("load_local", |b, n| b.build_load(mctx.types.f32, local, n))?
                         }
                         Data(dref) => {
-                            let p_data = fctx.get_argument(fctx.func.inputs().len() as u32)?;
+                            let p_data = fctx.get_data_argument()?;
                             let p_data_item = unsafe {
-                                p_data.into_pointer_value().const_gep(
+                                p_data.const_gep(
                                     mctx.types.f32,
                                     &[mctx.types.i32.const_int(dref.0 as u64, false)],
                                 )
@@ -247,9 +264,9 @@ impl SignalProcessorBuilder {
                                     )
                                 })?;
 
-                            let p_func_data = fctx.get_argument(fctx.func.inputs().len() as u32)?;
+                            let p_func_data = fctx.get_data_argument()?;
                             let p_data_item = unsafe {
-                                p_func_data.into_pointer_value().const_gep(
+                                p_func_data.const_gep(
                                     mctx.types.f32,
                                     &[mctx.types.i32.const_int(
                                         (child_offset + child_data_offset) as u64,
@@ -274,9 +291,9 @@ impl SignalProcessorBuilder {
                             mctx.build("store_local", |b, _| b.build_store(local, value))?;
                         }
                         Data(dref) => {
-                            let p_data = fctx.get_argument(fctx.func.inputs().len() as u32)?;
+                            let p_data = fctx.get_data_argument()?;
                             let p_data_item = unsafe {
-                                p_data.into_pointer_value().const_gep(
+                                p_data.const_gep(
                                     mctx.types.f32,
                                     &[mctx.types.i32.const_int(dref.0 as u64, false)],
                                 )
@@ -420,14 +437,14 @@ impl SignalProcessorBuilder {
                         .get(fctx.func.name())
                         .and_then(|l| l.children_data_offsets.get(id))
                     {
-                        let p_func_data = fctx.get_argument(fctx.func.inputs().len() as u32)?;
+                        let p_func_data = fctx.get_data_argument()?;
                         let p_callee_data = unsafe {
-                            p_func_data.into_pointer_value().const_gep(
+                            p_func_data.const_gep(
                                 mctx.types.f32,
                                 &[mctx.types.i32.const_int(*offset as u64, false)],
                             )
                         };
-                        args.push(BasicMetadataValueEnum::PointerValue(p_callee_data));
+                        args.insert(0, BasicMetadataValueEnum::PointerValue(p_callee_data));
                     }
 
                     let func_value = mctx
