@@ -15,6 +15,7 @@ use crate::wisp::{
         BinaryOpType, ComparisonOpType, FunctionOutputIndex, Instruction, LocalRef, Operand, VarRef,
     },
     runtime::Runtime,
+    WispContext,
 };
 
 use clap::Parser;
@@ -44,7 +45,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let device = ConfiguredAudioDevice::open(args.audio_host, args.audio_device)?;
 
-    let mut context = crate::wisp::context::SignalProcessorContext::new();
+    let mut context = WispContext::new();
 
     let func = Function::new(
         "test".into(),
