@@ -8,9 +8,9 @@ use inkwell::{
     AddressSpace,
 };
 
-use crate::wisp::{function::Function, ir::CallId, runtime::Runtime};
+use crate::wisp::{function::Function, runtime::Runtime};
 
-use super::error::SignalProcessCreationError;
+use super::{data_layout::FunctionDataLayout, error::SignalProcessCreationError};
 
 #[derive(Debug)]
 pub(super) struct ModuleTypes<'ctx> {
@@ -37,7 +37,7 @@ pub(super) struct ModuleContext<'ctx, 'temp> {
     pub types: ModuleTypes<'ctx>,
     pub module: &'temp Module<'ctx>,
     pub builder: Builder<'ctx>,
-    pub data_indices: HashMap<CallId, u32>,
+    pub data_layout: HashMap<String, FunctionDataLayout>,
 }
 
 impl<'ctx, 'temp> ModuleContext<'ctx, 'temp> {
@@ -45,14 +45,14 @@ impl<'ctx, 'temp> ModuleContext<'ctx, 'temp> {
         context: &'ctx Context,
         runtime: &'temp Runtime,
         module: &'temp Module<'ctx>,
-        data_indices: HashMap<CallId, u32>,
+        data_layout: HashMap<String, FunctionDataLayout>,
     ) -> Self {
         ModuleContext {
             runtime,
             types: ModuleTypes::new(context),
             module,
             builder: context.create_builder(),
-            data_indices,
+            data_layout,
         }
     }
 

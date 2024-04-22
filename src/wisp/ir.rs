@@ -1,18 +1,18 @@
 #![allow(dead_code)]
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct VarRef(pub u32);
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct LocalRef(pub u32);
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct DataRef(pub u32);
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct FunctionOutputIndex(pub u32);
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct SignalOutputIndex(pub u32);
 
 #[derive(Debug, Clone, Copy)]
@@ -23,12 +23,12 @@ pub enum Operand {
     Arg(u32),
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Constant {
     SampleRate,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum BinaryOpType {
     Add,
     Subtract,
@@ -36,7 +36,7 @@ pub enum BinaryOpType {
     Divide,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ComparisonOpType {
     Equal,
     NotEqual,
@@ -46,14 +46,14 @@ pub enum ComparisonOpType {
     GreaterOrEqual,
 }
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct CallId(pub u32);
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum SourceLocation {
     Local(LocalRef),
     Data(DataRef),
-    LastValue(CallId, DataRef),
+    LastValue(CallId, String, DataRef),
 }
 
 #[derive(Debug, Clone, Copy)]

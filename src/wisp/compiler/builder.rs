@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use inkwell::{
     basic_block::BasicBlock,
     context::Context,
@@ -17,6 +15,7 @@ use crate::wisp::{
 };
 
 use super::{
+    data_layout::calculate_data_layout,
     error::SignalProcessCreationError,
     function_context::FunctionContext,
     module_context::ModuleContext,
@@ -48,9 +47,9 @@ impl SignalProcessorBuilder {
             .create_jit_execution_engine(OptimizationLevel::None)
             .map_err(|_| SignalProcessCreationError::InitEE)?;
 
-        let mut mctx = ModuleContext::new(&self.context, runtime, &module, HashMap::new());
+        let data_layout = calculate_data_layout(runtime.get_function(top_level).unwrap(), runtime);
+        let mut mctx = ModuleContext::new(&self.context, runtime, &module, data_layout);
 
-        let g_data = module.add_global(mctx.types.pf32, None, "wisp_global_data");
         let g_output = module.add_global(mctx.types.pf32, None, "wisp_global_output");
         let g_wisp_debug = module.add_function(
             "wisp_debug",
@@ -58,10 +57,8 @@ impl SignalProcessorBuilder {
             None,
         );
         let mut spctx = Box::new(SignalProcessorContext {
-            p_data: std::ptr::null_mut(),
             p_output: std::ptr::null_mut(),
         });
-        execution_engine.add_global_mapping(&g_data, &mut spctx.p_data as *mut _ as usize);
         execution_engine.add_global_mapping(&g_output, &mut spctx.p_output as *mut _ as usize);
         extern "C" fn wisp_debug(v: f32) {
             eprintln!("Debug: {}", v);
@@ -72,7 +69,7 @@ impl SignalProcessorBuilder {
             // >1 returns is currently not supported
             assert!(func.outputs().len() < 2);
             let mut arg_types = vec![mctx.types.f32.into(); func.inputs().len()];
-            if !func.data().is_empty() {
+            if mctx.data_layout.contains_key(name) {
                 arg_types.push(mctx.types.pf32.into());
             }
             let fn_type = if func.outputs().len() == 1 {
@@ -86,6 +83,27 @@ impl SignalProcessorBuilder {
         for (_, func) in runtime.functions_iter() {
             self.build_function(&mut mctx, func)?;
         }
+
+        let entry = mctx.module.add_function(
+            "wisp_entry",
+            mctx.types.void.fn_type(&[mctx.types.pf32.into()], false),
+            None,
+        );
+        let bb = self.context.append_basic_block(entry, "entry");
+        mctx.builder.position_at_end(bb);
+        let p_data = entry.get_first_param().ok_or_else(|| {
+            SignalProcessCreationError::InvalidNumberOfInputs("wisp_entry".into(), 1, 0)
+        })?;
+        mctx.build("entry", |b, n| {
+            b.build_call(
+                mctx.module.get_function(top_level).unwrap(),
+                &[BasicMetadataValueEnum::PointerValue(
+                    p_data.into_pointer_value(),
+                )],
+                n,
+            )
+        })?;
+        mctx.build("exit", |b, _| b.build_return(None))?;
 
         if cfg!(debug_assertions) {
             eprintln!("===== BEFORE =====");
@@ -119,14 +137,14 @@ impl SignalProcessorBuilder {
             }
         }
 
-        let function = unsafe { execution_engine.get_function(top_level) }
+        let function = unsafe { execution_engine.get_function("wisp_entry") }
             .map_err(|_| SignalProcessCreationError::LoadFunction)?;
         Ok((
             SignalProcessor::new(
                 spctx,
                 unsafe { function.into_raw() },
-                runtime.num_outputs() as usize,
-                mctx.data_indices.len(),
+                runtime.num_outputs(),
+                mctx.data_layout.get(top_level).map_or(0, |l| l.total_size),
             ),
             execution_engine,
         ))
@@ -208,35 +226,38 @@ impl SignalProcessorBuilder {
                                 b.build_load(mctx.types.f32, p_data_item, n)
                             })?
                         }
-                        LastValue(id, dref) => {
-                            // TODO: Remove duplication with Call() and LoadData()
-                            let idx = if let Some(idx) = mctx.data_indices.get(id) {
-                                *idx
-                            } else {
-                                let idx = mctx.data_indices.len() as u32;
-                                mctx.data_indices.insert(*id, idx);
-                                idx
-                            };
-                            let pp_global_data = mctx
-                                .module
-                                .get_global("wisp_global_data")
-                                .expect("Invalid global name");
-                            let p_global_data = mctx.build("load_global_data", |b, n| {
-                                b.build_load(mctx.types.pf32, pp_global_data.as_pointer_value(), n)
-                            })?;
-                            let p_func_data = unsafe {
-                                p_global_data.into_pointer_value().const_gep(
-                                    mctx.types.f32,
-                                    &[mctx.types.i32.const_int(idx as u64, false)],
-                                )
-                            };
-                            // LoadData
+                        LastValue(id, name, dref) => {
+                            let child_offset = *mctx
+                                .data_layout
+                                .get(fctx.func.name())
+                                .and_then(|l| l.children_data_offsets.get(id))
+                                .ok_or_else(|| {
+                                    SignalProcessCreationError::InvalidDataLayout(
+                                        fctx.func.name().into(),
+                                    )
+                                })?;
+
+                            let child_data_offset = *mctx
+                                .data_layout
+                                .get(name)
+                                .and_then(|l| l.own_data_offsets.get(dref))
+                                .ok_or_else(|| {
+                                    SignalProcessCreationError::InvalidDataLayout(
+                                        fctx.func.name().into(),
+                                    )
+                                })?;
+
+                            let p_func_data = fctx.get_argument(fctx.func.inputs().len() as u32)?;
                             let p_data_item = unsafe {
-                                p_func_data.const_gep(
+                                p_func_data.into_pointer_value().const_gep(
                                     mctx.types.f32,
-                                    &[mctx.types.i32.const_int(dref.0 as u64, false)],
+                                    &[mctx.types.i32.const_int(
+                                        (child_offset + child_data_offset) as u64,
+                                        false,
+                                    )],
                                 )
                             };
+
                             mctx.build("load_data_item", |b, n| {
                                 b.build_load(mctx.types.f32, p_data_item, n)
                             })?
@@ -355,18 +376,18 @@ impl SignalProcessorBuilder {
                     mctx.builder.position_at_end(current_block);
                 }
                 Call(id, name, in_vrefs, out_vrefs) => {
-                    let func = mctx.get_function(name)?;
-                    if in_vrefs.len() != func.inputs().len() {
+                    let callee_func = mctx.get_function(name)?;
+                    if in_vrefs.len() != callee_func.inputs().len() {
                         return Err(SignalProcessCreationError::InvalidNumberOfInputs(
                             name.into(),
-                            func.inputs().len() as u32,
+                            callee_func.inputs().len() as u32,
                             in_vrefs.len() as u32,
                         ));
                     }
-                    if out_vrefs.len() > func.outputs().len() {
+                    if out_vrefs.len() > callee_func.outputs().len() {
                         return Err(SignalProcessCreationError::InvalidNumberOfOutputs(
                             name.into(),
-                            func.outputs().len() as u32,
+                            callee_func.outputs().len() as u32,
                             out_vrefs.len() as u32,
                         ));
                     }
@@ -374,7 +395,7 @@ impl SignalProcessorBuilder {
                     for (idx, input) in in_vrefs.iter().enumerate() {
                         let value = match input {
                             Some(op) => Self::resolve_operand(mctx, fctx, op)?,
-                            None => match func.inputs()[idx].fallback {
+                            None => match callee_func.inputs()[idx].fallback {
                                 Some(fallback) => match fallback {
                                     DefaultInputValue::Normal => {
                                         args[idx - 1].into_float_value().as_basic_value_enum()
@@ -394,28 +415,19 @@ impl SignalProcessorBuilder {
                         args.push(BasicMetadataValueEnum::FloatValue(value.into_float_value()));
                     }
 
-                    if !func.data().is_empty() {
-                        let idx = if let Some(idx) = mctx.data_indices.get(id) {
-                            *idx
-                        } else {
-                            let idx = mctx.data_indices.len() as u32;
-                            mctx.data_indices.insert(*id, idx);
-                            idx
-                        };
-                        let pp_global_data = mctx
-                            .module
-                            .get_global("wisp_global_data")
-                            .expect("Invalid global name");
-                        let p_global_data = mctx.build("load_global_data", |b, n| {
-                            b.build_load(mctx.types.pf32, pp_global_data.as_pointer_value(), n)
-                        })?;
-                        let p_func_data = unsafe {
-                            p_global_data.into_pointer_value().const_gep(
+                    if let Some(offset) = mctx
+                        .data_layout
+                        .get(fctx.func.name())
+                        .and_then(|l| l.children_data_offsets.get(id))
+                    {
+                        let p_func_data = fctx.get_argument(fctx.func.inputs().len() as u32)?;
+                        let p_callee_data = unsafe {
+                            p_func_data.into_pointer_value().const_gep(
                                 mctx.types.f32,
-                                &[mctx.types.i32.const_int(idx as u64, false)],
+                                &[mctx.types.i32.const_int(*offset as u64, false)],
                             )
                         };
-                        args.push(BasicMetadataValueEnum::PointerValue(p_func_data));
+                        args.push(BasicMetadataValueEnum::PointerValue(p_callee_data));
                     }
 
                     let func_value = mctx
@@ -426,7 +438,7 @@ impl SignalProcessorBuilder {
                     let call_site =
                         mctx.build("call", |b, n| b.build_call(func_value, &args, n))?;
                     let res = call_site.as_any_value_enum();
-                    match func.outputs().len() {
+                    match callee_func.outputs().len() {
                         0 => { /* do nothing */ }
                         1 => {
                             fctx.vars

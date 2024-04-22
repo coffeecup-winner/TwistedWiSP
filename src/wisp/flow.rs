@@ -126,7 +126,11 @@ impl Flow {
                         let vref = VarRef(vref_id);
                         instructions.push(Instruction::Load(
                             vref,
-                            SourceLocation::LastValue(CallId(e.source().index() as u32), dref),
+                            SourceLocation::LastValue(
+                                CallId(e.source().index() as u32),
+                                source_func.name().into(),
+                                dref,
+                            ),
                         ));
                         vref_id += 1;
                         inputs.push(Some(Operand::Var(vref)));

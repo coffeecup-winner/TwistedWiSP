@@ -32,6 +32,9 @@ pub enum SignalProcessCreationError {
     #[error("Output {1} for function {0} was not initialized")]
     UninitializedOutput(String, u32),
 
+    #[error("Invalid data layout for function {0}")]
+    InvalidDataLayout(String),
+
     #[error("Logical error: {0}")]
     CustomLogicalError(String),
 }
