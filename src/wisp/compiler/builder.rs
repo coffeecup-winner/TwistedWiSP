@@ -13,7 +13,7 @@ use inkwell::{
 use crate::wisp::{
     flow::Flow,
     function::{DefaultInputValue, Function, FunctionInput},
-    ir::{GlobalRef, Instruction, Operand},
+    ir::{GlobalRef, Instruction, Location, Operand},
     runtime::Runtime,
 };
 
@@ -93,8 +93,8 @@ impl SignalProcessorBuilder {
         }
 
         let mut process_func_instructions = vec![
-            Instruction::StoreGlobal(GlobalRef::Data, Operand::Arg(0)),
-            Instruction::StoreGlobal(GlobalRef::Output, Operand::Arg(1)),
+            Instruction::Store(Location::Global(GlobalRef::Data), Operand::Arg(0)),
+            Instruction::Store(Location::Global(GlobalRef::Output), Operand::Arg(1)),
         ];
         process_func_instructions.extend(flow.get_compiled_flow(runtime).iter().cloned());
         let func = Function::new(
@@ -218,67 +218,75 @@ impl SignalProcessorBuilder {
                     })?;
                     fctx.locals.insert(*lref, local);
                 }
-                LoadLocal(vref, lref) => {
-                    let local = fctx.get_local(lref)?;
-                    let value = mctx.build("load_local", |b, n| {
-                        b.build_load(self.context.f32_type(), local, n)
-                    })?;
+                Load(vref, loc) => {
+                    use crate::wisp::ir::Location::*;
+                    let value = match loc {
+                        Local(lref) => {
+                            let local = fctx.get_local(lref)?;
+                            mctx.build("load_local", |b, n| {
+                                b.build_load(self.context.f32_type(), local, n)
+                            })?
+                        }
+                        Global(gref) => {
+                            let global = match gref {
+                                GlobalRef::Data => mctx.module.get_global("wisp_global_data"),
+                                GlobalRef::Output => mctx.module.get_global("wisp_global_output"),
+                            }
+                            .expect("Invalid global name");
+                            mctx.build("load_global", |b, n| {
+                                b.build_load(
+                                    self.context.f32_type().ptr_type(AddressSpace::default()),
+                                    global.as_pointer_value(),
+                                    n,
+                                )
+                            })?
+                        }
+                        Data(dref) => {
+                            let p_data = fctx.get_argument(fctx.func.inputs().len() as u32)?;
+                            let p_data_item = unsafe {
+                                p_data.into_pointer_value().const_gep(
+                                    self.context.f32_type(),
+                                    &[self.context.i32_type().const_int(dref.0 as u64, false)],
+                                )
+                            };
+                            mctx.build("load_data_item", |b, n| {
+                                b.build_load(self.context.f32_type(), p_data_item, n)
+                            })?
+                        }
+                    };
                     fctx.vars.insert(*vref, value);
                 }
-                StoreLocal(lref, op) => {
-                    let local = fctx.get_local(lref)?;
+                Store(loc, op) => {
                     let value = self.resolve_operand(mctx.runtime, fctx, op)?;
-                    mctx.build("store_local", |b, _| b.build_store(local, value))?;
-                }
-                LoadGlobal(vref, gref) => {
-                    let global = match gref {
-                        GlobalRef::Data => mctx.module.get_global("wisp_global_data"),
-                        GlobalRef::Output => mctx.module.get_global("wisp_global_output"),
+                    use crate::wisp::ir::Location::*;
+                    match loc {
+                        Local(lref) => {
+                            let local = fctx.get_local(lref)?;
+                            mctx.build("store_local", |b, _| b.build_store(local, value))?;
+                        }
+                        Global(gref) => {
+                            let global = match gref {
+                                GlobalRef::Data => mctx.module.get_global("wisp_global_data"),
+                                GlobalRef::Output => mctx.module.get_global("wisp_global_output"),
+                            }
+                            .expect("Invalid global name");
+                            mctx.build("store_global", |b, _| {
+                                b.build_store(global.as_pointer_value(), value)
+                            })?;
+                        }
+                        Data(dref) => {
+                            let p_data = fctx.get_argument(fctx.func.inputs().len() as u32)?;
+                            let p_data_item = unsafe {
+                                p_data.into_pointer_value().const_gep(
+                                    self.context.f32_type(),
+                                    &[self.context.i32_type().const_int(dref.0 as u64, false)],
+                                )
+                            };
+                            mctx.build("store_data_item", |b, _| {
+                                b.build_store(p_data_item, value)
+                            })?;
+                        }
                     }
-                    .expect("Invalid global name");
-                    let value = mctx.build("load_global", |b, n| {
-                        b.build_load(
-                            self.context.f32_type().ptr_type(AddressSpace::default()),
-                            global.as_pointer_value(),
-                            n,
-                        )
-                    })?;
-                    fctx.vars.insert(*vref, value);
-                }
-                StoreGlobal(gref, op) => {
-                    let global = match gref {
-                        GlobalRef::Data => mctx.module.get_global("wisp_global_data"),
-                        GlobalRef::Output => mctx.module.get_global("wisp_global_output"),
-                    }
-                    .expect("Invalid global name");
-                    let value = self.resolve_operand(mctx.runtime, fctx, op)?;
-                    mctx.build("store_global", |b, _| {
-                        b.build_store(global.as_pointer_value(), value)
-                    })?;
-                }
-                LoadData(vref, dref) => {
-                    let p_data = fctx.get_argument(fctx.func.inputs().len() as u32)?;
-                    let p_data_item = unsafe {
-                        p_data.into_pointer_value().const_gep(
-                            self.context.f32_type(),
-                            &[self.context.i32_type().const_int(dref.0 as u64, false)],
-                        )
-                    };
-                    let data_item = mctx.build("load_data_item", |b, n| {
-                        b.build_load(self.context.f32_type(), p_data_item, n)
-                    })?;
-                    fctx.vars.insert(*vref, data_item);
-                }
-                StoreData(dref, op) => {
-                    let p_data = fctx.get_argument(fctx.func.inputs().len() as u32)?;
-                    let p_data_item = unsafe {
-                        p_data.into_pointer_value().const_gep(
-                            self.context.f32_type(),
-                            &[self.context.i32_type().const_int(dref.0 as u64, false)],
-                        )
-                    };
-                    let value = self.resolve_operand(mctx.runtime, fctx, op)?;
-                    mctx.build("store_data_item", |b, _| b.build_store(p_data_item, value))?;
                 }
                 StoreFunctionOutput(idx, op) => {
                     let value = self.resolve_operand(mctx.runtime, fctx, op)?;

@@ -4,7 +4,7 @@ use crate::wisp::ir::Operand;
 
 use super::{
     function::{DefaultInputValue, Function, FunctionDataItem, FunctionInput, FunctionOutput},
-    ir::{DataRef, FunctionOutputIndex, Instruction, OutputIndex, VarRef},
+    ir::{DataRef, FunctionOutputIndex, Instruction, Location, OutputIndex, VarRef},
 };
 
 #[derive(Debug, Default)]
@@ -51,9 +51,9 @@ impl Runtime {
             vec![FunctionOutput],
             vec![FunctionDataItem::new("prev".into(), 0.0)],
             vec![
-                Instruction::LoadData(VarRef(0), DataRef(0)),
+                Instruction::Load(VarRef(0), Location::Data(DataRef(0))),
                 Instruction::StoreFunctionOutput(FunctionOutputIndex(0), Operand::Arg(0)),
-                Instruction::StoreData(DataRef(0), Operand::Arg(0)),
+                Instruction::Store(Location::Data(DataRef(0)), Operand::Arg(0)),
             ],
             Some(DataRef(0)),
         )

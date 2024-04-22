@@ -55,17 +55,19 @@ pub enum ComparisonOpType {
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct CallId(pub u32);
 
+#[derive(Debug, Clone, Copy)]
+pub enum Location {
+    Local(LocalRef),
+    Global(GlobalRef),
+    Data(DataRef),
+}
+
 #[derive(Debug, Clone)]
 pub enum Instruction {
     AllocLocal(LocalRef),
-    LoadLocal(VarRef, LocalRef),
-    StoreLocal(LocalRef, Operand),
 
-    LoadGlobal(VarRef, GlobalRef),
-    StoreGlobal(GlobalRef, Operand),
-
-    LoadData(VarRef, DataRef),
-    StoreData(DataRef, Operand),
+    Load(VarRef, Location),
+    Store(Location, Operand),
 
     LoadLastValue(CallId, DataRef, VarRef),
     StoreFunctionOutput(FunctionOutputIndex, Operand),
