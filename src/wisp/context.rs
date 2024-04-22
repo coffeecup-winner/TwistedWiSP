@@ -22,12 +22,18 @@ impl WispContext {
 
     pub fn create_signal_processor<'ctx>(
         &'ctx mut self,
-        flow: &Flow,
+        top_level: &str,
     ) -> Result<(SignalProcessor, ExecutionEngine<'ctx>), SignalProcessCreationError> {
-        self.builder.create_signal_processor(flow, &self.runtime)
+        self.builder
+            .create_signal_processor(top_level, &self.runtime)
     }
 
     pub fn add_function(&mut self, func: Function) {
         self.runtime.add_function(func)
+    }
+
+    pub fn compile_flow(&mut self, flow: &Flow) {
+        let func = flow.compile_function(&self.runtime);
+        self.runtime.add_function(func);
     }
 }

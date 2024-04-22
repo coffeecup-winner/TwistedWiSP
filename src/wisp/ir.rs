@@ -7,12 +7,6 @@ pub struct VarRef(pub u32);
 pub struct LocalRef(pub u32);
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum GlobalRef {
-    Data,
-    Output,
-}
-
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct DataRef(pub u32);
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -58,7 +52,6 @@ pub struct CallId(pub u32);
 #[derive(Debug, Clone, Copy)]
 pub enum SourceLocation {
     Local(LocalRef),
-    Global(GlobalRef),
     Data(DataRef),
     LastValue(CallId, DataRef),
 }
@@ -66,7 +59,6 @@ pub enum SourceLocation {
 #[derive(Debug, Clone, Copy)]
 pub enum TargetLocation {
     Local(LocalRef),
-    Global(GlobalRef),
     Data(DataRef),
     FunctionOutput(FunctionOutputIndex),
     SignalOutput(SignalOutputIndex),

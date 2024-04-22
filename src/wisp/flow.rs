@@ -11,6 +11,7 @@ use petgraph::{
 };
 
 use super::{
+    function::Function,
     ir::{CallId, Instruction, Operand, SourceLocation, VarRef},
     runtime::Runtime,
 };
@@ -30,13 +31,17 @@ struct FlowConnection {
 
 #[derive(Debug, Default)]
 pub struct Flow {
+    name: String,
     graph: FlowGraph,
     ir: RefCell<Option<Vec<Instruction>>>,
 }
 
 impl Flow {
-    pub fn new() -> Self {
-        Flow::default()
+    pub fn new(name: String) -> Self {
+        Flow {
+            name,
+            ..Default::default()
+        }
     }
 
     pub fn add_function(&mut self, name: String) -> FlowFunctionIndex {
@@ -60,7 +65,24 @@ impl Flow {
         );
     }
 
-    pub fn get_compiled_flow(&self, runtime: &Runtime) -> Ref<'_, Vec<Instruction>> {
+    pub fn compile_function(&self, runtime: &Runtime) -> Function {
+        let process_func_instructions = self
+            .get_compiled_flow(runtime)
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        // TODO: Support inputs/outputs for flows
+        Function::new(
+            self.name.clone(),
+            vec![],
+            vec![],
+            vec![],
+            process_func_instructions,
+            None,
+        )
+    }
+
+    fn get_compiled_flow(&self, runtime: &Runtime) -> Ref<'_, Vec<Instruction>> {
         if self.ir.borrow().is_none() {
             let ir = self.compile(runtime);
             *self.ir.borrow_mut() = Some(ir);

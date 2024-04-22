@@ -1,14 +1,14 @@
-pub struct Globals {
+pub struct SignalProcessorContext {
     pub p_data: *mut f32,
     pub p_output: *mut f32,
 }
-unsafe impl Send for Globals {}
-unsafe impl Sync for Globals {}
+unsafe impl Send for SignalProcessorContext {}
+unsafe impl Sync for SignalProcessorContext {}
 
-type ProcessFn = unsafe extern "C" fn(data: *mut f32, output: *mut f32);
+type ProcessFn = unsafe extern "C" fn();
 
 pub struct SignalProcessor {
-    _globals: Box<Globals>,
+    ctx: Box<SignalProcessorContext>,
     function: ProcessFn,
     num_outputs: usize,
     data: Vec<f32>,
@@ -16,16 +16,18 @@ pub struct SignalProcessor {
 
 impl SignalProcessor {
     pub fn new(
-        globals: Box<Globals>,
+        mut ctx: Box<SignalProcessorContext>,
         function: ProcessFn,
         num_outputs: usize,
         data_length: usize,
     ) -> Self {
+        let mut data = vec![0.0; data_length];
+        ctx.p_data = data.as_mut_ptr();
         SignalProcessor {
-            _globals: globals,
+            ctx,
             function,
             num_outputs,
-            data: vec![0.0; data_length],
+            data,
         }
     }
 
@@ -38,8 +40,9 @@ impl SignalProcessor {
     }
 
     pub fn process_one(&mut self, output: &mut [f32]) {
+        self.ctx.p_output = output.as_mut_ptr();
         unsafe {
-            (self.function)(self.data.as_mut_ptr(), output.as_mut_ptr());
+            (self.function)();
         }
     }
 

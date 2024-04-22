@@ -11,9 +11,8 @@ use inkwell::{
 };
 
 use crate::wisp::{
-    flow::Flow,
-    function::{DefaultInputValue, Function, FunctionInput},
-    ir::{GlobalRef, Instruction, Operand, TargetLocation},
+    function::{DefaultInputValue, Function},
+    ir::{Instruction, Operand},
     runtime::Runtime,
 };
 
@@ -21,7 +20,7 @@ use super::{
     error::SignalProcessCreationError,
     function_context::FunctionContext,
     module_context::ModuleContext,
-    processor::{Globals, SignalProcessor},
+    processor::{SignalProcessor, SignalProcessorContext},
 };
 
 pub struct SignalProcessorBuilder {
@@ -39,7 +38,7 @@ impl SignalProcessorBuilder {
 
     pub fn create_signal_processor<'ctx>(
         &'ctx mut self,
-        flow: &Flow,
+        top_level: &str,
         runtime: &Runtime,
     ) -> Result<(SignalProcessor, ExecutionEngine<'ctx>), SignalProcessCreationError> {
         self.id_gen += 1;
@@ -61,7 +60,7 @@ impl SignalProcessorBuilder {
                 .fn_type(&[f32_type.into(); 1], false),
             None,
         );
-        let mut globals = Box::new(Globals {
+        let mut globals = Box::new(SignalProcessorContext {
             p_data: std::ptr::null_mut(),
             p_output: std::ptr::null_mut(),
         });
@@ -91,30 +90,6 @@ impl SignalProcessorBuilder {
         for (_, func) in runtime.functions_iter() {
             self.build_function(&mut mctx, func)?;
         }
-
-        let mut process_func_instructions = vec![
-            Instruction::Store(TargetLocation::Global(GlobalRef::Data), Operand::Arg(0)),
-            Instruction::Store(TargetLocation::Global(GlobalRef::Output), Operand::Arg(1)),
-        ];
-        process_func_instructions.extend(flow.get_compiled_flow(runtime).iter().cloned());
-        let func = Function::new(
-            "wisp_process".into(),
-            vec![FunctionInput::default(); 2],
-            vec![],
-            vec![],
-            process_func_instructions,
-            None,
-        );
-
-        module.add_function(
-            func.name(),
-            self.context
-                .void_type()
-                .fn_type(&[pf32_type.into(); 3], false),
-            None,
-        );
-
-        self.build_function(&mut mctx, &func)?;
 
         if cfg!(debug_assertions) {
             eprintln!("===== BEFORE =====");
@@ -148,7 +123,7 @@ impl SignalProcessorBuilder {
             }
         }
 
-        let function = unsafe { execution_engine.get_function("wisp_process") }
+        let function = unsafe { execution_engine.get_function(top_level) }
             .map_err(|_| SignalProcessCreationError::LoadFunction)?;
         Ok((
             SignalProcessor::new(
@@ -227,20 +202,6 @@ impl SignalProcessorBuilder {
                                 b.build_load(self.context.f32_type(), local, n)
                             })?
                         }
-                        Global(gref) => {
-                            let global = match gref {
-                                GlobalRef::Data => mctx.module.get_global("wisp_global_data"),
-                                GlobalRef::Output => mctx.module.get_global("wisp_global_output"),
-                            }
-                            .expect("Invalid global name");
-                            mctx.build("load_global", |b, n| {
-                                b.build_load(
-                                    self.context.f32_type().ptr_type(AddressSpace::default()),
-                                    global.as_pointer_value(),
-                                    n,
-                                )
-                            })?
-                        }
                         Data(dref) => {
                             let p_data = fctx.get_argument(fctx.func.inputs().len() as u32)?;
                             let p_data_item = unsafe {
@@ -300,16 +261,6 @@ impl SignalProcessorBuilder {
                         Local(lref) => {
                             let local = fctx.get_local(lref)?;
                             mctx.build("store_local", |b, _| b.build_store(local, value))?;
-                        }
-                        Global(gref) => {
-                            let global = match gref {
-                                GlobalRef::Data => mctx.module.get_global("wisp_global_data"),
-                                GlobalRef::Output => mctx.module.get_global("wisp_global_output"),
-                            }
-                            .expect("Invalid global name");
-                            mctx.build("store_global", |b, _| {
-                                b.build_store(global.as_pointer_value(), value)
-                            })?;
                         }
                         Data(dref) => {
                             let p_data = fctx.get_argument(fctx.func.inputs().len() as u32)?;

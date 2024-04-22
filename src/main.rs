@@ -47,7 +47,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut wisp = WispContext::new(device.num_output_channels(), device.sample_rate());
 
-    let func = Function::new(
+    let test_func = Function::new(
         "test".into(),
         vec![FunctionInput::default()],
         vec![FunctionOutput],
@@ -88,18 +88,18 @@ fn main() -> Result<(), Box<dyn Error>> {
         ],
         None,
     );
+    wisp.add_function(test_func);
 
-    let mut flow = Flow::new();
+    let mut flow = Flow::new("example".into());
     let idx_test = flow.add_function("test".into());
     let idx_out = flow.add_function("out".into());
     let idx_lag = flow.add_function("lag".into());
     flow.connect(idx_test, 0, idx_out, 0);
     flow.connect(idx_test, 0, idx_lag, 0);
     flow.connect(idx_lag, 0, idx_test, 0);
+    wisp.compile_flow(&flow);
 
-    wisp.add_function(func);
-
-    let (mut processor, _ee) = wisp.create_signal_processor(&flow)?;
+    let (mut processor, _ee) = wisp.create_signal_processor("example")?;
     let mut v = vec![0.0; 64];
     let start = std::time::Instant::now();
     processor.process(&mut v);
