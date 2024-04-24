@@ -1,12 +1,8 @@
 mod audio;
+mod server;
 mod wisp;
 
-use std::{
-    borrow::BorrowMut,
-    error::Error,
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::error::Error;
 
 use crate::wisp::{
     flow::Flow,
@@ -44,8 +40,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     let device = ConfiguredAudioDevice::open(args.audio_host, args.audio_device)?;
-
     let mut wisp = WispContext::new(device.num_output_channels(), device.sample_rate());
+    if args.server {
+        return crate::server::main(wisp, device);
+    }
 
     let test_func = Function::new(
         "test".into(),
@@ -114,24 +112,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         duration_ns % 1000,
         (duration_ns as f32 / time_limit_ns as f32 * 100.0)
     );
-
-    if args.server {
-        let mut processor_mutex = Arc::new(Mutex::new(processor));
-        let _stream = device
-            .build_output_audio_stream(move |_num_outputs: u32, buffer: &mut [f32]| {
-                processor_mutex.borrow_mut().lock().unwrap().process(buffer);
-                // Clip the output to the safe levels
-                for b in buffer.iter_mut() {
-                    *b = b.clamp(-1.0, 1.0);
-                }
-            })
-            .expect("msg");
-
-        loop {
-            std::thread::sleep(Duration::from_millis(50));
-            // Wait until Ctrl+C
-        }
-    }
 
     Ok(())
 }

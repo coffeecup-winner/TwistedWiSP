@@ -8,3 +8,4 @@ mod processor;
 pub use builder::SignalProcessorBuilder;
 pub use error::SignalProcessCreationError;
 pub use processor::SignalProcessor;
+pub use processor::SignalProcessorContext;

@@ -1,7 +1,9 @@
 use inkwell::execution_engine::ExecutionEngine;
 
 use super::{
-    compiler::{SignalProcessCreationError, SignalProcessor, SignalProcessorBuilder},
+    compiler::{
+        SignalProcessCreationError, SignalProcessor, SignalProcessorBuilder, SignalProcessorContext,
+    },
     flow::Flow,
     function::Function,
     runtime::Runtime,
@@ -26,6 +28,18 @@ impl WispContext {
     ) -> Result<(SignalProcessor, ExecutionEngine<'ctx>), SignalProcessCreationError> {
         self.builder
             .create_signal_processor(top_level, &self.runtime)
+    }
+
+    pub fn create_empty_signal_processor(&self) -> SignalProcessor {
+        extern "C" fn empty(_p_data: *mut f32) {}
+        SignalProcessor::new(
+            Box::new(SignalProcessorContext {
+                p_output: std::ptr::null_mut(),
+            }),
+            empty,
+            self.runtime.num_outputs(),
+            0,
+        )
     }
 
     pub fn add_function(&mut self, func: Function) {
