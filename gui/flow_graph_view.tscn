@@ -1,18 +1,54 @@
-[gd_scene format=3 uid="uid://dtktiuwmp1rh1"]
+[gd_scene load_steps=2 format=3 uid="uid://dtktiuwmp1rh1"]
 
-[node name="FlowGraphView" type="Control"]
-layout_mode = 3
+[ext_resource type="Script" path="res://flow_graph_view.gd" id="1_sacfu"]
+
+[node name="FlowGraphView" type="GraphEdit"]
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
+right_disconnects = true
+script = ExtResource("1_sacfu")
 
-[node name="GraphEdit" type="GraphEdit" parent="."]
-layout_mode = 1
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-scroll_offset = Vector2(-1152, -616)
+[node name="GraphNode" type="GraphNode" parent="."]
+layout_mode = 0
+offset_left = 322.0
+offset_top = 248.0
+offset_right = 539.0
+offset_bottom = 366.0
+mouse_filter = 1
+position_offset = Vector2(322, 248)
+slot/0/left_enabled = true
+slot/0/left_type = 0
+slot/0/left_color = Color(1, 1, 1, 1)
+slot/0/left_icon = null
+slot/0/right_enabled = true
+slot/0/right_type = 0
+slot/0/right_color = Color(1, 1, 1, 1)
+slot/0/right_icon = null
+slot/0/draw_stylebox = true
+
+[node name="Label" type="Label" parent="GraphNode"]
+layout_mode = 2
+
+[node name="GraphNode2" type="GraphNode" parent="."]
+layout_mode = 0
+offset_left = 670.0
+offset_top = 281.0
+offset_right = 887.0
+offset_bottom = 399.0
+mouse_filter = 1
+position_offset = Vector2(670, 281)
+slot/0/left_enabled = true
+slot/0/left_type = 0
+slot/0/left_color = Color(1, 1, 1, 1)
+slot/0/left_icon = null
+slot/0/right_enabled = true
+slot/0/right_type = 0
+slot/0/right_color = Color(1, 1, 1, 1)
+slot/0/right_icon = null
+slot/0/draw_stylebox = true
+
+[node name="Label" type="Label" parent="GraphNode2"]
+layout_mode = 2
