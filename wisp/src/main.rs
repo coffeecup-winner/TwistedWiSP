@@ -31,20 +31,7 @@ struct Args {
     server: bool,
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
-    let args = Args::parse();
-
-    if args.list_audio_devices {
-        ConfiguredAudioDevice::list_all_devices()?;
-        return Ok(());
-    }
-
-    let device = ConfiguredAudioDevice::open(args.audio_host, args.audio_device)?;
-    let mut wisp = WispContext::new(device.num_output_channels(), device.sample_rate());
-    if args.server {
-        return crate::server::main(wisp, device);
-    }
-
+fn add_test_functions(wisp: &mut WispContext) {
     let test_func = Function::new(
         "test".into(),
         vec![FunctionInput::default()],
@@ -96,6 +83,25 @@ fn main() -> Result<(), Box<dyn Error>> {
     flow.connect(idx_test, 0, idx_lag, 0);
     flow.connect(idx_lag, 0, idx_test, 0);
     wisp.compile_flow(&flow);
+}
+
+fn main() -> Result<(), Box<dyn Error>> {
+    let args = Args::parse();
+
+    if args.list_audio_devices {
+        ConfiguredAudioDevice::list_all_devices()?;
+        return Ok(());
+    }
+
+    let device = ConfiguredAudioDevice::open(args.audio_host, args.audio_device)?;
+    let mut wisp = WispContext::new(device.num_output_channels(), device.sample_rate());
+
+    // TODO: Remove this
+    add_test_functions(&mut wisp);
+
+    if args.server {
+        return crate::server::main(wisp, device);
+    }
 
     let (mut processor, _ee) = wisp.create_signal_processor("example")?;
     let mut v = vec![0.0; 64];
@@ -103,10 +109,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     processor.process(&mut v);
     let end = std::time::Instant::now();
     let duration_ns = (end - start).as_nanos();
-    println!("Result: {:?}", v);
+    eprintln!("Result: {:?}", v);
     let time_limit_ns =
         1_000_000_000 / device.sample_rate() * v.len() as u32 / device.num_output_channels();
-    println!(
+    eprintln!(
         "Took {}.{}µs (CPU usage: {:.2}%)",
         duration_ns / 1000,
         duration_ns % 1000,

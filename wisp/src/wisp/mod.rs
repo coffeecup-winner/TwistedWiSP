@@ -7,4 +7,5 @@ pub mod runtime;
 
 #[allow(unused_imports)]
 pub use compiler::SignalProcessCreationError;
+pub use compiler::SignalProcessor;
 pub use context::WispContext;
