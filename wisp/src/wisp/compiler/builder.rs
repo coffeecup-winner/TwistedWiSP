@@ -6,6 +6,7 @@ use inkwell::{
     values::{AnyValue, BasicMetadataValueEnum, BasicValue, BasicValueEnum},
     OptimizationLevel,
 };
+use log::debug;
 
 use crate::wisp::{
     function::{DefaultInputValue, Function},
@@ -57,7 +58,7 @@ impl SignalProcessorBuilder {
         });
         execution_engine.add_global_mapping(&g_output, &mut spctx.p_output as *mut _ as usize);
         extern "C" fn wisp_debug(v: f32) {
-            eprintln!("Debug: {}", v);
+            debug!("Debug: {}", v);
         }
         execution_engine.add_global_mapping(&g_wisp_debug, wisp_debug as usize);
 
@@ -103,7 +104,7 @@ impl SignalProcessorBuilder {
         mctx.build("exit", |b, _| b.build_return(None))?;
 
         if cfg!(debug_assertions) {
-            eprintln!("===== BEFORE =====");
+            debug!("===== BEFORE =====");
             module.print_to_stderr();
         }
 
@@ -129,7 +130,7 @@ impl SignalProcessorBuilder {
                 .expect("Failed to run optimization passes");
 
             if cfg!(debug_assertions) {
-                eprintln!("===== AFTER =====");
+                debug!("===== AFTER =====");
                 module.print_to_stderr();
             }
         }

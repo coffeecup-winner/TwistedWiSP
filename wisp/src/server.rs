@@ -1,5 +1,6 @@
 use std::{error::Error, io::Write};
 
+use log::info;
 use twisted_wisp_protocol::{self, WispCommand, WispCommandResponse};
 
 use crate::{
@@ -11,7 +12,7 @@ pub fn main(wisp: WispContext, device: ConfiguredAudioDevice) -> Result<(), Box<
     let execution_context = WispExecutionContext::init();
     let mut runtime = WispRuntime::init(device);
 
-    eprintln!("Switching to server mode - waiting for commands now");
+    info!("Switching to server mode - waiting for commands now");
     let input = std::io::stdin();
     let output = std::io::stdout();
     let mut line = String::new();
@@ -19,10 +20,10 @@ pub fn main(wisp: WispContext, device: ConfiguredAudioDevice) -> Result<(), Box<
         line.clear();
         input.read_line(&mut line)?;
         if line.is_empty() {
-            eprintln!("Client disconnected - exiting");
+            info!("Client disconnected - exiting");
             return Ok(());
         }
-        eprint!("< {}", line);
+        info!("< {}", line.trim_end());
         let command = WispCommand::from_json(&line);
         let response = match command {
             WispCommand::StartDsp => {
@@ -36,13 +37,13 @@ pub fn main(wisp: WispContext, device: ConfiguredAudioDevice) -> Result<(), Box<
                 WispCommandResponse::Ok
             }
             WispCommand::Exit => {
-                eprintln!("Exiting");
+                info!("Exiting");
                 return Ok(());
             }
         };
         let mut resp = response.to_json();
+        info!("> {}", resp);
         resp.push('\n');
-        eprint!("> {}", resp);
         output.lock().write_all(resp.as_bytes())?;
     }
 }

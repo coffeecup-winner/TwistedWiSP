@@ -15,6 +15,7 @@ use crate::wisp::{
 };
 
 use clap::Parser;
+use stderrlog::LogLevelNum;
 
 use crate::audio::device::ConfiguredAudioDevice;
 
@@ -86,6 +87,13 @@ fn add_test_functions(wisp: &mut WispContext) {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+    stderrlog::new()
+        .module(module_path!())
+        .verbosity(LogLevelNum::Debug)
+        .timestamp(stderrlog::Timestamp::Microsecond)
+        .init()
+        .expect("Failed to initialize the logger");
+
     let args = Args::parse();
 
     if args.list_audio_devices {
@@ -110,10 +118,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     // processor.process(&mut v);
     // let end = std::time::Instant::now();
     // let duration_ns = (end - start).as_nanos();
-    // eprintln!("Result: {:?}", v);
+    // info!("Result: {:?}", v);
     // let time_limit_ns =
     //     1_000_000_000 / device.sample_rate() * v.len() as u32 / device.num_output_channels();
-    // eprintln!(
+    // info!(
     //     "Took {}.{}µs (CPU usage: {:.2}%)",
     //     duration_ns / 1000,
     //     duration_ns % 1000,

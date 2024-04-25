@@ -2,6 +2,7 @@ use cpal::{
     traits::{DeviceTrait, HostTrait},
     Device, Stream, StreamConfig,
 };
+use log::{error, info};
 
 pub struct ConfiguredAudioDevice {
     device: Device,
@@ -19,10 +20,10 @@ impl ConfiguredAudioDevice {
     }
 
     pub fn list_all_devices() -> Result<(), Box<dyn std::error::Error>> {
-        eprintln!("Available audio devices:");
+        info!("Available audio devices:");
         let default_host_id = cpal::default_host().id();
         for host_id in cpal::available_hosts() {
-            eprintln!(
+            info!(
                 " {} {}:",
                 if default_host_id == host_id { "*" } else { "-" },
                 host_id.name()
@@ -34,7 +35,7 @@ impl ConfiguredAudioDevice {
                 .unwrap_or_else(|| "".to_owned());
             for device in host.output_devices()? {
                 let name = device.name()?;
-                eprintln!(
+                info!(
                     "    {} {}",
                     if default_device_name == name {
                         "*"
@@ -67,7 +68,7 @@ impl ConfiguredAudioDevice {
             move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
                 process_audio(num_output_channels, data);
             },
-            |err| eprintln!("Output audio stream error: {err}"),
+            |err| error!("Output audio stream error: {err}"),
             None,
         )?;
 
@@ -89,14 +90,14 @@ impl ConfiguredAudioDevice {
             match host {
                 Some(host) => host,
                 None => {
-                    eprintln!("Failed to find the preferred audio host '{host_name}', falling back to default");
+                    error!("Failed to find the preferred audio host '{host_name}', falling back to default");
                     cpal::default_host()
                 }
             }
         } else {
             cpal::default_host()
         };
-        eprintln!("Selected audio host: {}", host.id().name());
+        info!("Selected audio host: {}", host.id().name());
 
         let device = if let Some(device_name) = preferred_device {
             let mut device = None;
@@ -109,7 +110,7 @@ impl ConfiguredAudioDevice {
             match device {
                 Some(dev) => Some(dev),
                 None => {
-                    eprintln!("Failed to find the preferred audio device '{device_name}', falling back to default");
+                    error!("Failed to find the preferred audio device '{device_name}', falling back to default");
                     host.default_output_device()
                 }
             }
@@ -117,7 +118,7 @@ impl ConfiguredAudioDevice {
             host.default_output_device()
         }
         .expect("Failed to find any output audio device");
-        eprintln!("Selected audio device: {}", device.name()?);
+        info!("Selected audio device: {}", device.name()?);
 
         Ok(device)
     }
@@ -128,10 +129,10 @@ impl ConfiguredAudioDevice {
             .expect("No default config for the selected audio device");
         let config: StreamConfig = supported_config.into();
         // Add buffer size selection here
-        eprintln!("Selected audio device config: ");
-        eprintln!("  - channels: {}", config.channels);
-        eprintln!("  - bufsize: {:?}", config.buffer_size);
-        eprintln!("  - sample rate: {}", config.sample_rate.0);
+        info!("Selected audio device config: ");
+        info!("  - channels: {}", config.channels);
+        info!("  - bufsize: {:?}", config.buffer_size);
+        info!("  - sample rate: {}", config.sample_rate.0);
         config
     }
 }
