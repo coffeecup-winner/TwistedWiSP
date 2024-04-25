@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, HashMap};
 use crate::wisp::{
     function::Function,
     ir::{CallId, DataRef, Instruction},
-    runtime::Runtime,
+    WispContext,
 };
 
 #[derive(Debug)]
@@ -15,11 +15,11 @@ pub struct FunctionDataLayout {
 
 pub fn calculate_data_layout(
     top_level_func: &Function,
-    runtime: &Runtime,
+    wctx: &WispContext,
 ) -> HashMap<String, FunctionDataLayout> {
     let mut data_layout = HashMap::new();
     if let Some(function_data_layout) =
-        calculate_function_data_layout(top_level_func, runtime, &mut data_layout)
+        calculate_function_data_layout(top_level_func, wctx, &mut data_layout)
     {
         data_layout.insert(top_level_func.name().into(), function_data_layout);
     }
@@ -28,7 +28,7 @@ pub fn calculate_data_layout(
 
 fn calculate_function_data_layout(
     func: &Function,
-    runtime: &Runtime,
+    wctx: &WispContext,
     data_layout: &mut HashMap<String, FunctionDataLayout>,
 ) -> Option<FunctionDataLayout> {
     let mut children_data_sizes = BTreeMap::new();
@@ -36,11 +36,9 @@ fn calculate_function_data_layout(
         if let Instruction::Call(id, name, _, _) = insn {
             if let Some(child_data_layout) = data_layout.get(name) {
                 children_data_sizes.insert(id, child_data_layout.total_size);
-            } else if let Some(child_data_layout) = calculate_function_data_layout(
-                runtime.get_function(name).unwrap(),
-                runtime,
-                data_layout,
-            ) {
+            } else if let Some(child_data_layout) =
+                calculate_function_data_layout(wctx.get_function(name).unwrap(), wctx, data_layout)
+            {
                 children_data_sizes.insert(id, child_data_layout.total_size);
                 data_layout.insert(name.into(), child_data_layout);
             }

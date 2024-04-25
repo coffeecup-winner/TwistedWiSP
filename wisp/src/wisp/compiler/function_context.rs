@@ -10,20 +10,20 @@ use crate::wisp::{
 use super::error::SignalProcessCreationError;
 
 #[derive(Debug)]
-pub(super) struct FunctionContext<'ctx, 'temp> {
+pub(super) struct FunctionContext<'ectx, 'temp> {
     pub func: &'temp Function,
-    pub function: FunctionValue<'ctx>,
-    pub data_arg: Option<PointerValue<'ctx>>,
-    pub outputs: Vec<Option<BasicValueEnum<'ctx>>>,
-    pub vars: HashMap<VarRef, BasicValueEnum<'ctx>>,
-    pub locals: HashMap<LocalRef, PointerValue<'ctx>>,
+    pub function: FunctionValue<'ectx>,
+    pub data_arg: Option<PointerValue<'ectx>>,
+    pub outputs: Vec<Option<BasicValueEnum<'ectx>>>,
+    pub vars: HashMap<VarRef, BasicValueEnum<'ectx>>,
+    pub locals: HashMap<LocalRef, PointerValue<'ectx>>,
 }
 
-impl<'ctx, 'temp> FunctionContext<'ctx, 'temp> {
+impl<'ectx, 'temp> FunctionContext<'ectx, 'temp> {
     pub fn new(
         func: &'temp Function,
-        function: FunctionValue<'ctx>,
-        data_arg: Option<PointerValue<'ctx>>,
+        function: FunctionValue<'ectx>,
+        data_arg: Option<PointerValue<'ectx>>,
         num_outputs: usize,
     ) -> Self {
         FunctionContext {
@@ -36,7 +36,7 @@ impl<'ctx, 'temp> FunctionContext<'ctx, 'temp> {
         }
     }
 
-    pub fn get_data_argument(&self) -> Result<PointerValue<'ctx>, SignalProcessCreationError> {
+    pub fn get_data_argument(&self) -> Result<PointerValue<'ectx>, SignalProcessCreationError> {
         self.data_arg
             .ok_or_else(|| SignalProcessCreationError::InvalidDataLayout(self.func.name().into()))
     }
@@ -44,7 +44,7 @@ impl<'ctx, 'temp> FunctionContext<'ctx, 'temp> {
     pub fn get_argument(
         &self,
         nth: u32,
-    ) -> Result<BasicValueEnum<'ctx>, SignalProcessCreationError> {
+    ) -> Result<BasicValueEnum<'ectx>, SignalProcessCreationError> {
         let idx = if self.data_arg.is_some() {
             nth + 1
         } else {
@@ -60,7 +60,7 @@ impl<'ctx, 'temp> FunctionContext<'ctx, 'temp> {
     pub fn get_var(
         &self,
         vref: &VarRef,
-    ) -> Result<BasicValueEnum<'ctx>, SignalProcessCreationError> {
+    ) -> Result<BasicValueEnum<'ectx>, SignalProcessCreationError> {
         Ok(*self
             .vars
             .get(vref)
@@ -70,7 +70,7 @@ impl<'ctx, 'temp> FunctionContext<'ctx, 'temp> {
     pub fn get_local(
         &self,
         lref: &LocalRef,
-    ) -> Result<PointerValue<'ctx>, SignalProcessCreationError> {
+    ) -> Result<PointerValue<'ectx>, SignalProcessCreationError> {
         Ok(*self
             .locals
             .get(lref)

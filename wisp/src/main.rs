@@ -95,6 +95,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let device = ConfiguredAudioDevice::open(args.audio_host, args.audio_device)?;
     let mut wisp = WispContext::new(device.num_output_channels(), device.sample_rate());
+    wisp.register_builtin_functions();
 
     // TODO: Remove this
     add_test_functions(&mut wisp);
@@ -103,21 +104,21 @@ fn main() -> Result<(), Box<dyn Error>> {
         return crate::server::main(wisp, device);
     }
 
-    let (mut processor, _ee) = wisp.create_signal_processor("example")?;
-    let mut v = vec![0.0; 64];
-    let start = std::time::Instant::now();
-    processor.process(&mut v);
-    let end = std::time::Instant::now();
-    let duration_ns = (end - start).as_nanos();
-    eprintln!("Result: {:?}", v);
-    let time_limit_ns =
-        1_000_000_000 / device.sample_rate() * v.len() as u32 / device.num_output_channels();
-    eprintln!(
-        "Took {}.{}µs (CPU usage: {:.2}%)",
-        duration_ns / 1000,
-        duration_ns % 1000,
-        (duration_ns as f32 / time_limit_ns as f32 * 100.0)
-    );
+    // let (mut processor, _ee) = wisp.create_signal_processor("example")?;
+    // let mut v = vec![0.0; 64];
+    // let start = std::time::Instant::now();
+    // processor.process(&mut v);
+    // let end = std::time::Instant::now();
+    // let duration_ns = (end - start).as_nanos();
+    // eprintln!("Result: {:?}", v);
+    // let time_limit_ns =
+    //     1_000_000_000 / device.sample_rate() * v.len() as u32 / device.num_output_channels();
+    // eprintln!(
+    //     "Took {}.{}µs (CPU usage: {:.2}%)",
+    //     duration_ns / 1000,
+    //     duration_ns % 1000,
+    //     (duration_ns as f32 / time_limit_ns as f32 * 100.0)
+    // );
 
     Ok(())
 }

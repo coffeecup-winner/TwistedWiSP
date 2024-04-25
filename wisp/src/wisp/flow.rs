@@ -13,7 +13,7 @@ use petgraph::{
 use super::{
     function::Function,
     ir::{CallId, Instruction, Operand, SourceLocation, VarRef},
-    runtime::Runtime,
+    WispContext,
 };
 
 type FlowGraph = StableGraph<String, FlowConnection, Directed>;
@@ -65,9 +65,9 @@ impl Flow {
         );
     }
 
-    pub fn compile_function(&self, runtime: &Runtime) -> Function {
+    pub fn compile_function(&self, ctx: &WispContext) -> Function {
         let process_func_instructions = self
-            .get_compiled_flow(runtime)
+            .get_compiled_flow(ctx)
             .iter()
             .cloned()
             .collect::<Vec<_>>();
@@ -82,15 +82,15 @@ impl Flow {
         )
     }
 
-    fn get_compiled_flow(&self, runtime: &Runtime) -> Ref<'_, Vec<Instruction>> {
+    fn get_compiled_flow(&self, ctx: &WispContext) -> Ref<'_, Vec<Instruction>> {
         if self.ir.borrow().is_none() {
-            let ir = self.compile(runtime);
+            let ir = self.compile(ctx);
             *self.ir.borrow_mut() = Some(ir);
         }
         Ref::map(self.ir.borrow(), |is| is.as_ref().unwrap())
     }
 
-    fn compile(&self, runtime: &Runtime) -> Vec<Instruction> {
+    fn compile(&self, ctx: &WispContext) -> Vec<Instruction> {
         // This function walks the graph in topological order, so all producing nodes
         // are visited before all consuming nodes. To break graph cycles, lag outputs
         // are ignored and lagged values are used instead. Since topological sort
@@ -99,8 +99,7 @@ impl Flow {
         // (and lag value fetches).
 
         let filtered_graph = EdgeFiltered::from_fn(&self.graph, |e| {
-            runtime
-                .get_function(self.graph.node_weight(e.source()).unwrap())
+            ctx.get_function(self.graph.node_weight(e.source()).unwrap())
                 .unwrap()
                 .lag_value()
                 .is_none()
@@ -112,14 +111,14 @@ impl Flow {
 
         let topo = Topo::new(&filtered_graph);
         for n in topo.iter(&filtered_graph) {
-            let func = runtime
+            let func = ctx
                 .get_function(self.graph.node_weight(n).unwrap())
                 .expect("Failed to find function");
 
             let mut inputs = vec![];
             for (idx, _) in func.inputs().iter().enumerate() {
                 for e in self.graph.edges_directed(n, Direction::Incoming) {
-                    let source_func = runtime
+                    let source_func = ctx
                         .get_function(self.graph.node_weight(e.source()).unwrap())
                         .unwrap();
                     if let Some(dref) = source_func.lag_value() {

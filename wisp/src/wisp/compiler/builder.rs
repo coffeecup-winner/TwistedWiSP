@@ -1,6 +1,5 @@
 use inkwell::{
     basic_block::BasicBlock,
-    context::Context,
     execution_engine::ExecutionEngine,
     passes::PassBuilderOptions,
     targets::{CodeModel, RelocMode, Target, TargetMachine},
@@ -11,7 +10,7 @@ use inkwell::{
 use crate::wisp::{
     function::{DefaultInputValue, Function},
     ir::{Instruction, Operand},
-    runtime::Runtime,
+    WispContext, WispExecutionContext,
 };
 
 use super::{
@@ -24,31 +23,28 @@ use super::{
 
 pub struct SignalProcessorBuilder {
     id_gen: u64,
-    context: Context,
 }
 
 impl SignalProcessorBuilder {
     pub fn new() -> Self {
-        SignalProcessorBuilder {
-            id_gen: 0,
-            context: Context::create(),
-        }
+        SignalProcessorBuilder { id_gen: 0 }
     }
 
-    pub fn create_signal_processor<'ctx>(
-        &'ctx mut self,
+    pub fn create_signal_processor<'ectx>(
+        &mut self,
+        ectx: &'ectx WispExecutionContext,
+        wctx: &WispContext,
         top_level: &str,
-        runtime: &Runtime,
-    ) -> Result<(SignalProcessor, ExecutionEngine<'ctx>), SignalProcessCreationError> {
+    ) -> Result<(SignalProcessor, ExecutionEngine<'ectx>), SignalProcessCreationError> {
         self.id_gen += 1;
 
-        let module = self.context.create_module(&format!("wisp_{}", self.id_gen));
+        let module = ectx.llvm().create_module(&format!("wisp_{}", self.id_gen));
         let execution_engine = module
             .create_jit_execution_engine(OptimizationLevel::None)
             .map_err(|_| SignalProcessCreationError::InitEE)?;
 
-        let data_layout = calculate_data_layout(runtime.get_function(top_level).unwrap(), runtime);
-        let mut mctx = ModuleContext::new(&self.context, runtime, &module, data_layout);
+        let data_layout = calculate_data_layout(wctx.get_function(top_level).unwrap(), wctx);
+        let mut mctx = ModuleContext::new(ectx.llvm(), wctx, &module, data_layout);
 
         let g_output = module.add_global(mctx.types.pf32, None, "wisp_global_output");
         let g_wisp_debug = module.add_function(
@@ -65,7 +61,7 @@ impl SignalProcessorBuilder {
         }
         execution_engine.add_global_mapping(&g_wisp_debug, wisp_debug as usize);
 
-        for (name, func) in runtime.functions_iter() {
+        for (name, func) in wctx.functions_iter() {
             // >1 returns is currently not supported
             assert!(func.outputs().len() < 2);
             let mut arg_types = vec![];
@@ -81,8 +77,8 @@ impl SignalProcessorBuilder {
             module.add_function(name, fn_type, None);
         }
 
-        for (_, func) in runtime.functions_iter() {
-            self.build_function(&mut mctx, func)?;
+        for (_, func) in wctx.functions_iter() {
+            self.build_function(ectx, &mut mctx, func)?;
         }
 
         let entry = mctx.module.add_function(
@@ -90,7 +86,7 @@ impl SignalProcessorBuilder {
             mctx.types.void.fn_type(&[mctx.types.pf32.into()], false),
             None,
         );
-        let bb = self.context.append_basic_block(entry, "entry");
+        let bb = ectx.llvm().append_basic_block(entry, "entry");
         mctx.builder.position_at_end(bb);
         let p_data = entry.get_first_param().ok_or_else(|| {
             SignalProcessCreationError::InvalidNumberOfInputs("wisp_entry".into(), 1, 0)
@@ -144,16 +140,17 @@ impl SignalProcessorBuilder {
             SignalProcessor::new(
                 spctx,
                 unsafe { function.into_raw() },
-                runtime.num_outputs(),
+                wctx.num_outputs(),
                 mctx.data_layout.get(top_level).map_or(0, |l| l.total_size),
             ),
             execution_engine,
         ))
     }
 
-    fn build_function<'ctx>(
-        &'ctx self,
-        mctx: &mut ModuleContext<'ctx, '_>,
+    fn build_function<'ectx>(
+        &self,
+        ectx: &'ectx WispExecutionContext,
+        mctx: &mut ModuleContext<'ectx, '_>,
         func: &Function,
     ) -> Result<(), SignalProcessCreationError> {
         let function = mctx
@@ -177,7 +174,7 @@ impl SignalProcessorBuilder {
             None
         };
         let mut fctx = FunctionContext::new(func, function, data_arg, func.outputs().len());
-        self.translate_instructions(mctx, &mut fctx, func.instructions())?;
+        Self::translate_instructions(ectx, mctx, &mut fctx, func.instructions())?;
         if !fctx.outputs.iter().all(|o| o.is_some()) {
             return Err(SignalProcessCreationError::UninitializedOutput(
                 func.name().to_owned(),
@@ -205,13 +202,13 @@ impl SignalProcessorBuilder {
         Ok(())
     }
 
-    fn translate_instructions<'ctx>(
-        &'ctx self,
-        mctx: &mut ModuleContext<'ctx, '_>,
-        fctx: &mut FunctionContext<'ctx, '_>,
+    fn translate_instructions<'ectx>(
+        ectx: &'ectx WispExecutionContext,
+        mctx: &mut ModuleContext<'ectx, '_>,
+        fctx: &mut FunctionContext<'ectx, '_>,
         instructions: &[Instruction],
-    ) -> Result<(BasicBlock<'ctx>, BasicBlock<'ctx>), SignalProcessCreationError> {
-        let mut current_block = self.context.append_basic_block(fctx.function, "start");
+    ) -> Result<(BasicBlock<'ectx>, BasicBlock<'ectx>), SignalProcessCreationError> {
+        let mut current_block = ectx.llvm().append_basic_block(fctx.function, "start");
         mctx.builder.position_at_end(current_block);
         let start_block = current_block;
 
@@ -371,9 +368,9 @@ impl SignalProcessorBuilder {
                     // Generate code
                     let cond = fctx.get_var(vref)?.into_int_value();
                     let (then_block_first, then_block_last) =
-                        self.translate_instructions(mctx, fctx, then_branch)?;
+                        Self::translate_instructions(ectx, mctx, fctx, then_branch)?;
                     let (else_block_first, else_block_last) =
-                        self.translate_instructions(mctx, fctx, else_branch)?;
+                        Self::translate_instructions(ectx, mctx, fctx, else_branch)?;
 
                     // Tie blocks together
                     mctx.builder.position_at_end(current_block);
@@ -381,7 +378,7 @@ impl SignalProcessorBuilder {
                         b.build_conditional_branch(cond, then_block_first, else_block_first)
                     })?;
 
-                    let next_block = self.context.append_basic_block(fctx.function, "post_cond");
+                    let next_block = ectx.llvm().append_basic_block(fctx.function, "post_cond");
 
                     mctx.builder.position_at_end(then_block_last);
                     mctx.build("then_jump", |b, _| b.build_unconditional_branch(next_block))?;
@@ -485,11 +482,11 @@ impl SignalProcessorBuilder {
         Ok((start_block, current_block))
     }
 
-    fn resolve_operand<'ctx>(
-        mctx: &ModuleContext<'ctx, '_>,
-        fctx: &FunctionContext<'ctx, '_>,
+    fn resolve_operand<'ectx>(
+        mctx: &ModuleContext<'ectx, '_>,
+        fctx: &FunctionContext<'ectx, '_>,
         op: &Operand,
-    ) -> Result<BasicValueEnum<'ctx>, SignalProcessCreationError> {
+    ) -> Result<BasicValueEnum<'ectx>, SignalProcessCreationError> {
         use crate::wisp::ir::Operand::*;
         Ok(match op {
             Constant(c) => {
@@ -498,7 +495,7 @@ impl SignalProcessorBuilder {
                     SampleRate => mctx
                         .types
                         .f32
-                        .const_float(mctx.runtime.sample_rate() as f64)
+                        .const_float(mctx.wctx.sample_rate() as f64)
                         .as_basic_value_enum(),
                 }
             }

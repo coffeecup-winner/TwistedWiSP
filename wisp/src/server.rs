@@ -1,37 +1,15 @@
-use std::{
-    borrow::BorrowMut,
-    error::Error,
-    io::Write,
-    sync::{Arc, Mutex},
-};
+use std::{error::Error, io::Write};
 
 use twisted_wisp_protocol::{self, WispCommand, WispCommandResponse};
 
-use crate::{audio::device::ConfiguredAudioDevice, wisp::SignalProcessor};
+use crate::{
+    audio::device::ConfiguredAudioDevice,
+    wisp::{WispContext, WispExecutionContext, WispRuntime},
+};
 
-pub fn main(
-    wisp: crate::wisp::WispContext,
-    device: ConfiguredAudioDevice,
-) -> Result<(), Box<dyn Error>> {
-    let mut processor_mutex = Arc::new(Mutex::new(wisp.create_empty_signal_processor()));
-    let mut processor_mutex_audio_thread = processor_mutex.clone();
-    let _stream = device
-        .build_output_audio_stream(move |_num_outputs: u32, buffer: &mut [f32]| {
-            processor_mutex_audio_thread
-                .borrow_mut()
-                .lock()
-                .unwrap()
-                .process(buffer);
-            // Clip the output to the safe levels
-            for b in buffer.iter_mut() {
-                *b = b.clamp(-1.0, 1.0);
-            }
-        })
-        .expect("msg");
-
-    // TODO: Temp code - add (and then remove)
-    // let (sp, _ee) = wisp.create_signal_processor("example")?;
-    let mut paused_processor: Option<SignalProcessor> = None;
+pub fn main(wisp: WispContext, device: ConfiguredAudioDevice) -> Result<(), Box<dyn Error>> {
+    let execution_context = WispExecutionContext::init();
+    let mut runtime = WispRuntime::init(device);
 
     eprintln!("Switching to server mode - waiting for commands now");
     let input = std::io::stdin();
@@ -48,18 +26,13 @@ pub fn main(
         let command = WispCommand::from_json(&line);
         let response = match command {
             WispCommand::StartDsp => {
-                if let Some(processor) = paused_processor {
-                    *processor_mutex.borrow_mut().lock().unwrap() = processor;
-                    paused_processor = None;
-                }
+                // TODO: Remove this
+                runtime.switch_to_signal_processor(&execution_context, &wisp, "example")?;
+                runtime.start_dsp();
                 WispCommandResponse::Ok
             }
             WispCommand::StopDsp => {
-                if paused_processor.is_none() {
-                    let mut temp = wisp.create_empty_signal_processor();
-                    std::mem::swap(&mut temp, &mut processor_mutex.borrow_mut().lock().unwrap());
-                    paused_processor = Some(temp);
-                }
+                runtime.stop_dsp();
                 WispCommandResponse::Ok
             }
             WispCommand::Exit => {
