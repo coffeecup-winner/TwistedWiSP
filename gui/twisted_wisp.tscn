@@ -14,3 +14,5 @@ script = ExtResource("1_qnwpt")
 
 [node name="FlowGraphView" parent="." instance=ExtResource("1_manrc")]
 layout_mode = 1
+
+[connection signal="gui_input" from="FlowGraphView" to="." method="_on_flow_graph_view_gui_input"]

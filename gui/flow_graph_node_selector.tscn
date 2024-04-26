@@ -1,0 +1,11 @@
+[gd_scene load_steps=2 format=3 uid="uid://difrbu1uitc4s"]
+
+[ext_resource type="Script" path="res://flow_graph_node_selector.gd" id="1_d83jl"]
+
+[node name="FlowGraphNodeSelector" type="LineEdit"]
+offset_right = 67.0625
+offset_bottom = 31.0
+script = ExtResource("1_d83jl")
+
+[connection signal="focus_exited" from="." to="." method="_on_focus_exited"]
+[connection signal="text_submitted" from="." to="." method="_on_text_submitted"]
