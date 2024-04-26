@@ -6,9 +6,9 @@ use super::{
     WispContext,
 };
 
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct FunctionInput {
-    pub fallback: Option<DefaultInputValue>,
+    pub fallback: DefaultInputValue,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -17,10 +17,12 @@ pub enum DefaultInputValue {
     Value(f32),
     // Normalled to the previous argument
     Normal,
+    // Don't call this function (must have a lag value to use instead)
+    Skip,
 }
 
 impl FunctionInput {
-    pub fn new(fallback: Option<DefaultInputValue>) -> Self {
+    pub fn new(fallback: DefaultInputValue) -> Self {
         FunctionInput { fallback }
     }
 }

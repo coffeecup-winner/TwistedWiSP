@@ -34,9 +34,9 @@ impl WispContext {
 
     fn build_function_out(ctx: &WispContext) -> Function {
         assert!(ctx.num_outputs > 0, "Invalid number of output channels");
-        let mut out_inputs = vec![FunctionInput::new(Some(DefaultInputValue::Value(0.0)))];
+        let mut out_inputs = vec![FunctionInput::new(DefaultInputValue::Value(0.0))];
         out_inputs.extend(vec![
-            FunctionInput::new(Some(DefaultInputValue::Normal));
+            FunctionInput::new(DefaultInputValue::Normal);
             ctx.num_outputs as usize - 1
         ]);
         let mut instructions = vec![];
@@ -52,7 +52,7 @@ impl WispContext {
     fn build_function_lag() -> Function {
         Function::new(
             "lag".into(),
-            vec![FunctionInput::default()],
+            vec![FunctionInput::new(DefaultInputValue::Skip)],
             vec![FunctionOutput],
             vec![FunctionDataItem::new("prev".into(), 0.0)],
             vec![

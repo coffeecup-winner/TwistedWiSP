@@ -8,6 +8,7 @@ use petgraph::{
 };
 
 use super::{
+    function::DefaultInputValue,
     ir::{CallId, Instruction, Operand, SourceLocation, VarRef},
     WispContext,
 };
@@ -109,7 +110,7 @@ impl Flow {
         let mut instructions = vec![];
 
         let topo = Topo::new(&filtered_graph);
-        for n in topo.iter(&filtered_graph) {
+        'nodes: for n in topo.iter(&filtered_graph) {
             let func = ctx
                 .get_function(self.graph.node_weight(n).unwrap())
                 .expect("Failed to find function");
@@ -117,6 +118,9 @@ impl Flow {
             let mut inputs = vec![];
             for (idx, _) in func.inputs().iter().enumerate() {
                 for e in self.graph.edges_directed(n, Direction::Incoming) {
+                    if e.weight().input_index != idx as u32 {
+                        continue;
+                    }
                     let source_func = ctx
                         .get_function(self.graph.node_weight(e.source()).unwrap())
                         .unwrap();
@@ -131,16 +135,31 @@ impl Flow {
                             ),
                         ));
                         vref_id += 1;
-                        inputs.push(Some(Operand::Var(vref)));
-                    } else if e.weight().input_index == idx as u32 {
+                        inputs.push(Operand::Var(vref));
+                    } else {
                         let vref = *output_vrefs
                             .get(&(e.source(), e.weight().output_index))
                             .expect("Failed to find incoming signal's var ref");
-                        inputs.push(Some(Operand::Var(vref)));
+                        inputs.push(Operand::Var(vref));
                     }
                 }
                 if inputs.len() < idx + 1 {
-                    inputs.push(None);
+                    match func.inputs()[idx].fallback {
+                        DefaultInputValue::Value(v) => {
+                            inputs.push(Operand::Literal(v));
+                        }
+                        DefaultInputValue::Normal => {
+                            inputs.push(inputs[idx - 1]);
+                        }
+                        DefaultInputValue::Skip => {
+                            assert!(
+                                func.lag_value().is_some(),
+                                "Input skip mode must not be used on non-lag functions"
+                            );
+                            // Skip this call
+                            continue 'nodes;
+                        }
+                    }
                 }
             }
             let mut outputs = vec![];

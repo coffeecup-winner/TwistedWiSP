@@ -76,7 +76,7 @@ pub enum Instruction {
 
     Conditional(VarRef, Vec<Instruction>, Vec<Instruction>),
 
-    Call(CallId, String, Vec<Option<Operand>>, Vec<VarRef>),
+    Call(CallId, String, Vec<Operand>, Vec<VarRef>),
 
     Debug(VarRef),
 }

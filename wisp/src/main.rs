@@ -16,6 +16,7 @@ use crate::wisp::{
 
 use clap::Parser;
 use stderrlog::LogLevelNum;
+use wisp::function::DefaultInputValue;
 
 use crate::audio::device::ConfiguredAudioDevice;
 
@@ -35,7 +36,7 @@ struct Args {
 fn add_test_functions(wisp: &mut WispContext) {
     let test_func = Function::new(
         "test".into(),
-        vec![FunctionInput::default()],
+        vec![FunctionInput::new(DefaultInputValue::Value(0.0))],
         vec![FunctionOutput],
         vec![],
         vec![

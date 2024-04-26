@@ -9,7 +9,7 @@ use inkwell::{
 use log::debug;
 
 use crate::wisp::{
-    function::{DefaultInputValue, Function},
+    function::Function,
     ir::{Instruction, Operand},
     WispContext, WispExecutionContext,
 };
@@ -407,26 +407,8 @@ impl SignalProcessorBuilder {
                         ));
                     }
                     let mut args: Vec<BasicMetadataValueEnum> = vec![];
-                    for (idx, input) in in_vrefs.iter().enumerate() {
-                        let value = match input {
-                            Some(op) => Self::resolve_operand(mctx, fctx, op)?,
-                            None => match callee_func.inputs()[idx].fallback {
-                                Some(fallback) => match fallback {
-                                    DefaultInputValue::Normal => {
-                                        args[idx - 1].into_float_value().as_basic_value_enum()
-                                    }
-                                    DefaultInputValue::Value(v) => {
-                                        mctx.types.f32.const_float(v as f64).as_basic_value_enum()
-                                    }
-                                },
-                                None => {
-                                    return Err(SignalProcessCreationError::UninitializedInput(
-                                        name.into(),
-                                        idx as u32,
-                                    ))
-                                }
-                            },
-                        };
+                    for input in in_vrefs {
+                        let value = Self::resolve_operand(mctx, fctx, input)?;
                         args.push(BasicMetadataValueEnum::FloatValue(value.into_float_value()));
                     }
 
