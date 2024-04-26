@@ -102,6 +102,10 @@ impl Function {
         &self.data
     }
 
+    pub fn flow_mut(&mut self) -> Option<&mut Flow> {
+        self.flow.as_mut()
+    }
+
     pub fn instructions(&self) -> Ref<'_, Vec<Instruction>> {
         self.instructions.borrow()
     }

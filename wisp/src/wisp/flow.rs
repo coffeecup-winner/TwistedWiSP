@@ -15,7 +15,7 @@ use super::{
 type FlowGraph = StableGraph<String, FlowConnection, Directed>;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub struct FlowFunctionIndex(NodeIndex);
+pub struct FlowNodeIndex(pub NodeIndex);
 
 #[derive(Debug, Clone, Copy)]
 struct FlowConnection {
@@ -33,15 +33,15 @@ impl Flow {
         Default::default()
     }
 
-    pub fn add_function(&mut self, name: String) -> FlowFunctionIndex {
-        FlowFunctionIndex(self.graph.add_node(name))
+    pub fn add_node(&mut self, name: String) -> FlowNodeIndex {
+        FlowNodeIndex(self.graph.add_node(name))
     }
 
     pub fn connect(
         &mut self,
-        from: FlowFunctionIndex,
+        from: FlowNodeIndex,
         output_index: u32,
-        to: FlowFunctionIndex,
+        to: FlowNodeIndex,
         input_index: u32,
     ) {
         self.graph.add_edge(

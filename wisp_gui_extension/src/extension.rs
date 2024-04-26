@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use godot::{engine::Engine, prelude::*};
-use twisted_wisp_protocol::WispClient;
+use twisted_wisp_protocol::{FlowNodeIndex, FlowNodeInletIndex, FlowNodeOutletIndex, WispClient};
 
 struct TwistedWispExtension;
 
@@ -55,5 +55,42 @@ impl TwistedWispSingleton {
     fn disable_dsp(&mut self) {
         godot::log::godot_print!("disable_dsp");
         self.wisp.as_mut().unwrap().disable_dsp();
+    }
+
+    #[func]
+    fn create_function(&mut self) -> String {
+        self.wisp.as_mut().unwrap().create_function()
+    }
+
+    #[func]
+    fn remove_function(&mut self, name: String) {
+        self.wisp.as_mut().unwrap().remove_function(name)
+    }
+
+    #[func]
+    fn flow_add_node(&mut self, flow_name: String, func_name: String) -> u32 {
+        self.wisp
+            .as_mut()
+            .unwrap()
+            .flow_add_node(flow_name, func_name)
+            .0
+    }
+
+    #[func]
+    fn flow_connect(
+        &mut self,
+        flow_name: String,
+        node_out: u32,
+        node_outlet: u32,
+        node_in: u32,
+        node_inlet: u32,
+    ) {
+        self.wisp.as_mut().unwrap().flow_connect(
+            flow_name,
+            FlowNodeIndex(node_out),
+            FlowNodeOutletIndex(node_outlet),
+            FlowNodeIndex(node_in),
+            FlowNodeInletIndex(node_inlet),
+        )
     }
 }

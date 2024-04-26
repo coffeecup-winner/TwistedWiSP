@@ -5,7 +5,10 @@ use std::{
     process::{Child, Command, Stdio},
 };
 
-use crate::{WispCommand, WispCommandResponse};
+use crate::{
+    CommandResponse, FlowNodeIndex, FlowNodeInletIndex, FlowNodeOutletIndex, WispCommand,
+    WispCommandResponse,
+};
 
 pub struct WispClient {
     wisp_process: Child,
@@ -26,7 +29,10 @@ impl WispClient {
         }
     }
 
-    fn execute_command(&mut self, command: WispCommand) -> WispCommandResponse {
+    fn execute_command<T>(&mut self, command: WispCommand) -> T
+    where
+        T: CommandResponse,
+    {
         let mut command = command.to_json();
         command.push('\n');
         self.wisp_process
@@ -40,21 +46,48 @@ impl WispClient {
         reader
             .read_line(&mut line)
             .expect("Failed to receive the response");
-        WispCommandResponse::from_json(&line)
+        WispCommandResponse::<T>::from_json(&line).unwrap()
     }
 
     pub fn enable_dsp(&mut self) {
-        let resp = self.execute_command(WispCommand::StartDsp);
-        assert!(resp == WispCommandResponse::Ok);
+        self.execute_command(WispCommand::StartDsp)
     }
 
     pub fn disable_dsp(&mut self) {
-        let resp = self.execute_command(WispCommand::StopDsp);
-        assert!(resp == WispCommandResponse::Ok);
+        self.execute_command(WispCommand::StopDsp)
+    }
+
+    pub fn create_function(&mut self) -> String {
+        self.execute_command::<String>(WispCommand::CreateFunction)
+    }
+
+    pub fn remove_function(&mut self, name: String) {
+        self.execute_command(WispCommand::RemoveFunction(name))
+    }
+
+    pub fn flow_add_node(&mut self, flow_name: String, func_name: String) -> FlowNodeIndex {
+        self.execute_command(WispCommand::FlowAddNode(flow_name, func_name))
+    }
+
+    pub fn flow_connect(
+        &mut self,
+        flow_name: String,
+        node_out: FlowNodeIndex,
+        node_outlet: FlowNodeOutletIndex,
+        node_in: FlowNodeIndex,
+        node_inlet: FlowNodeInletIndex,
+    ) {
+        self.execute_command(WispCommand::FlowConnect(
+            flow_name,
+            node_out,
+            node_outlet,
+            node_in,
+            node_inlet,
+        ))
     }
 
     pub fn deinit(mut self) {
-        self.execute_command(WispCommand::Exit);
+        self.execute_command::<()>(WispCommand::Exit);
         self.wisp_process
             .wait_with_output()
             .expect("Failed to stop the WiSP process");

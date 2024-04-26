@@ -1,0 +1,8 @@
+[gd_scene load_steps=2 format=3 uid="uid://4nigkq8bojto"]
+
+[ext_resource type="Script" path="res://flow_graph_node.gd" id="1_6r3c1"]
+
+[node name="FlowGraphNode" type="GraphNode"]
+offset_right = 9.0
+offset_bottom = 55.0
+script = ExtResource("1_6r3c1")

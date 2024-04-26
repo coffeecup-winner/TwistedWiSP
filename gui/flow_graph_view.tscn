@@ -1,6 +1,7 @@
-[gd_scene load_steps=2 format=3 uid="uid://dtktiuwmp1rh1"]
+[gd_scene load_steps=3 format=3 uid="uid://dtktiuwmp1rh1"]
 
 [ext_resource type="Script" path="res://flow_graph_view.gd" id="1_sacfu"]
+[ext_resource type="PackedScene" uid="uid://4nigkq8bojto" path="res://flow_graph_node.tscn" id="2_q3lr1"]
 
 [node name="FlowGraphView" type="GraphEdit"]
 anchors_preset = 15
@@ -10,15 +11,17 @@ grow_horizontal = 2
 grow_vertical = 2
 right_disconnects = true
 script = ExtResource("1_sacfu")
+wisp_flow_name = "example"
 
-[node name="GraphNode" type="GraphNode" parent="."]
+[node name="FlowGraphNode" parent="." instance=ExtResource("2_q3lr1")]
 layout_mode = 0
-offset_left = 322.0
-offset_top = 248.0
-offset_right = 539.0
-offset_bottom = 366.0
+offset_left = 270.0
+offset_top = 188.0
+offset_right = 350.0
+offset_bottom = 268.0
 mouse_filter = 1
-position_offset = Vector2(322, 248)
+position_offset = Vector2(270, 188)
+title = "test"
 slot/0/left_enabled = true
 slot/0/left_type = 0
 slot/0/left_color = Color(1, 1, 1, 1)
@@ -29,17 +32,18 @@ slot/0/right_color = Color(1, 1, 1, 1)
 slot/0/right_icon = null
 slot/0/draw_stylebox = true
 
-[node name="Label" type="Label" parent="GraphNode"]
+[node name="Label" type="Label" parent="FlowGraphNode"]
 layout_mode = 2
 
-[node name="GraphNode2" type="GraphNode" parent="."]
+[node name="FlowGraphNode2" parent="." instance=ExtResource("2_q3lr1")]
 layout_mode = 0
-offset_left = 670.0
-offset_top = 281.0
-offset_right = 887.0
-offset_bottom = 399.0
+offset_left = 404.0
+offset_top = 312.0
+offset_right = 484.0
+offset_bottom = 392.0
 mouse_filter = 1
-position_offset = Vector2(670, 281)
+position_offset = Vector2(404, 312)
+title = "lag"
 slot/0/left_enabled = true
 slot/0/left_type = 0
 slot/0/left_color = Color(1, 1, 1, 1)
@@ -49,6 +53,56 @@ slot/0/right_type = 0
 slot/0/right_color = Color(1, 1, 1, 1)
 slot/0/right_icon = null
 slot/0/draw_stylebox = true
+wisp_node_idx = 2
 
-[node name="Label" type="Label" parent="GraphNode2"]
+[node name="Label" type="Label" parent="FlowGraphNode2"]
 layout_mode = 2
+
+[node name="FlowGraphNode3" parent="." instance=ExtResource("2_q3lr1")]
+layout_mode = 0
+offset_left = 648.0
+offset_top = 191.0
+offset_right = 728.0
+offset_bottom = 294.0
+mouse_filter = 1
+position_offset = Vector2(648, 191)
+title = "out"
+slot/0/left_enabled = true
+slot/0/left_type = 0
+slot/0/left_color = Color(1, 1, 1, 1)
+slot/0/left_icon = null
+slot/0/right_enabled = false
+slot/0/right_type = 0
+slot/0/right_color = Color(1, 1, 1, 1)
+slot/0/right_icon = null
+slot/0/draw_stylebox = true
+slot/1/left_enabled = true
+slot/1/left_type = 0
+slot/1/left_color = Color(1, 1, 1, 1)
+slot/1/left_icon = null
+slot/1/right_enabled = false
+slot/1/right_type = 0
+slot/1/right_color = Color(1, 1, 1, 1)
+slot/1/right_icon = null
+slot/1/draw_stylebox = true
+wisp_node_idx = 1
+
+[node name="Label" type="Label" parent="FlowGraphNode3"]
+layout_mode = 2
+
+[node name="Label2" type="Label" parent="FlowGraphNode3"]
+layout_mode = 2
+
+[node name="chkbtnDSP" type="CheckButton" parent="."]
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -91.0
+offset_top = 4.0
+offset_right = -12.0
+offset_bottom = 35.0
+grow_horizontal = 0
+text = "DSP"
+
+[connection signal="toggled" from="chkbtnDSP" to="." method="_on_chkbtn_dsp_toggled"]

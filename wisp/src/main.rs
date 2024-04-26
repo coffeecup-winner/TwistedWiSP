@@ -77,12 +77,12 @@ fn add_test_functions(wisp: &mut WispContext) {
     wisp.add_function(test_func);
 
     let mut flow = Flow::new();
-    let idx_test = flow.add_function("test".into());
-    let idx_out = flow.add_function("out".into());
-    let idx_lag = flow.add_function("lag".into());
-    flow.connect(idx_test, 0, idx_out, 0);
-    flow.connect(idx_test, 0, idx_lag, 0);
-    flow.connect(idx_lag, 0, idx_test, 0);
+    let _idx_test = flow.add_node("test".into());
+    let _idx_out = flow.add_node("out".into());
+    let _idx_lag = flow.add_node("lag".into());
+    // flow.connect(idx_test, 0, idx_out, 0);
+    // flow.connect(idx_test, 0, idx_lag, 0);
+    // flow.connect(idx_lag, 0, idx_test, 0);
     let flow_func = Function::new_flow("example".into(), flow);
     wisp.add_function(flow_func);
 }
