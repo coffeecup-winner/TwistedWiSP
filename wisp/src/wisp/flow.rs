@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use petgraph::{
-    graph::NodeIndex,
+    graph::{EdgeIndex, NodeIndex},
     stable_graph::StableGraph,
     visit::{EdgeFiltered, EdgeRef, Topo, Walker},
     Directed, Direction,
@@ -44,6 +44,14 @@ impl Flow {
         to: FlowNodeIndex,
         input_index: u32,
     ) {
+        if self
+            .find_connection(from, output_index, to, input_index)
+            .is_some()
+        {
+            // Connection already exists
+            return;
+        }
+
         self.graph.add_edge(
             from.0,
             to.0,
@@ -52,6 +60,33 @@ impl Flow {
                 input_index,
             },
         );
+    }
+
+    pub fn disconnect(
+        &mut self,
+        from: FlowNodeIndex,
+        output_index: u32,
+        to: FlowNodeIndex,
+        input_index: u32,
+    ) {
+        if let Some(e) = self.find_connection(from, output_index, to, input_index) {
+            self.graph.remove_edge(e);
+        }
+    }
+
+    fn find_connection(
+        &self,
+        from: FlowNodeIndex,
+        output_index: u32,
+        to: FlowNodeIndex,
+        input_index: u32,
+    ) -> Option<EdgeIndex> {
+        for e in self.graph.edges_connecting(from.0, to.0) {
+            if e.weight().output_index == output_index && e.weight().input_index == input_index {
+                return Some(e.id());
+            }
+        }
+        None
     }
 
     pub fn compile_to_ir(&self, ctx: &WispContext) -> Vec<Instruction> {

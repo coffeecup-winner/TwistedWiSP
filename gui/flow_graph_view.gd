@@ -22,8 +22,12 @@ func _on_connection_request(from_node, from_port, to_node, to_port):
 
 func _on_disconnection_request(from_node, from_port, to_node, to_port):
 	disconnect_node(from_node, from_port, to_node, to_port)
-	# TODO: Temp code
-	TwistedWisp.disable_dsp()
+	TwistedWisp.flow_disconnect(
+		wisp_flow_name,
+		get_node(NodePath(from_node)).wisp_node_idx,
+		from_port,
+		get_node(NodePath(to_node)).wisp_node_idx,
+		to_port)
 
 func _on_chkbtn_dsp_toggled(toggled_on):
 	if toggled_on:

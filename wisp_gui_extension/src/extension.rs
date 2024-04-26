@@ -93,4 +93,22 @@ impl TwistedWispSingleton {
             FlowNodeInletIndex(node_inlet),
         )
     }
+
+    #[func]
+    fn flow_disconnect(
+        &mut self,
+        flow_name: String,
+        node_out: u32,
+        node_outlet: u32,
+        node_in: u32,
+        node_inlet: u32,
+    ) {
+        self.wisp.as_mut().unwrap().flow_disconnect(
+            flow_name,
+            FlowNodeIndex(node_out),
+            FlowNodeOutletIndex(node_outlet),
+            FlowNodeIndex(node_in),
+            FlowNodeInletIndex(node_inlet),
+        )
+    }
 }

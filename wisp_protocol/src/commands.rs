@@ -25,6 +25,13 @@ pub enum WispCommand {
         FlowNodeIndex,
         FlowNodeInletIndex,
     ),
+    FlowDisconnect(
+        String,
+        FlowNodeIndex,
+        FlowNodeOutletIndex,
+        FlowNodeIndex,
+        FlowNodeInletIndex,
+    ),
 }
 
 impl WispCommand {

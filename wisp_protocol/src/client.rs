@@ -86,6 +86,23 @@ impl WispClient {
         ))
     }
 
+    pub fn flow_disconnect(
+        &mut self,
+        flow_name: String,
+        node_out: FlowNodeIndex,
+        node_outlet: FlowNodeOutletIndex,
+        node_in: FlowNodeIndex,
+        node_inlet: FlowNodeInletIndex,
+    ) {
+        self.execute_command(WispCommand::FlowDisconnect(
+            flow_name,
+            node_out,
+            node_outlet,
+            node_in,
+            node_inlet,
+        ))
+    }
+
     pub fn deinit(mut self) {
         self.execute_command::<()>(WispCommand::Exit);
         self.wisp_process

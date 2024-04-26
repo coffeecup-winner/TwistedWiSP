@@ -96,6 +96,21 @@ pub fn main(mut wisp: WispContext, device: ConfiguredAudioDevice) -> Result<(), 
                 };
                 reply(&output, resp)
             }
+            WispCommand::FlowDisconnect(flow_name, node_out, node_outlet, node_in, node_inlet) => {
+                let resp = match wisp.get_flow_mut(&flow_name) {
+                    Some(flow) => {
+                        flow.disconnect(
+                            CoreFlowNodeIndex(node_out.0.into()),
+                            node_outlet.0,
+                            CoreFlowNodeIndex(node_in.0.into()),
+                            node_inlet.0,
+                        );
+                        WispCommandResponse::Ok(())
+                    }
+                    None => WispCommandResponse::NonFatalFailure,
+                };
+                reply(&output, resp)
+            }
         }?;
     }
 }
