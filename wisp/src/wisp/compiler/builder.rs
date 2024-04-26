@@ -175,7 +175,7 @@ impl SignalProcessorBuilder {
             None
         };
         let mut fctx = FunctionContext::new(func, function, data_arg, func.outputs().len());
-        Self::translate_instructions(ectx, mctx, &mut fctx, func.instructions())?;
+        Self::translate_instructions(ectx, mctx, &mut fctx, &func.instructions())?;
         if !fctx.outputs.iter().all(|o| o.is_some()) {
             return Err(SignalProcessCreationError::UninitializedOutput(
                 func.name().to_owned(),

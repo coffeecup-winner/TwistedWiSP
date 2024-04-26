@@ -1,4 +1,10 @@
-use super::ir::{DataRef, Instruction};
+use std::cell::{Ref, RefCell};
+
+use super::{
+    flow::Flow,
+    ir::{DataRef, Instruction},
+    WispContext,
+};
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct FunctionInput {
@@ -43,7 +49,8 @@ pub struct Function {
     inputs: Vec<FunctionInput>,
     outputs: Vec<FunctionOutput>,
     data: Vec<FunctionDataItem>,
-    instructions: Vec<Instruction>,
+    flow: Option<Flow>,
+    instructions: RefCell<Vec<Instruction>>,
     lag_value: Option<DataRef>,
 }
 
@@ -61,8 +68,21 @@ impl Function {
             inputs,
             outputs,
             data,
-            instructions,
+            flow: None,
+            instructions: RefCell::new(instructions),
             lag_value,
+        }
+    }
+
+    pub fn new_flow(name: String, flow: Flow) -> Self {
+        Function {
+            name,
+            inputs: vec![],
+            outputs: vec![],
+            data: vec![],
+            flow: Some(flow),
+            instructions: RefCell::new(vec![]),
+            lag_value: None,
         }
     }
 
@@ -82,11 +102,18 @@ impl Function {
         &self.data
     }
 
-    pub fn instructions(&self) -> &[Instruction] {
-        &self.instructions
+    pub fn instructions(&self) -> Ref<'_, Vec<Instruction>> {
+        self.instructions.borrow()
     }
 
     pub fn lag_value(&self) -> Option<DataRef> {
         self.lag_value
+    }
+
+    pub fn update_instructions(&self, ctx: &WispContext) {
+        // TODO: Only do this if the flow has changed
+        if let Some(flow) = self.flow.as_ref() {
+            *self.instructions.borrow_mut() = flow.compile_to_ir(ctx);
+        }
     }
 }

@@ -1,7 +1,4 @@
-use std::{
-    cell::{Ref, RefCell},
-    collections::HashMap,
-};
+use std::collections::HashMap;
 
 use petgraph::{
     graph::NodeIndex,
@@ -11,7 +8,6 @@ use petgraph::{
 };
 
 use super::{
-    function::Function,
     ir::{CallId, Instruction, Operand, SourceLocation, VarRef},
     WispContext,
 };
@@ -23,25 +19,18 @@ pub struct FlowFunctionIndex(NodeIndex);
 
 #[derive(Debug, Clone, Copy)]
 struct FlowConnection {
-    #[allow(dead_code)]
     output_index: u32,
-    #[allow(dead_code)]
     input_index: u32,
 }
 
 #[derive(Debug, Default)]
 pub struct Flow {
-    name: String,
     graph: FlowGraph,
-    ir: RefCell<Option<Vec<Instruction>>>,
 }
 
 impl Flow {
-    pub fn new(name: String) -> Self {
-        Flow {
-            name,
-            ..Default::default()
-        }
+    pub fn new() -> Self {
+        Default::default()
     }
 
     pub fn add_function(&mut self, name: String) -> FlowFunctionIndex {
@@ -65,32 +54,7 @@ impl Flow {
         );
     }
 
-    pub fn compile_function(&self, ctx: &WispContext) -> Function {
-        let process_func_instructions = self
-            .get_compiled_flow(ctx)
-            .iter()
-            .cloned()
-            .collect::<Vec<_>>();
-        // TODO: Support inputs/outputs for flows
-        Function::new(
-            self.name.clone(),
-            vec![],
-            vec![],
-            vec![],
-            process_func_instructions,
-            None,
-        )
-    }
-
-    fn get_compiled_flow(&self, ctx: &WispContext) -> Ref<'_, Vec<Instruction>> {
-        if self.ir.borrow().is_none() {
-            let ir = self.compile(ctx);
-            *self.ir.borrow_mut() = Some(ir);
-        }
-        Ref::map(self.ir.borrow(), |is| is.as_ref().unwrap())
-    }
-
-    fn compile(&self, ctx: &WispContext) -> Vec<Instruction> {
+    pub fn compile_to_ir(&self, ctx: &WispContext) -> Vec<Instruction> {
         // This function walks the graph in topological order, so all producing nodes
         // are visited before all consuming nodes. To break graph cycles, lag outputs
         // are ignored and lagged values are used instead. Since topological sort

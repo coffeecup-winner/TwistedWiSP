@@ -28,6 +28,7 @@ pub fn main(wisp: WispContext, device: ConfiguredAudioDevice) -> Result<(), Box<
         let response = match command {
             WispCommand::StartDsp => {
                 // TODO: Remove this
+                wisp.update_all_function_instructions();
                 runtime.switch_to_signal_processor(&execution_context, &wisp, "example")?;
                 runtime.start_dsp();
                 WispCommandResponse::Ok

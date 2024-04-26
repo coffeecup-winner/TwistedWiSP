@@ -6,7 +6,6 @@ use crate::wisp::{
 };
 
 use super::{
-    flow::Flow,
     function::{Function, FunctionDataItem, FunctionOutput},
     ir::{DataRef, FunctionOutputIndex, SourceLocation, VarRef},
 };
@@ -79,16 +78,17 @@ impl WispContext {
         self.functions.insert(func.name().into(), func);
     }
 
-    pub fn compile_flow(&mut self, flow: &Flow) {
-        let func = flow.compile_function(self);
-        self.add_function(func);
-    }
-
     pub fn get_function(&self, name: &str) -> Option<&Function> {
         self.functions.get(name)
     }
 
     pub fn functions_iter(&self) -> hash_map::Iter<'_, String, Function> {
         self.functions.iter()
+    }
+
+    pub fn update_all_function_instructions(&self) {
+        for (_, f) in self.functions.iter() {
+            f.update_instructions(self);
+        }
     }
 }
