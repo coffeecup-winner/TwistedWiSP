@@ -5,7 +5,6 @@ mod wisp;
 use std::error::Error;
 
 use crate::wisp::{
-    flow::Flow,
     function::{Function, FunctionInput, FunctionOutput},
     ir::{
         BinaryOpType, ComparisonOpType, FunctionOutputIndex, Instruction, LocalRef, Operand,
@@ -33,7 +32,7 @@ struct Args {
     server: bool,
 }
 
-fn add_test_functions(wisp: &mut WispContext) {
+fn add_test_function(wisp: &mut WispContext) {
     let test_func = Function::new(
         "test".into(),
         vec![FunctionInput::new(DefaultInputValue::Value(0.0))],
@@ -76,16 +75,6 @@ fn add_test_functions(wisp: &mut WispContext) {
         None,
     );
     wisp.add_function(test_func);
-
-    let mut flow = Flow::new();
-    let _idx_test = flow.add_node("test".into());
-    let _idx_out = flow.add_node("out".into());
-    let _idx_lag = flow.add_node("lag".into());
-    // flow.connect(idx_test, 0, idx_out, 0);
-    // flow.connect(idx_test, 0, idx_lag, 0);
-    // flow.connect(idx_lag, 0, idx_test, 0);
-    let flow_func = Function::new_flow("example".into(), flow);
-    wisp.add_function(flow_func);
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -108,7 +97,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     wisp.register_builtin_functions();
 
     // TODO: Remove this
-    add_test_functions(&mut wisp);
+    add_test_function(&mut wisp);
 
     if args.server {
         return crate::server::main(wisp, device);

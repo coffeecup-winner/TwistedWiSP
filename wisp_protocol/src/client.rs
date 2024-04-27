@@ -6,8 +6,8 @@ use std::{
 };
 
 use crate::{
-    CommandResponse, FlowNodeIndex, FlowNodeInletIndex, FlowNodeOutletIndex, WispCommand,
-    WispCommandResponse,
+    CommandResponse, FlowNodeIndex, FlowNodeInletIndex, FlowNodeOutletIndex, FunctionMetadata,
+    WispCommand, WispCommandResponse,
 };
 
 pub struct WispClient {
@@ -49,20 +49,28 @@ impl WispClient {
         WispCommandResponse::<T>::from_json(&line).unwrap()
     }
 
-    pub fn enable_dsp(&mut self) {
-        self.execute_command(WispCommand::StartDsp)
+    pub fn dsp_start(&mut self) {
+        self.execute_command(WispCommand::DspStart)
     }
 
-    pub fn disable_dsp(&mut self) {
-        self.execute_command(WispCommand::StopDsp)
+    pub fn dsp_stop(&mut self) {
+        self.execute_command(WispCommand::DspStop)
     }
 
-    pub fn create_function(&mut self) -> String {
-        self.execute_command::<String>(WispCommand::CreateFunction)
+    pub fn function_create(&mut self) -> String {
+        self.execute_command::<String>(WispCommand::FunctionCreate)
     }
 
-    pub fn remove_function(&mut self, name: String) {
-        self.execute_command(WispCommand::RemoveFunction(name))
+    pub fn function_remove(&mut self, name: String) {
+        self.execute_command(WispCommand::FunctionRemove(name))
+    }
+
+    pub fn function_list(&mut self) -> Vec<String> {
+        self.execute_command(WispCommand::FunctionList)
+    }
+
+    pub fn function_get_metadata(&mut self, name: String) -> FunctionMetadata {
+        self.execute_command(WispCommand::FunctionGetMetadata(name))
     }
 
     pub fn flow_add_node(&mut self, flow_name: String, func_name: String) -> FlowNodeIndex {

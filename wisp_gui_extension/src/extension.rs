@@ -46,25 +46,43 @@ impl TwistedWispSingleton {
     }
 
     #[func]
-    fn enable_dsp(&mut self) {
+    fn dsp_start(&mut self) {
         godot::log::godot_print!("enable_dsp");
-        self.wisp.as_mut().unwrap().enable_dsp();
+        self.wisp.as_mut().unwrap().dsp_start();
     }
 
     #[func]
-    fn disable_dsp(&mut self) {
+    fn dsp_stop(&mut self) {
         godot::log::godot_print!("disable_dsp");
-        self.wisp.as_mut().unwrap().disable_dsp();
+        self.wisp.as_mut().unwrap().dsp_stop();
     }
 
     #[func]
-    fn create_function(&mut self) -> String {
-        self.wisp.as_mut().unwrap().create_function()
+    fn function_create(&mut self) -> String {
+        self.wisp.as_mut().unwrap().function_create()
     }
 
     #[func]
-    fn remove_function(&mut self, name: String) {
-        self.wisp.as_mut().unwrap().remove_function(name)
+    fn function_remove(&mut self, name: String) {
+        self.wisp.as_mut().unwrap().function_remove(name)
+    }
+
+    #[func]
+    fn function_list(&mut self) -> Array<GString> {
+        let mut array = Array::new();
+        for f in self.wisp.as_mut().unwrap().function_list() {
+            array.push(f.into());
+        }
+        array
+    }
+
+    #[func]
+    fn function_get_metadata(&mut self, name: String) -> Dictionary {
+        let metadata = self.wisp.as_mut().unwrap().function_get_metadata(name);
+        dict! {
+            "num_inlets": metadata.num_inlets,
+            "num_outlets": metadata.num_outlets,
+        }
     }
 
     #[func]

@@ -36,9 +36,9 @@ func _on_disconnection_request(from_node, from_port, to_node, to_port):
 
 func _on_chkbtn_dsp_toggled(toggled_on):
 	if toggled_on:
-		TwistedWisp.enable_dsp()
+		TwistedWisp.dsp_start()
 	else:
-		TwistedWisp.disable_dsp()
+		TwistedWisp.dsp_stop()
 
 
 func _on_gui_input(event):

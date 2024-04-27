@@ -8,13 +8,23 @@ pub struct FlowNodeOutletIndex(pub u32);
 pub struct FlowNodeInletIndex(pub u32);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FunctionMetadata {
+    pub num_inlets: u32,
+    pub num_outlets: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum WispCommand {
-    StartDsp,
-    StopDsp,
+    // System commands
+    DspStart,
+    DspStop,
     Exit,
 
-    CreateFunction, // -> String
-    RemoveFunction(String),
+    // Function commands
+    FunctionCreate, // -> String
+    FunctionRemove(String),
+    FunctionList,                // -> Vec<String>
+    FunctionGetMetadata(String), // -> FunctionMetadata
 
     // Flow commands
     FlowAddNode(String, String), // -> FlowNodeIndex
@@ -54,6 +64,8 @@ pub enum WispCommandResponse<T> {
 pub trait CommandResponse: Serialize + DeserializeOwned {}
 impl CommandResponse for () {}
 impl CommandResponse for String {}
+impl CommandResponse for Vec<String> {}
+impl CommandResponse for FunctionMetadata {}
 impl CommandResponse for FlowNodeIndex {}
 
 impl<T> WispCommandResponse<T>

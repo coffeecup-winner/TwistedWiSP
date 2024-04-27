@@ -2,7 +2,7 @@ use std::{error::Error, io::Write};
 
 use log::info;
 use twisted_wisp_protocol::{
-    self, CommandResponse, FlowNodeIndex, WispCommand, WispCommandResponse,
+    self, CommandResponse, FlowNodeIndex, FunctionMetadata, WispCommand, WispCommandResponse,
 };
 
 use crate::{
@@ -18,6 +18,10 @@ pub fn main(mut wisp: WispContext, device: ConfiguredAudioDevice) -> Result<(), 
     let execution_context = WispExecutionContext::init();
     let mut runtime = WispRuntime::init(device);
 
+    // TODO: Remove this
+    let flow_func = Function::new_flow("example".into(), Flow::new());
+    wisp.add_function(flow_func);
+
     info!("Switching to server mode - waiting for commands now");
     let input = std::io::stdin();
     let output = std::io::stdout();
@@ -32,14 +36,14 @@ pub fn main(mut wisp: WispContext, device: ConfiguredAudioDevice) -> Result<(), 
         info!("< {}", line.trim_end());
         let command = WispCommand::from_json(&line);
         match command {
-            WispCommand::StartDsp => {
+            WispCommand::DspStart => {
                 // TODO: Remove this
                 wisp.update_all_function_instructions();
                 runtime.switch_to_signal_processor(&execution_context, &wisp, "example")?;
                 runtime.start_dsp();
                 reply(&output, WispCommandResponse::Ok(()))
             }
-            WispCommand::StopDsp => {
+            WispCommand::DspStop => {
                 runtime.stop_dsp();
                 reply(&output, WispCommandResponse::Ok(()))
             }
@@ -48,7 +52,7 @@ pub fn main(mut wisp: WispContext, device: ConfiguredAudioDevice) -> Result<(), 
                 reply(&output, WispCommandResponse::Ok(()))?;
                 return Ok(());
             }
-            WispCommand::CreateFunction => {
+            WispCommand::FunctionCreate => {
                 let mut name;
                 let mut idx = 0;
                 loop {
@@ -62,10 +66,28 @@ pub fn main(mut wisp: WispContext, device: ConfiguredAudioDevice) -> Result<(), 
                 wisp.add_function(func);
                 reply(&output, WispCommandResponse::Ok(name))
             }
-            WispCommand::RemoveFunction(name) => {
+            WispCommand::FunctionRemove(name) => {
                 let func = wisp.remove_function(&name);
                 let resp = if func.is_some() {
                     WispCommandResponse::Ok(())
+                } else {
+                    WispCommandResponse::NonFatalFailure
+                };
+                reply(&output, resp)
+            }
+            WispCommand::FunctionList => {
+                let names = wisp
+                    .functions_iter()
+                    .map(|(n, _)| n.clone())
+                    .collect::<Vec<_>>();
+                reply(&output, WispCommandResponse::Ok(names))
+            }
+            WispCommand::FunctionGetMetadata(name) => {
+                let resp = if let Some(f) = wisp.get_function(&name) {
+                    WispCommandResponse::Ok(FunctionMetadata {
+                        num_inlets: f.inputs().len() as u32,
+                        num_outlets: f.outputs().len() as u32,
+                    })
                 } else {
                     WispCommandResponse::NonFatalFailure
                 };
