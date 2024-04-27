@@ -1,7 +1,14 @@
 use std::path::Path;
 
 use godot::{engine::Engine, prelude::*};
-use twisted_wisp_protocol::{FlowNodeIndex, FlowNodeInletIndex, FlowNodeOutletIndex, WispClient};
+use twisted_wisp::{
+    DefaultInputValue, Flow, FlowNodeIndex, Function, FunctionInput, FunctionOutput, WispContext,
+};
+use twisted_wisp_ir::{
+    BinaryOpType, ComparisonOpType, FunctionOutputIndex, Instruction, LocalRef, Operand,
+    SourceLocation, TargetLocation, VarRef,
+};
+use twisted_wisp_protocol::WispRunnerClient;
 
 struct TwistedWispExtension;
 
@@ -34,7 +41,53 @@ unsafe impl ExtensionLibrary for TwistedWispExtension {
 #[class(init, base=Object)]
 struct TwistedWispSingleton {
     base: Base<Object>,
-    wisp: Option<WispClient>,
+    runner: Option<WispRunnerClient>,
+    ctx: Option<WispContext>,
+}
+
+// TODO: Remove this
+fn create_test_function() -> Function {
+    Function::new(
+        "test".into(),
+        vec![FunctionInput::new(DefaultInputValue::Value(0.0))],
+        vec![FunctionOutput],
+        vec![],
+        vec![
+            Instruction::AllocLocal(LocalRef(0)),
+            Instruction::BinaryOp(
+                VarRef(0),
+                BinaryOpType::Add,
+                Operand::Arg(0),
+                Operand::Literal(0.01),
+            ),
+            Instruction::Store(TargetLocation::Local(LocalRef(0)), Operand::Var(VarRef(0))),
+            Instruction::ComparisonOp(
+                VarRef(1),
+                ComparisonOpType::Greater,
+                Operand::Var(VarRef(0)),
+                Operand::Literal(1.0),
+            ),
+            Instruction::Conditional(
+                VarRef(1),
+                vec![
+                    Instruction::BinaryOp(
+                        VarRef(0),
+                        BinaryOpType::Subtract,
+                        Operand::Var(VarRef(0)),
+                        Operand::Literal(1.0),
+                    ),
+                    Instruction::Store(TargetLocation::Local(LocalRef(0)), Operand::Var(VarRef(0))),
+                ],
+                vec![],
+            ),
+            Instruction::Load(VarRef(0), SourceLocation::Local(LocalRef(0))),
+            Instruction::Store(
+                TargetLocation::FunctionOutput(FunctionOutputIndex(0)),
+                Operand::Var(VarRef(0)),
+            ),
+        ],
+        None,
+    )
 }
 
 #[godot_api]
@@ -42,56 +95,99 @@ impl TwistedWispSingleton {
     #[func]
     fn init(&mut self, wisp_exe_path: String) {
         godot::log::godot_print!("init: {}", wisp_exe_path);
-        self.wisp = Some(WispClient::init(Path::new(&wisp_exe_path)));
+
+        let mut runner = WispRunnerClient::init(Path::new(&wisp_exe_path));
+        let sys_info = runner.get_system_info();
+
+        let mut ctx = WispContext::new(sys_info.num_channels);
+        ctx.add_builtin_functions();
+
+        // TODO: Remove this
+        ctx.add_function(create_test_function());
+        let flow_func = Function::new_flow("example".into(), Flow::new());
+        ctx.add_function(flow_func);
+
+        for (_n, f) in ctx.functions_iter() {
+            runner.context_add_or_update_function(f.get_ir_function());
+        }
+        runner.context_set_main_function("example".into());
+
+        self.runner = Some(runner);
+        self.ctx = Some(ctx);
     }
 
     #[func]
     fn dsp_start(&mut self) {
         godot::log::godot_print!("enable_dsp");
-        self.wisp.as_mut().unwrap().dsp_start();
+        // TODO: Remove this
+        let func = self.ctx.as_ref().unwrap().get_function("example").unwrap();
+        func.update_instructions(self.ctx.as_ref().unwrap());
+        self.runner
+            .as_mut()
+            .unwrap()
+            .context_add_or_update_function(
+                self.ctx
+                    .as_ref()
+                    .unwrap()
+                    .get_function("example")
+                    .unwrap()
+                    .get_ir_function(),
+            );
+        self.runner.as_mut().unwrap().context_update();
+        self.runner.as_mut().unwrap().dsp_start();
     }
 
     #[func]
     fn dsp_stop(&mut self) {
         godot::log::godot_print!("disable_dsp");
-        self.wisp.as_mut().unwrap().dsp_stop();
+        self.runner.as_mut().unwrap().dsp_stop();
     }
 
     #[func]
     fn function_create(&mut self) -> String {
-        self.wisp.as_mut().unwrap().function_create()
+        let ctx = self.ctx.as_mut().unwrap();
+        let mut name;
+        let mut idx = 0;
+        loop {
+            name = format!("flow_{}", idx);
+            if ctx.get_function(&name).is_some() {
+                break;
+            }
+            idx += 1;
+        }
+        let func = Function::new_flow(name.clone(), Flow::new());
+        ctx.add_function(func);
+        name
     }
 
     #[func]
     fn function_remove(&mut self, name: String) {
-        self.wisp.as_mut().unwrap().function_remove(name)
+        self.ctx.as_mut().unwrap().remove_function(&name);
     }
 
     #[func]
     fn function_list(&mut self) -> Array<GString> {
         let mut array = Array::new();
-        for f in self.wisp.as_mut().unwrap().function_list() {
-            array.push(f.into());
+        for (n, _f) in self.ctx.as_mut().unwrap().functions_iter() {
+            array.push(n.into());
         }
         array
     }
 
     #[func]
     fn function_get_metadata(&mut self, name: String) -> Dictionary {
-        let metadata = self.wisp.as_mut().unwrap().function_get_metadata(name);
+        let func = self.ctx.as_mut().unwrap().get_function(&name).unwrap();
         dict! {
-            "num_inlets": metadata.num_inlets,
-            "num_outlets": metadata.num_outlets,
+            "num_inlets": func.inputs().len() as u32,
+            "num_outlets": func.outputs().len() as u32,
         }
     }
 
     #[func]
     fn flow_add_node(&mut self, flow_name: String, func_name: String) -> u32 {
-        self.wisp
-            .as_mut()
-            .unwrap()
-            .flow_add_node(flow_name, func_name)
-            .0
+        let flow = self.ctx.as_mut().unwrap().get_flow_mut(&flow_name).unwrap();
+        let idx = flow.add_node(func_name);
+        idx.0.index() as u32
     }
 
     #[func]
@@ -103,13 +199,13 @@ impl TwistedWispSingleton {
         node_in: u32,
         node_inlet: u32,
     ) {
-        self.wisp.as_mut().unwrap().flow_connect(
-            flow_name,
-            FlowNodeIndex(node_out),
-            FlowNodeOutletIndex(node_outlet),
-            FlowNodeIndex(node_in),
-            FlowNodeInletIndex(node_inlet),
-        )
+        let flow = self.ctx.as_mut().unwrap().get_flow_mut(&flow_name).unwrap();
+        flow.connect(
+            FlowNodeIndex(node_out.into()),
+            node_outlet,
+            FlowNodeIndex(node_in.into()),
+            node_inlet,
+        );
     }
 
     #[func]
@@ -121,12 +217,12 @@ impl TwistedWispSingleton {
         node_in: u32,
         node_inlet: u32,
     ) {
-        self.wisp.as_mut().unwrap().flow_disconnect(
-            flow_name,
-            FlowNodeIndex(node_out),
-            FlowNodeOutletIndex(node_outlet),
-            FlowNodeIndex(node_in),
-            FlowNodeInletIndex(node_inlet),
-        )
+        let flow = self.ctx.as_mut().unwrap().get_flow_mut(&flow_name).unwrap();
+        flow.disconnect(
+            FlowNodeIndex(node_out.into()),
+            node_outlet,
+            FlowNodeIndex(node_in.into()),
+            node_inlet,
+        );
     }
 }

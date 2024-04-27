@@ -1,33 +1,32 @@
 use std::collections::{hash_map, HashMap};
 
-use crate::wisp::{
-    function::{DefaultInputValue, FunctionInput},
-    ir::{Instruction, Operand, SignalOutputIndex, TargetLocation},
-};
+use crate::function::{DefaultInputValue, FunctionInput};
 
 use super::{
     flow::Flow,
     function::{Function, FunctionDataItem, FunctionOutput},
-    ir::{DataRef, FunctionOutputIndex, SourceLocation, VarRef},
 };
 
-#[derive(Debug, Default)]
+use twisted_wisp_ir::{
+    DataRef, FunctionOutputIndex, Instruction, Operand, SignalOutputIndex, SourceLocation,
+    TargetLocation, VarRef,
+};
+
+#[derive(Debug)]
 pub struct WispContext {
     num_outputs: u32,
-    sample_rate: u32,
     functions: HashMap<String, Function>,
 }
 
 impl WispContext {
-    pub fn new(num_outputs: u32, sample_rate: u32) -> Self {
+    pub fn new(num_outputs: u32) -> Self {
         WispContext {
             num_outputs,
-            sample_rate,
-            ..Default::default()
+            functions: HashMap::new(),
         }
     }
 
-    pub fn register_builtin_functions(&mut self) {
+    pub fn add_builtin_functions(&mut self) {
         self.add_function(Self::build_function_out(self));
         self.add_function(Self::build_function_lag());
     }
@@ -69,10 +68,6 @@ impl WispContext {
 
     pub fn num_outputs(&self) -> u32 {
         self.num_outputs
-    }
-
-    pub fn sample_rate(&self) -> u32 {
-        self.sample_rate
     }
 
     pub fn add_function(&mut self, func: Function) {

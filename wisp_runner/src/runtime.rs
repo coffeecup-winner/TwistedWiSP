@@ -6,11 +6,10 @@ use std::{
 use cpal::Stream;
 use inkwell::execution_engine::ExecutionEngine;
 
-use crate::audio::device::ConfiguredAudioDevice;
-
-use super::{
-    compiler::SignalProcessorBuilder, SignalProcessCreationError, SignalProcessor, WispContext,
-    WispExecutionContext,
+use crate::{
+    audio::device::ConfiguredAudioDevice,
+    compiler::{SignalProcessCreationError, SignalProcessor, SignalProcessorBuilder},
+    context::{WispContext, WispExecutionContext},
 };
 
 pub struct WispRuntime<'ectx> {

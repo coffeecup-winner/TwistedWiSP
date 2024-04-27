@@ -1035,14 +1035,8 @@ dependencies = [
 name = "twisted-wisp"
 version = "0.1.0"
 dependencies = [
- "clap",
- "cpal",
- "inkwell",
- "log",
  "petgraph",
- "stderrlog",
- "thiserror",
- "twisted-wisp-protocol",
+ "twisted-wisp-ir",
 ]
 
 [[package]]
@@ -1050,7 +1044,16 @@ name = "twisted-wisp-gui-extension"
 version = "0.1.0"
 dependencies = [
  "godot",
+ "twisted-wisp",
+ "twisted-wisp-ir",
  "twisted-wisp-protocol",
+]
+
+[[package]]
+name = "twisted-wisp-ir"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -1059,6 +1062,21 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "twisted-wisp-ir",
+]
+
+[[package]]
+name = "twisted-wisp-runner"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "cpal",
+ "inkwell",
+ "log",
+ "stderrlog",
+ "thiserror",
+ "twisted-wisp-ir",
+ "twisted-wisp-protocol",
 ]
 
 [[package]]

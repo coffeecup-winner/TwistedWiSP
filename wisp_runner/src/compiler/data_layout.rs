@@ -1,10 +1,8 @@
 use std::collections::{BTreeMap, HashMap};
 
-use crate::wisp::{
-    function::Function,
-    ir::{CallId, DataRef, Instruction},
-    WispContext,
-};
+use twisted_wisp_ir::{CallId, DataRef, IRFunction, Instruction};
+
+use crate::context::WispContext;
 
 #[derive(Debug)]
 pub struct FunctionDataLayout {
@@ -14,7 +12,7 @@ pub struct FunctionDataLayout {
 }
 
 pub fn calculate_data_layout(
-    top_level_func: &Function,
+    top_level_func: &IRFunction,
     wctx: &WispContext,
 ) -> HashMap<String, FunctionDataLayout> {
     let mut data_layout = HashMap::new();
@@ -27,7 +25,7 @@ pub fn calculate_data_layout(
 }
 
 fn calculate_function_data_layout(
-    func: &Function,
+    func: &IRFunction,
     wctx: &WispContext,
     data_layout: &mut HashMap<String, FunctionDataLayout>,
 ) -> Option<FunctionDataLayout> {

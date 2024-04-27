@@ -3,5 +3,7 @@ resolver = "2"
 members = [
     "wisp",
     "wisp_gui_extension",
-    "wisp_protocol"
+    "wisp_ir",
+    "wisp_protocol",
+    "wisp_runner"
 ]

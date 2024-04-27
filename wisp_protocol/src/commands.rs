@@ -1,47 +1,25 @@
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use twisted_wisp_ir::IRFunction;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
-pub struct FlowNodeIndex(pub u32);
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
-pub struct FlowNodeOutletIndex(pub u32);
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
-pub struct FlowNodeInletIndex(pub u32);
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FunctionMetadata {
-    pub num_inlets: u32,
-    pub num_outlets: u32,
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SystemInfo {
+    pub num_channels: u32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum WispCommand {
     // System commands
+    GetSystemInfo, // -> SystemInfo
     DspStart,
     DspStop,
     Exit,
 
-    // Function commands
-    FunctionCreate, // -> String
-    FunctionRemove(String),
-    FunctionList,                // -> Vec<String>
-    FunctionGetMetadata(String), // -> FunctionMetadata
-
-    // Flow commands
-    FlowAddNode(String, String), // -> FlowNodeIndex
-    FlowConnect(
-        String,
-        FlowNodeIndex,
-        FlowNodeOutletIndex,
-        FlowNodeIndex,
-        FlowNodeInletIndex,
-    ),
-    FlowDisconnect(
-        String,
-        FlowNodeIndex,
-        FlowNodeOutletIndex,
-        FlowNodeIndex,
-        FlowNodeInletIndex,
-    ),
+    // Context commands
+    ContextReset,
+    ContextAddOrUpdateFunction(IRFunction),
+    ContextRemoveFunction(String),
+    ContextSetMainFunction(String),
+    ContextUpdate,
 }
 
 impl WispCommand {
@@ -63,10 +41,7 @@ pub enum WispCommandResponse<T> {
 
 pub trait CommandResponse: Serialize + DeserializeOwned {}
 impl CommandResponse for () {}
-impl CommandResponse for String {}
-impl CommandResponse for Vec<String> {}
-impl CommandResponse for FunctionMetadata {}
-impl CommandResponse for FlowNodeIndex {}
+impl CommandResponse for SystemInfo {}
 
 impl<T> WispCommandResponse<T>
 where

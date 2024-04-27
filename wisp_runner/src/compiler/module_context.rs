@@ -7,8 +7,9 @@ use inkwell::{
     types::{FloatType, IntType, PointerType, VoidType},
     AddressSpace,
 };
+use twisted_wisp_ir::IRFunction;
 
-use crate::wisp::{function::Function, WispContext};
+use crate::context::WispContext;
 
 use super::{data_layout::FunctionDataLayout, error::SignalProcessCreationError};
 
@@ -56,7 +57,10 @@ impl<'ectx, 'temp> ModuleContext<'ectx, 'temp> {
         }
     }
 
-    pub fn get_function(&self, name: &str) -> Result<&'temp Function, SignalProcessCreationError> {
+    pub fn get_function(
+        &self,
+        name: &str,
+    ) -> Result<&'temp IRFunction, SignalProcessCreationError> {
         self.wctx
             .get_function(name)
             .ok_or_else(|| SignalProcessCreationError::UnknownFunction(name.into()))

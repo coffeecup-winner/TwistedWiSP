@@ -2,16 +2,13 @@ use std::collections::HashMap;
 
 use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue};
 
-use crate::wisp::{
-    function::Function,
-    ir::{LocalRef, VarRef},
-};
+use twisted_wisp_ir::{IRFunction, LocalRef, VarRef};
 
 use super::error::SignalProcessCreationError;
 
 #[derive(Debug)]
 pub(super) struct FunctionContext<'ectx, 'temp> {
-    pub func: &'temp Function,
+    pub func: &'temp IRFunction,
     pub function: FunctionValue<'ectx>,
     pub data_arg: Option<PointerValue<'ectx>>,
     pub outputs: Vec<Option<BasicValueEnum<'ectx>>>,
@@ -21,7 +18,7 @@ pub(super) struct FunctionContext<'ectx, 'temp> {
 
 impl<'ectx, 'temp> FunctionContext<'ectx, 'temp> {
     pub fn new(
-        func: &'temp Function,
+        func: &'temp IRFunction,
         function: FunctionValue<'ectx>,
         data_arg: Option<PointerValue<'ectx>>,
         num_outputs: usize,

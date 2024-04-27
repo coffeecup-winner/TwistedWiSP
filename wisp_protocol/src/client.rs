@@ -5,17 +5,16 @@ use std::{
     process::{Child, Command, Stdio},
 };
 
-use crate::{
-    CommandResponse, FlowNodeIndex, FlowNodeInletIndex, FlowNodeOutletIndex, FunctionMetadata,
-    WispCommand, WispCommandResponse,
-};
+use twisted_wisp_ir::IRFunction;
 
-pub struct WispClient {
+use crate::{CommandResponse, SystemInfo, WispCommand, WispCommandResponse};
+
+pub struct WispRunnerClient {
     wisp_process: Child,
 }
 
-impl WispClient {
-    pub fn init(exe_path: &Path) -> WispClient {
+impl WispRunnerClient {
+    pub fn init(exe_path: &Path) -> WispRunnerClient {
         let log_file = File::create("wisp.log").expect("Failed to create the log file");
         let child = Command::new(exe_path)
             .arg("--server")
@@ -24,9 +23,16 @@ impl WispClient {
             .stderr(Stdio::from(log_file))
             .spawn()
             .expect("Failed to start the client");
-        WispClient {
+        WispRunnerClient {
             wisp_process: child,
         }
+    }
+
+    pub fn deinit(mut self) {
+        self.execute_command::<()>(WispCommand::Exit);
+        self.wisp_process
+            .wait_with_output()
+            .expect("Failed to stop the WiSP process");
     }
 
     fn execute_command<T>(&mut self, command: WispCommand) -> T
@@ -49,6 +55,10 @@ impl WispClient {
         WispCommandResponse::<T>::from_json(&line).unwrap()
     }
 
+    pub fn get_system_info(&mut self) -> SystemInfo {
+        self.execute_command(WispCommand::GetSystemInfo)
+    }
+
     pub fn dsp_start(&mut self) {
         self.execute_command(WispCommand::DspStart)
     }
@@ -57,64 +67,23 @@ impl WispClient {
         self.execute_command(WispCommand::DspStop)
     }
 
-    pub fn function_create(&mut self) -> String {
-        self.execute_command::<String>(WispCommand::FunctionCreate)
+    pub fn context_reset(&mut self) {
+        self.execute_command(WispCommand::ContextReset)
     }
 
-    pub fn function_remove(&mut self, name: String) {
-        self.execute_command(WispCommand::FunctionRemove(name))
+    pub fn context_add_or_update_function(&mut self, func: IRFunction) {
+        self.execute_command(WispCommand::ContextAddOrUpdateFunction(func))
     }
 
-    pub fn function_list(&mut self) -> Vec<String> {
-        self.execute_command(WispCommand::FunctionList)
+    pub fn context_remove_function(&mut self, name: String) {
+        self.execute_command(WispCommand::ContextRemoveFunction(name))
     }
 
-    pub fn function_get_metadata(&mut self, name: String) -> FunctionMetadata {
-        self.execute_command(WispCommand::FunctionGetMetadata(name))
+    pub fn context_set_main_function(&mut self, name: String) {
+        self.execute_command(WispCommand::ContextSetMainFunction(name))
     }
 
-    pub fn flow_add_node(&mut self, flow_name: String, func_name: String) -> FlowNodeIndex {
-        self.execute_command(WispCommand::FlowAddNode(flow_name, func_name))
-    }
-
-    pub fn flow_connect(
-        &mut self,
-        flow_name: String,
-        node_out: FlowNodeIndex,
-        node_outlet: FlowNodeOutletIndex,
-        node_in: FlowNodeIndex,
-        node_inlet: FlowNodeInletIndex,
-    ) {
-        self.execute_command(WispCommand::FlowConnect(
-            flow_name,
-            node_out,
-            node_outlet,
-            node_in,
-            node_inlet,
-        ))
-    }
-
-    pub fn flow_disconnect(
-        &mut self,
-        flow_name: String,
-        node_out: FlowNodeIndex,
-        node_outlet: FlowNodeOutletIndex,
-        node_in: FlowNodeIndex,
-        node_inlet: FlowNodeInletIndex,
-    ) {
-        self.execute_command(WispCommand::FlowDisconnect(
-            flow_name,
-            node_out,
-            node_outlet,
-            node_in,
-            node_inlet,
-        ))
-    }
-
-    pub fn deinit(mut self) {
-        self.execute_command::<()>(WispCommand::Exit);
-        self.wisp_process
-            .wait_with_output()
-            .expect("Failed to stop the WiSP process");
+    pub fn context_update(&mut self) {
+        self.execute_command(WispCommand::ContextUpdate)
     }
 }

@@ -7,11 +7,11 @@ use petgraph::{
     Directed, Direction,
 };
 
-use super::{
-    function::DefaultInputValue,
-    ir::{CallId, Instruction, Operand, SourceLocation, VarRef},
-    WispContext,
-};
+use crate::context::WispContext;
+
+use super::function::DefaultInputValue;
+
+use twisted_wisp_ir::{CallId, Instruction, Operand, SourceLocation, VarRef};
 
 type FlowGraph = StableGraph<String, FlowConnection, Directed>;
 

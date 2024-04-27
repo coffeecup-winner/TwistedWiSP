@@ -1,4 +1,4 @@
 [wisp]
 # This path needs to be set to point to the TwistedWiSP executable
 # in order for the GUI to find and spawn it
-executable_path="/home/user/projects/TwistedWiSP/target/release/twisted-wisp"
+executable_path="/home/user/projects/TwistedWiSP/target/release/twisted-wisp-runner"

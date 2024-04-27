@@ -1,9 +1,11 @@
 use std::cell::{Ref, RefCell};
 
-use super::{
-    flow::Flow,
-    ir::{DataRef, Instruction},
-    WispContext,
+use crate::context::WispContext;
+
+use super::flow::Flow;
+
+use twisted_wisp_ir::{
+    DataRef, IRFunction, IRFunctionDataItem, IRFunctionInput, IRFunctionOutput, Instruction,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -120,6 +122,16 @@ impl Function {
         // TODO: Only do this if the flow has changed
         if let Some(flow) = self.flow.as_ref() {
             *self.instructions.borrow_mut() = flow.compile_to_ir(ctx);
+        }
+    }
+
+    pub fn get_ir_function(&self) -> IRFunction {
+        IRFunction {
+            name: self.name.clone(),
+            inputs: self.inputs.iter().map(|_| IRFunctionInput).collect(),
+            outputs: self.outputs.iter().map(|_| IRFunctionOutput).collect(),
+            data: self.data.iter().map(|_| IRFunctionDataItem).collect(),
+            ir: self.instructions.borrow().clone(),
         }
     }
 }

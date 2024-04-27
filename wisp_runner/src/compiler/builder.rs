@@ -8,11 +8,7 @@ use inkwell::{
 };
 use log::debug;
 
-use crate::wisp::{
-    function::Function,
-    ir::{Instruction, Operand},
-    WispContext, WispExecutionContext,
-};
+use crate::context::{WispContext, WispExecutionContext};
 
 use super::{
     data_layout::calculate_data_layout,
@@ -21,6 +17,8 @@ use super::{
     module_context::ModuleContext,
     processor::{SignalProcessor, SignalProcessorContext},
 };
+
+use twisted_wisp_ir::{IRFunction, Instruction, Operand};
 
 pub struct SignalProcessorBuilder {
     id_gen: u64,
@@ -152,7 +150,7 @@ impl SignalProcessorBuilder {
         &self,
         ectx: &'ectx WispExecutionContext,
         mctx: &mut ModuleContext<'ectx, '_>,
-        func: &Function,
+        func: &IRFunction,
     ) -> Result<(), SignalProcessCreationError> {
         let function = mctx
             .module
@@ -175,7 +173,7 @@ impl SignalProcessorBuilder {
             None
         };
         let mut fctx = FunctionContext::new(func, function, data_arg, func.outputs().len());
-        Self::translate_instructions(ectx, mctx, &mut fctx, &func.instructions())?;
+        Self::translate_instructions(ectx, mctx, &mut fctx, func.instructions())?;
         if !fctx.outputs.iter().all(|o| o.is_some()) {
             return Err(SignalProcessCreationError::UninitializedOutput(
                 func.name().to_owned(),
@@ -214,7 +212,7 @@ impl SignalProcessorBuilder {
         let start_block = current_block;
 
         for insn in instructions {
-            use crate::wisp::ir::Instruction::*;
+            use twisted_wisp_ir::Instruction::*;
             match insn {
                 AllocLocal(lref) => {
                     let local = mctx.build("alloc_local", |b, _| {
@@ -223,7 +221,7 @@ impl SignalProcessorBuilder {
                     fctx.locals.insert(*lref, local);
                 }
                 Load(vref, loc) => {
-                    use crate::wisp::ir::SourceLocation::*;
+                    use twisted_wisp_ir::SourceLocation::*;
                     let value = match loc {
                         Local(lref) => {
                             let local = fctx.get_local(lref)?;
@@ -282,7 +280,7 @@ impl SignalProcessorBuilder {
                 }
                 Store(loc, op) => {
                     let value = Self::resolve_operand(mctx, fctx, op)?;
-                    use crate::wisp::ir::TargetLocation::*;
+                    use twisted_wisp_ir::TargetLocation::*;
                     match loc {
                         Local(lref) => {
                             let local = fctx.get_local(lref)?;
@@ -331,7 +329,7 @@ impl SignalProcessorBuilder {
                 BinaryOp(vref, type_, op1, op2) => {
                     let left = Self::resolve_operand(mctx, fctx, op1)?.into_float_value();
                     let right = Self::resolve_operand(mctx, fctx, op2)?.into_float_value();
-                    use crate::wisp::ir::BinaryOpType::*;
+                    use twisted_wisp_ir::BinaryOpType::*;
                     let res = match type_ {
                         Add => mctx.build("binop_add", |b, n| b.build_float_add(left, right, n)),
                         Subtract => {
@@ -347,7 +345,7 @@ impl SignalProcessorBuilder {
                 ComparisonOp(vref, type_, op1, op2) => {
                     let left = Self::resolve_operand(mctx, fctx, op1)?.into_float_value();
                     let right = Self::resolve_operand(mctx, fctx, op2)?.into_float_value();
-                    use crate::wisp::ir::ComparisonOpType::*;
+                    use twisted_wisp_ir::ComparisonOpType::*;
                     let res = mctx.build("compop_eq", |b, n| {
                         b.build_float_compare(
                             match type_ {
@@ -470,10 +468,10 @@ impl SignalProcessorBuilder {
         fctx: &FunctionContext<'ectx, '_>,
         op: &Operand,
     ) -> Result<BasicValueEnum<'ectx>, SignalProcessCreationError> {
-        use crate::wisp::ir::Operand::*;
+        use twisted_wisp_ir::Operand::*;
         Ok(match op {
             Constant(c) => {
-                use crate::wisp::ir::Constant::*;
+                use twisted_wisp_ir::Constant::*;
                 match c {
                     SampleRate => mctx
                         .types
