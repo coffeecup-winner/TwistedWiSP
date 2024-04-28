@@ -1,4 +1,4 @@
-use std::{io::Write, path::Path};
+use std::path::Path;
 
 use godot::{engine::Engine, prelude::*};
 use twisted_wisp::{
@@ -177,17 +177,45 @@ impl TwistedWispSingleton {
 
     #[func]
     fn function_open(&mut self, path: String) -> String {
-        let _f = std::fs::File::open(Path::new(&path)).expect("Failed to open file to load");
-        // TODO: Implement this
-        "TODO".into()
+        let s = std::fs::read_to_string(Path::new(&path)).expect("Failed to open file to load");
+        let func = FlowFunction::load(&s).expect("Failed to parse the flow function data");
+        let ctx = self.ctx.as_mut().unwrap();
+        let name = func.name().to_owned();
+        self.runner
+            .as_mut()
+            .unwrap()
+            .context_add_or_update_function(func.get_ir_function(ctx));
+        if let Some(f) = ctx.get_function_mut(func.name()) {
+            *f = func;
+            self.runner.as_mut().unwrap().context_update();
+        } else {
+            ctx.add_function(func);
+        }
+        name
     }
 
     #[func]
     fn function_save(&mut self, name: String, path: String) {
-        let _func = self.ctx.as_mut().unwrap().get_function(&name).unwrap();
-        let mut f = std::fs::File::create(Path::new(&path)).expect("Failed to open file to save");
-        f.write_all("TODO".as_bytes())
-            .expect("Failed to write flow to file");
+        let func = self.ctx.as_mut().unwrap().get_function(&name).unwrap();
+        let s = func.save();
+        std::fs::write(Path::new(&path), s.as_bytes())
+            .expect("Failed to save flow function to file");
+    }
+
+    #[func]
+    fn flow_list_nodes(&mut self, flow_name: String) -> Array<u32> {
+        let mut array = Array::new();
+        let flow = self
+            .ctx
+            .as_mut()
+            .unwrap()
+            .get_function_mut(&flow_name)
+            .and_then(|f| f.as_flow_mut())
+            .unwrap();
+        for idx in flow.node_indices() {
+            array.push(idx.index() as u32);
+        }
+        array
     }
 
     #[func]
@@ -201,6 +229,36 @@ impl TwistedWispSingleton {
             .unwrap();
         let idx = flow.add_node(func_name);
         idx.index() as u32
+    }
+
+    #[func]
+    fn flow_get_node_name(&mut self, flow_name: String, node_idx: u32) -> String {
+        let flow = self
+            .ctx
+            .as_ref()
+            .unwrap()
+            .get_function(&flow_name)
+            .and_then(|f| f.as_flow())
+            .unwrap();
+        flow.get_node(node_idx.into()).unwrap().name.clone()
+    }
+
+    #[func]
+    fn flow_get_node_coordinates(&mut self, flow_name: String, node_idx: u32) -> Dictionary {
+        let flow = self
+            .ctx
+            .as_ref()
+            .unwrap()
+            .get_function(&flow_name)
+            .and_then(|f| f.as_flow())
+            .unwrap();
+        let data = &flow.get_node(node_idx.into()).unwrap().data;
+        dict! {
+            "x": data.x,
+            "y": data.y,
+            "w": data.w,
+            "h": data.h,
+        }
     }
 
     #[func]
@@ -225,6 +283,40 @@ impl TwistedWispSingleton {
         data.y = y;
         data.w = w;
         data.h = h;
+    }
+
+    #[func]
+    fn flow_list_connections(&mut self, flow_name: String) -> Array<u32> {
+        let mut array = Array::new();
+        let flow = self
+            .ctx
+            .as_mut()
+            .unwrap()
+            .get_function_mut(&flow_name)
+            .and_then(|f| f.as_flow_mut())
+            .unwrap();
+        for idx in flow.edge_indices() {
+            array.push(idx.index() as u32);
+        }
+        array
+    }
+
+    #[func]
+    fn flow_get_connection(&mut self, flow_name: String, conn_idx: u32) -> Dictionary {
+        let flow = self
+            .ctx
+            .as_mut()
+            .unwrap()
+            .get_function_mut(&flow_name)
+            .and_then(|f| f.as_flow_mut())
+            .unwrap();
+        let (from, to, conn) = flow.get_connection(conn_idx.into()).unwrap();
+        dict! {
+            "from": from.index() as u32,
+            "output_index": conn.output_index,
+            "to": to.index() as u32,
+            "input_index": conn.input_index,
+        }
     }
 
     #[func]

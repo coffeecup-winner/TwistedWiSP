@@ -1,6 +1,4 @@
-use crate::{
-    FunctionDataItem, FunctionInput, FunctionOutput, WispContext, WispFunction,
-};
+use crate::{FunctionDataItem, FunctionInput, FunctionOutput, WispContext, WispFunction};
 
 use twisted_wisp_ir::{
     DataRef, IRFunction, IRFunctionDataItem, IRFunctionInput, IRFunctionOutput, Instruction,
@@ -49,6 +47,17 @@ impl WispFunction for CodeFunction {
 
     fn lag_value(&self) -> Option<DataRef> {
         self.lag_value
+    }
+
+    fn load(_s: &str) -> Option<Box<dyn WispFunction>>
+    where
+        Self: Sized,
+    {
+        todo!()
+    }
+
+    fn save(&self) -> String {
+        todo!()
     }
 }
 

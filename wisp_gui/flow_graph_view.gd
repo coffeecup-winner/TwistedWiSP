@@ -4,6 +4,7 @@ extends GraphEdit
 var wisp_flow_name = ""
 var wisp_file_path = ""
 
+var FlowGraphNode = preload("res://flow_graph_node.tscn")
 var FlowGraphNodeSelector = preload("res://flow_graph_node_selector.tscn")
 
 func _ready():
@@ -41,6 +42,17 @@ func _on_chkbtn_dsp_toggled(toggled_on):
 func _on_open_file_selected(f):
 	wisp_file_path = f
 	wisp_flow_name = TwistedWisp.function_open(wisp_file_path)
+	var node_map = {}
+	for idx in TwistedWisp.flow_list_nodes(wisp_flow_name):
+		var node = add_flow_node(TwistedWisp.flow_get_node_name(wisp_flow_name, idx), idx)
+		node_map[idx] = node
+	for idx in TwistedWisp.flow_list_connections(wisp_flow_name):
+		var conn = TwistedWisp.flow_get_connection(wisp_flow_name, idx)
+		connect_node(
+			node_map[conn.from].name,
+			conn.output_index,
+			node_map[conn.to].name,
+			conn.input_index)
 
 
 func _on_save_file_selected(f):
@@ -83,17 +95,43 @@ func _on_gui_input(event):
 			selector.grab_focus()
 
 
-func add_flow_node(node):
-	var idx = TwistedWisp.flow_add_node(wisp_flow_name, node.title)
+func add_flow_node(name, idx):
+	var node = FlowGraphNode.instantiate()
+	node.title = name
+	
+	var metadata = TwistedWisp.function_get_metadata(name)
+	var rows_count = max(metadata.num_inlets, metadata.num_outlets)
+	
+	for i in range(0, rows_count):
+		node.add_child(Label.new())
+	
+	for i in range(0, metadata.num_inlets):
+		node.set_slot_enabled_left(i, true)
+	
+	for i in range(0, metadata.num_outlets):
+		node.set_slot_enabled_right(i, true)
+
+	if idx == null:
+		idx = TwistedWisp.flow_add_node(wisp_flow_name, name)
+		node.position_offset = self.position
+		node.size = Vector2(80, 80)
+		TwistedWisp.flow_set_node_coordinates(
+			wisp_flow_name,
+			node.wisp_node_idx,
+			int(node.position_offset.x),
+			int(node.position_offset.y),
+			int(node.size.x),
+			int(node.size.y))
+	else:
+		var coords = TwistedWisp.flow_get_node_coordinates(wisp_flow_name, idx)
+		node.position_offset.x = coords.x
+		node.position_offset.y = coords.y
+		node.size.x = coords.w
+		node.size.y = coords.h
+	
 	node.wisp_node_idx = idx
 	add_child(node)
-	TwistedWisp.flow_set_node_coordinates(
-		wisp_flow_name,
-		node.wisp_node_idx,
-		int(node.position_offset.x),
-		int(node.position_offset.y),
-		int(node.size.x),
-		int(node.size.y))
+	return node
 
 
 func _on_end_node_move():

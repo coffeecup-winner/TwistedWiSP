@@ -2,8 +2,8 @@ use std::{cell::RefCell, collections::HashMap};
 
 use petgraph::{
     graph::{EdgeIndex, NodeIndex},
-    stable_graph::StableGraph,
-    visit::{EdgeFiltered, EdgeRef, Topo, Walker},
+    stable_graph::{EdgeIndices, NodeIndices, StableGraph},
+    visit::{EdgeFiltered, EdgeRef, NodeRef, Topo, Walker},
     Directed, Direction,
 };
 
@@ -26,12 +26,13 @@ pub struct FlowNodeData {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct FlowConnection {
-    output_index: u32,
-    input_index: u32,
+pub struct FlowConnection {
+    pub output_index: u32,
+    pub input_index: u32,
 }
 
 pub type FlowNodeIndex = NodeIndex;
+pub type FlowConnectionIndex = EdgeIndex;
 type FlowGraph = StableGraph<FlowNode, FlowConnection, Directed>;
 
 #[derive(Debug)]
@@ -81,6 +82,85 @@ impl WispFunction for FlowFunction {
     fn as_flow_mut(&mut self) -> Option<&mut FlowFunction> {
         Some(self)
     }
+
+    fn load(s: &str) -> Option<Box<dyn WispFunction>>
+    where
+        Self: Sized,
+    {
+        let mut lines = s.lines();
+        let mut first_line = lines.next()?;
+        first_line = first_line.strip_prefix("flow:")?;
+        let mut parts = first_line.split(' ');
+        let name = parts.next()?;
+        let node_count = parts.next()?.parse::<u32>().ok()?;
+        let edge_count = parts.next()?.parse::<u32>().ok()?;
+        let mut graph = FlowGraph::new();
+        for idx in 0..node_count {
+            let line = lines.next()?;
+            let mut parts = line.split(' ');
+            let name = parts.next()?;
+            let x = parts.next()?.parse::<i32>().ok()?;
+            let y = parts.next()?.parse::<i32>().ok()?;
+            let w = parts.next()?.parse::<u32>().ok()?;
+            let h = parts.next()?.parse::<u32>().ok()?;
+            let node_idx = graph.add_node(FlowNode {
+                name: name.into(),
+                data: FlowNodeData { x, y, w, h },
+            });
+            assert_eq!(node_idx.index().id() as u32, idx);
+        }
+        for idx in 0..edge_count {
+            let line = lines.next()?;
+            let mut parts = line.split(' ');
+            let from = parts.next()?.parse::<u32>().ok()?;
+            let output_index = parts.next()?.parse::<u32>().ok()?;
+            let to = parts.next()?.parse::<u32>().ok()?;
+            let input_index = parts.next()?.parse::<u32>().ok()?;
+            let edge_idx = graph.add_edge(
+                from.into(),
+                to.into(),
+                FlowConnection {
+                    input_index,
+                    output_index,
+                },
+            );
+            assert_eq!(edge_idx.index().id() as u32, idx);
+        }
+        Some(Box::new(FlowFunction {
+            name: name.into(),
+            graph,
+            ir: RefCell::new(vec![]),
+        }))
+    }
+
+    fn save(&self) -> String {
+        let mut s = String::new();
+        s.push_str(&format!(
+            "flow:{} {} {}\n",
+            self.name,
+            self.graph.node_count(),
+            self.graph.edge_count()
+        ));
+        for idx in self.graph.node_indices() {
+            let n = self.graph.node_weight(idx).unwrap();
+            s.push_str(&format!(
+                "{} {} {} {} {}\n",
+                n.name, n.data.x, n.data.y, n.data.w, n.data.h
+            ));
+        }
+        for idx in self.graph.edge_indices() {
+            let endpoints = self.graph.edge_endpoints(idx).unwrap();
+            let e = self.graph.edge_weight(idx).unwrap();
+            s.push_str(&format!(
+                "{} {} {} {}\n",
+                endpoints.0.index(),
+                e.output_index,
+                endpoints.1.index(),
+                e.input_index
+            ))
+        }
+        s
+    }
 }
 
 impl FlowFunction {
@@ -99,8 +179,29 @@ impl FlowFunction {
         })
     }
 
+    pub fn node_indices(&self) -> NodeIndices<FlowNode> {
+        self.graph.node_indices()
+    }
+
+    pub fn get_node(&self, idx: FlowNodeIndex) -> Option<&FlowNode> {
+        self.graph.node_weight(idx)
+    }
+
     pub fn get_node_mut(&mut self, idx: FlowNodeIndex) -> Option<&mut FlowNode> {
         self.graph.node_weight_mut(idx)
+    }
+
+    pub fn edge_indices(&self) -> EdgeIndices<FlowConnection> {
+        self.graph.edge_indices()
+    }
+
+    pub fn get_connection(
+        &self,
+        idx: FlowConnectionIndex,
+    ) -> Option<(FlowNodeIndex, FlowNodeIndex, &FlowConnection)> {
+        let (from, to) = self.graph.edge_endpoints(idx)?;
+        let conn = self.graph.edge_weight(idx)?;
+        Some((from, to, conn))
     }
 
     pub fn connect(

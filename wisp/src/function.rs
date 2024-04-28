@@ -60,4 +60,9 @@ pub trait WispFunction: Debug {
     fn as_flow_mut(&mut self) -> Option<&mut FlowFunction> {
         None
     }
+
+    fn load(s: &str) -> Option<Box<dyn WispFunction>>
+    where
+        Self: Sized;
+    fn save(&self) -> String;
 }
