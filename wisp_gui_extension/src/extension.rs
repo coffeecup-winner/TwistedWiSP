@@ -104,13 +104,10 @@ impl TwistedWispSingleton {
 
         // TODO: Remove this
         ctx.add_function(create_test_function());
-        let flow_func = Function::new_flow("example".into(), Flow::new());
-        ctx.add_function(flow_func);
 
         for (_n, f) in ctx.functions_iter() {
-            runner.context_add_or_update_function(f.get_ir_function());
+            runner.context_add_or_update_function(f.get_ir_function(&ctx));
         }
-        runner.context_set_main_function("example".into());
 
         self.runner = Some(runner);
         self.ctx = Some(ctx);
@@ -119,21 +116,6 @@ impl TwistedWispSingleton {
     #[func]
     fn dsp_start(&mut self) {
         godot::log::godot_print!("enable_dsp");
-        // TODO: Remove this
-        let func = self.ctx.as_ref().unwrap().get_function("example").unwrap();
-        func.update_instructions(self.ctx.as_ref().unwrap());
-        self.runner
-            .as_mut()
-            .unwrap()
-            .context_add_or_update_function(
-                self.ctx
-                    .as_ref()
-                    .unwrap()
-                    .get_function("example")
-                    .unwrap()
-                    .get_ir_function(),
-            );
-        self.runner.as_mut().unwrap().context_update();
         self.runner.as_mut().unwrap().dsp_start();
     }
 
@@ -150,7 +132,7 @@ impl TwistedWispSingleton {
         let mut idx = 0;
         loop {
             name = format!("flow_{}", idx);
-            if ctx.get_function(&name).is_some() {
+            if ctx.get_function(&name).is_none() {
                 break;
             }
             idx += 1;
@@ -162,6 +144,7 @@ impl TwistedWispSingleton {
 
     #[func]
     fn function_remove(&mut self, name: String) {
+        // TODO: Handle this on the runner side
         self.ctx.as_mut().unwrap().remove_function(&name);
     }
 
@@ -181,6 +164,14 @@ impl TwistedWispSingleton {
             "num_inlets": func.inputs().len() as u32,
             "num_outlets": func.outputs().len() as u32,
         }
+    }
+
+    #[func]
+    fn function_set_main(&mut self, name: String) {
+        self.runner
+            .as_mut()
+            .unwrap()
+            .context_set_main_function(name);
     }
 
     #[func]
@@ -206,6 +197,13 @@ impl TwistedWispSingleton {
             FlowNodeIndex(node_in.into()),
             node_inlet,
         );
+        let ctx = self.ctx.as_ref().unwrap();
+        let func = ctx.get_function(&flow_name).unwrap();
+        self.runner
+            .as_mut()
+            .unwrap()
+            .context_add_or_update_function(func.get_ir_function(ctx));
+        self.runner.as_mut().unwrap().context_update();
     }
 
     #[func]
@@ -224,5 +222,12 @@ impl TwistedWispSingleton {
             FlowNodeIndex(node_in.into()),
             node_inlet,
         );
+        let ctx = self.ctx.as_ref().unwrap();
+        let func = ctx.get_function(&flow_name).unwrap();
+        self.runner
+            .as_mut()
+            .unwrap()
+            .context_add_or_update_function(func.get_ir_function(ctx));
+        self.runner.as_mut().unwrap().context_update();
     }
 }

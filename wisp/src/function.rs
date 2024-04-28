@@ -118,14 +118,11 @@ impl Function {
         self.lag_value
     }
 
-    pub fn update_instructions(&self, ctx: &WispContext) {
+    pub fn get_ir_function(&self, ctx: &WispContext) -> IRFunction {
         // TODO: Only do this if the flow has changed
         if let Some(flow) = self.flow.as_ref() {
             *self.instructions.borrow_mut() = flow.compile_to_ir(ctx);
         }
-    }
-
-    pub fn get_ir_function(&self) -> IRFunction {
         IRFunction {
             name: self.name.clone(),
             inputs: self.inputs.iter().map(|_| IRFunctionInput).collect(),

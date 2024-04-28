@@ -89,10 +89,4 @@ impl WispContext {
     pub fn functions_iter(&self) -> hash_map::Iter<'_, String, Function> {
         self.functions.iter()
     }
-
-    pub fn update_all_function_instructions(&self) {
-        for (_, f) in self.functions.iter() {
-            f.update_instructions(self);
-        }
-    }
 }

@@ -1,6 +1,5 @@
-[gd_scene load_steps=3 format=3 uid="uid://ddowe537ontfv"]
+[gd_scene load_steps=2 format=3 uid="uid://ddowe537ontfv"]
 
-[ext_resource type="PackedScene" uid="uid://dtktiuwmp1rh1" path="res://flow_graph_view.tscn" id="1_manrc"]
 [ext_resource type="Script" path="res://twisted_wisp.gd" id="1_qnwpt"]
 
 [node name="TwistedWiSP" type="Control"]
@@ -11,8 +10,3 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1_qnwpt")
-
-[node name="FlowGraphView" parent="." instance=ExtResource("1_manrc")]
-layout_mode = 1
-
-[connection signal="gui_input" from="FlowGraphView" to="." method="_on_flow_graph_view_gui_input"]
