@@ -1,7 +1,10 @@
 use std::{io::Write, path::Path};
 
 use godot::{engine::Engine, prelude::*};
-use twisted_wisp::{DefaultInputValue, Flow, Function, FunctionInput, FunctionOutput, WispContext};
+use twisted_wisp::{
+    CodeFunction, DefaultInputValue, FlowFunction, FunctionInput, FunctionOutput, WispContext,
+    WispFunction,
+};
 use twisted_wisp_ir::{
     BinaryOpType, ComparisonOpType, FunctionOutputIndex, Instruction, LocalRef, Operand,
     SourceLocation, TargetLocation, VarRef,
@@ -44,8 +47,8 @@ struct TwistedWispSingleton {
 }
 
 // TODO: Remove this
-fn create_test_function() -> Function {
-    Function::new(
+fn create_test_function() -> Box<dyn WispFunction> {
+    Box::new(CodeFunction::new(
         "test".into(),
         vec![FunctionInput::new(DefaultInputValue::Value(0.0))],
         vec![FunctionOutput],
@@ -85,7 +88,7 @@ fn create_test_function() -> Function {
             ),
         ],
         None,
-    )
+    ))
 }
 
 #[godot_api]
@@ -103,7 +106,7 @@ impl TwistedWispSingleton {
         // TODO: Remove this
         ctx.add_function(create_test_function());
 
-        for (_n, f) in ctx.functions_iter() {
+        for f in ctx.functions_iter() {
             runner.context_add_or_update_function(f.get_ir_function(&ctx));
         }
 
@@ -135,7 +138,7 @@ impl TwistedWispSingleton {
             }
             idx += 1;
         }
-        let func = Function::new_flow(name.clone(), Flow::new());
+        let func = Box::new(FlowFunction::new(name.clone()));
         ctx.add_function(func);
         name
     }
@@ -149,8 +152,8 @@ impl TwistedWispSingleton {
     #[func]
     fn function_list(&mut self) -> Array<GString> {
         let mut array = Array::new();
-        for (n, _f) in self.ctx.as_mut().unwrap().functions_iter() {
-            array.push(n.into());
+        for f in self.ctx.as_mut().unwrap().functions_iter() {
+            array.push(f.name().into());
         }
         array
     }
@@ -159,8 +162,8 @@ impl TwistedWispSingleton {
     fn function_get_metadata(&mut self, name: String) -> Dictionary {
         let func = self.ctx.as_mut().unwrap().get_function(&name).unwrap();
         dict! {
-            "num_inlets": func.inputs().len() as u32,
-            "num_outlets": func.outputs().len() as u32,
+            "num_inlets": func.inputs_count(),
+            "num_outlets": func.outputs_count(),
         }
     }
 
@@ -189,7 +192,13 @@ impl TwistedWispSingleton {
 
     #[func]
     fn flow_add_node(&mut self, flow_name: String, func_name: String) -> u32 {
-        let flow = self.ctx.as_mut().unwrap().get_flow_mut(&flow_name).unwrap();
+        let flow = self
+            .ctx
+            .as_mut()
+            .unwrap()
+            .get_function_mut(&flow_name)
+            .and_then(|f| f.as_flow_mut())
+            .unwrap();
         let idx = flow.add_node(func_name);
         idx.index() as u32
     }
@@ -204,7 +213,13 @@ impl TwistedWispSingleton {
         w: u32,
         h: u32,
     ) {
-        let flow = self.ctx.as_mut().unwrap().get_flow_mut(&flow_name).unwrap();
+        let flow = self
+            .ctx
+            .as_mut()
+            .unwrap()
+            .get_function_mut(&flow_name)
+            .and_then(|f| f.as_flow_mut())
+            .unwrap();
         let data = &mut flow.get_node_mut(node_idx.into()).unwrap().data;
         data.x = x;
         data.y = y;
@@ -221,7 +236,13 @@ impl TwistedWispSingleton {
         node_in: u32,
         node_inlet: u32,
     ) {
-        let flow = self.ctx.as_mut().unwrap().get_flow_mut(&flow_name).unwrap();
+        let flow = self
+            .ctx
+            .as_mut()
+            .unwrap()
+            .get_function_mut(&flow_name)
+            .and_then(|f| f.as_flow_mut())
+            .unwrap();
         flow.connect(node_out.into(), node_outlet, node_in.into(), node_inlet);
         let ctx = self.ctx.as_ref().unwrap();
         let func = ctx.get_function(&flow_name).unwrap();
@@ -241,7 +262,13 @@ impl TwistedWispSingleton {
         node_in: u32,
         node_inlet: u32,
     ) {
-        let flow = self.ctx.as_mut().unwrap().get_flow_mut(&flow_name).unwrap();
+        let flow = self
+            .ctx
+            .as_mut()
+            .unwrap()
+            .get_function_mut(&flow_name)
+            .and_then(|f| f.as_flow_mut())
+            .unwrap();
         flow.disconnect(node_out.into(), node_outlet, node_in.into(), node_inlet);
         let ctx = self.ctx.as_ref().unwrap();
         let func = ctx.get_function(&flow_name).unwrap();

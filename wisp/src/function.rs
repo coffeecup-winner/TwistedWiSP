@@ -1,12 +1,8 @@
-use std::cell::{Ref, RefCell};
+use std::fmt::Debug;
 
-use crate::context::WispContext;
+use crate::{context::WispContext, FlowFunction};
 
-use super::flow::Flow;
-
-use twisted_wisp_ir::{
-    DataRef, IRFunction, IRFunctionDataItem, IRFunctionInput, IRFunctionOutput, Instruction,
-};
+use twisted_wisp_ir::{DataRef, IRFunction};
 
 #[derive(Debug, Clone, Copy)]
 pub struct FunctionInput {
@@ -47,88 +43,21 @@ impl FunctionDataItem {
     }
 }
 
-#[derive(Debug)]
-pub struct Function {
-    name: String,
-    inputs: Vec<FunctionInput>,
-    outputs: Vec<FunctionOutput>,
-    data: Vec<FunctionDataItem>,
-    flow: Option<Flow>,
-    instructions: RefCell<Vec<Instruction>>,
-    lag_value: Option<DataRef>,
-}
+pub trait WispFunction: Debug {
+    fn name(&self) -> &str;
+    fn inputs_count(&self) -> u32;
+    fn input(&self, idx: u32) -> Option<&FunctionInput>;
+    fn outputs_count(&self) -> u32;
+    fn output(&self, idx: u32) -> Option<&FunctionOutput>;
+    fn get_ir_function(&self, ctx: &WispContext) -> IRFunction;
 
-impl Function {
-    pub fn new(
-        name: String,
-        inputs: Vec<FunctionInput>,
-        outputs: Vec<FunctionOutput>,
-        data: Vec<FunctionDataItem>,
-        instructions: Vec<Instruction>,
-        lag_value: Option<DataRef>,
-    ) -> Self {
-        Function {
-            name,
-            inputs,
-            outputs,
-            data,
-            flow: None,
-            instructions: RefCell::new(instructions),
-            lag_value,
-        }
+    fn lag_value(&self) -> Option<DataRef> {
+        None
     }
-
-    pub fn new_flow(name: String, flow: Flow) -> Self {
-        Function {
-            name,
-            inputs: vec![],
-            outputs: vec![],
-            data: vec![],
-            flow: Some(flow),
-            instructions: RefCell::new(vec![]),
-            lag_value: None,
-        }
+    fn as_flow(&self) -> Option<&FlowFunction> {
+        None
     }
-
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    pub fn inputs(&self) -> &[FunctionInput] {
-        &self.inputs
-    }
-
-    pub fn outputs(&self) -> &[FunctionOutput] {
-        &self.outputs
-    }
-
-    pub fn data(&self) -> &[FunctionDataItem] {
-        &self.data
-    }
-
-    pub fn flow_mut(&mut self) -> Option<&mut Flow> {
-        self.flow.as_mut()
-    }
-
-    pub fn instructions(&self) -> Ref<'_, Vec<Instruction>> {
-        self.instructions.borrow()
-    }
-
-    pub fn lag_value(&self) -> Option<DataRef> {
-        self.lag_value
-    }
-
-    pub fn get_ir_function(&self, ctx: &WispContext) -> IRFunction {
-        // TODO: Only do this if the flow has changed
-        if let Some(flow) = self.flow.as_ref() {
-            *self.instructions.borrow_mut() = flow.compile_to_ir(ctx);
-        }
-        IRFunction {
-            name: self.name.clone(),
-            inputs: self.inputs.iter().map(|_| IRFunctionInput).collect(),
-            outputs: self.outputs.iter().map(|_| IRFunctionOutput).collect(),
-            data: self.data.iter().map(|_| IRFunctionDataItem).collect(),
-            ir: self.instructions.borrow().clone(),
-        }
+    fn as_flow_mut(&mut self) -> Option<&mut FlowFunction> {
+        None
     }
 }

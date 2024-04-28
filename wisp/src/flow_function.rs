@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{cell::RefCell, collections::HashMap};
 
 use petgraph::{
     graph::{EdgeIndex, NodeIndex},
@@ -7,11 +7,9 @@ use petgraph::{
     Directed, Direction,
 };
 
-use crate::context::WispContext;
+use crate::{context::WispContext, DefaultInputValue, FunctionInput, FunctionOutput, WispFunction};
 
-use super::function::DefaultInputValue;
-
-use twisted_wisp_ir::{CallId, Instruction, Operand, SourceLocation, VarRef};
+use twisted_wisp_ir::{CallId, IRFunction, Instruction, Operand, SourceLocation, VarRef};
 
 #[derive(Debug, Clone)]
 pub struct FlowNode {
@@ -36,14 +34,62 @@ struct FlowConnection {
 pub type FlowNodeIndex = NodeIndex;
 type FlowGraph = StableGraph<FlowNode, FlowConnection, Directed>;
 
-#[derive(Debug, Default)]
-pub struct Flow {
+#[derive(Debug)]
+pub struct FlowFunction {
+    name: String,
     graph: FlowGraph,
+    ir: RefCell<Vec<Instruction>>,
 }
 
-impl Flow {
-    pub fn new() -> Self {
-        Default::default()
+impl WispFunction for FlowFunction {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn inputs_count(&self) -> u32 {
+        0
+    }
+
+    fn input(&self, _idx: u32) -> Option<&FunctionInput> {
+        None
+    }
+
+    fn outputs_count(&self) -> u32 {
+        0
+    }
+
+    fn output(&self, _idx: u32) -> Option<&FunctionOutput> {
+        None
+    }
+
+    fn get_ir_function(&self, ctx: &WispContext) -> IRFunction {
+        // TODO: Only do this if the flow has changed
+        *self.ir.borrow_mut() = self.compile_to_ir(ctx);
+        IRFunction {
+            name: self.name.clone(),
+            inputs: vec![],
+            outputs: vec![],
+            data: vec![],
+            ir: self.ir.borrow().clone(),
+        }
+    }
+
+    fn as_flow(&self) -> Option<&FlowFunction> {
+        Some(self)
+    }
+
+    fn as_flow_mut(&mut self) -> Option<&mut FlowFunction> {
+        Some(self)
+    }
+}
+
+impl FlowFunction {
+    pub fn new(name: String) -> Self {
+        FlowFunction {
+            name,
+            graph: Default::default(),
+            ir: Default::default(),
+        }
     }
 
     pub fn add_node(&mut self, name: String) -> FlowNodeIndex {
@@ -135,9 +181,9 @@ impl Flow {
                 .expect("Failed to find function");
 
             let mut inputs = vec![];
-            for (idx, _) in func.inputs().iter().enumerate() {
+            for idx in 0..func.inputs_count() {
                 for e in self.graph.edges_directed(n, Direction::Incoming) {
-                    if e.weight().input_index != idx as u32 {
+                    if e.weight().input_index != idx {
                         continue;
                     }
                     let source_func = ctx
@@ -162,13 +208,13 @@ impl Flow {
                         inputs.push(Operand::Var(vref));
                     }
                 }
-                if inputs.len() < idx + 1 {
-                    match func.inputs()[idx].fallback {
+                if (inputs.len() as u32) < idx + 1 {
+                    match func.input(idx).unwrap().fallback {
                         DefaultInputValue::Value(v) => {
                             inputs.push(Operand::Literal(v));
                         }
                         DefaultInputValue::Normal => {
-                            inputs.push(inputs[idx - 1]);
+                            inputs.push(inputs[(idx - 1) as usize]);
                         }
                         DefaultInputValue::Skip => {
                             assert!(
@@ -182,11 +228,11 @@ impl Flow {
                 }
             }
             let mut outputs = vec![];
-            for (idx, _) in func.outputs().iter().enumerate() {
+            for idx in 0..func.outputs_count() {
                 let vref = VarRef(vref_id);
                 outputs.push(vref);
                 vref_id += 1;
-                output_vrefs.insert((n, idx as u32), vref);
+                output_vrefs.insert((n, idx), vref);
             }
             instructions.push(Instruction::Call(
                 CallId(n.index() as u32),
