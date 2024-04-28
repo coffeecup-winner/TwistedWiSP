@@ -87,3 +87,22 @@ func add_flow_node(node):
 	var idx = TwistedWisp.flow_add_node(wisp_flow_name, node.title)
 	node.wisp_node_idx = idx
 	add_child(node)
+	TwistedWisp.flow_set_node_coordinates(
+		wisp_flow_name,
+		node.wisp_node_idx,
+		int(node.position_offset.x),
+		int(node.position_offset.y),
+		int(node.size.x),
+		int(node.size.y))
+
+
+func _on_end_node_move():
+	for node in get_children():
+		if node is GraphNode and node.selected:
+			TwistedWisp.flow_set_node_coordinates(
+				wisp_flow_name,
+				node.wisp_node_idx,
+				int(node.position_offset.x),
+				int(node.position_offset.y),
+				int(node.size.x),
+				int(node.size.y))

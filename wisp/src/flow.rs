@@ -13,16 +13,28 @@ use super::function::DefaultInputValue;
 
 use twisted_wisp_ir::{CallId, Instruction, Operand, SourceLocation, VarRef};
 
-type FlowGraph = StableGraph<String, FlowConnection, Directed>;
+#[derive(Debug, Clone)]
+pub struct FlowNode {
+    pub name: String,
+    pub data: FlowNodeData,
+}
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub struct FlowNodeIndex(pub NodeIndex);
+#[derive(Debug, Default, Clone)]
+pub struct FlowNodeData {
+    pub x: i32,
+    pub y: i32,
+    pub w: u32,
+    pub h: u32,
+}
 
 #[derive(Debug, Clone, Copy)]
 struct FlowConnection {
     output_index: u32,
     input_index: u32,
 }
+
+pub type FlowNodeIndex = NodeIndex;
+type FlowGraph = StableGraph<FlowNode, FlowConnection, Directed>;
 
 #[derive(Debug, Default)]
 pub struct Flow {
@@ -35,7 +47,14 @@ impl Flow {
     }
 
     pub fn add_node(&mut self, name: String) -> FlowNodeIndex {
-        FlowNodeIndex(self.graph.add_node(name))
+        self.graph.add_node(FlowNode {
+            name,
+            data: Default::default(),
+        })
+    }
+
+    pub fn get_node_mut(&mut self, idx: FlowNodeIndex) -> Option<&mut FlowNode> {
+        self.graph.node_weight_mut(idx)
     }
 
     pub fn connect(
@@ -54,8 +73,8 @@ impl Flow {
         }
 
         self.graph.add_edge(
-            from.0,
-            to.0,
+            from,
+            to,
             FlowConnection {
                 output_index,
                 input_index,
@@ -82,7 +101,7 @@ impl Flow {
         to: FlowNodeIndex,
         input_index: u32,
     ) -> Option<EdgeIndex> {
-        for e in self.graph.edges_connecting(from.0, to.0) {
+        for e in self.graph.edges_connecting(from, to) {
             if e.weight().output_index == output_index && e.weight().input_index == input_index {
                 return Some(e.id());
             }
@@ -99,7 +118,7 @@ impl Flow {
         // (and lag value fetches).
 
         let filtered_graph = EdgeFiltered::from_fn(&self.graph, |e| {
-            ctx.get_function(self.graph.node_weight(e.source()).unwrap())
+            ctx.get_function(&self.graph.node_weight(e.source()).unwrap().name)
                 .unwrap()
                 .lag_value()
                 .is_none()
@@ -112,7 +131,7 @@ impl Flow {
         let topo = Topo::new(&filtered_graph);
         'nodes: for n in topo.iter(&filtered_graph) {
             let func = ctx
-                .get_function(self.graph.node_weight(n).unwrap())
+                .get_function(&self.graph.node_weight(n).unwrap().name)
                 .expect("Failed to find function");
 
             let mut inputs = vec![];
@@ -122,7 +141,7 @@ impl Flow {
                         continue;
                     }
                     let source_func = ctx
-                        .get_function(self.graph.node_weight(e.source()).unwrap())
+                        .get_function(&self.graph.node_weight(e.source()).unwrap().name)
                         .unwrap();
                     if let Some(dref) = source_func.lag_value() {
                         let vref = VarRef(vref_id);
@@ -171,7 +190,7 @@ impl Flow {
             }
             instructions.push(Instruction::Call(
                 CallId(n.index() as u32),
-                self.graph.node_weight(n).unwrap().clone(),
+                self.graph.node_weight(n).unwrap().name.clone(),
                 inputs,
                 outputs,
             ));

@@ -1,9 +1,7 @@
 use std::{io::Write, path::Path};
 
 use godot::{engine::Engine, prelude::*};
-use twisted_wisp::{
-    DefaultInputValue, Flow, FlowNodeIndex, Function, FunctionInput, FunctionOutput, WispContext,
-};
+use twisted_wisp::{DefaultInputValue, Flow, Function, FunctionInput, FunctionOutput, WispContext};
 use twisted_wisp_ir::{
     BinaryOpType, ComparisonOpType, FunctionOutputIndex, Instruction, LocalRef, Operand,
     SourceLocation, TargetLocation, VarRef,
@@ -193,7 +191,25 @@ impl TwistedWispSingleton {
     fn flow_add_node(&mut self, flow_name: String, func_name: String) -> u32 {
         let flow = self.ctx.as_mut().unwrap().get_flow_mut(&flow_name).unwrap();
         let idx = flow.add_node(func_name);
-        idx.0.index() as u32
+        idx.index() as u32
+    }
+
+    #[func]
+    fn flow_set_node_coordinates(
+        &mut self,
+        flow_name: String,
+        node_idx: u32,
+        x: i32,
+        y: i32,
+        w: u32,
+        h: u32,
+    ) {
+        let flow = self.ctx.as_mut().unwrap().get_flow_mut(&flow_name).unwrap();
+        let data = &mut flow.get_node_mut(node_idx.into()).unwrap().data;
+        data.x = x;
+        data.y = y;
+        data.w = w;
+        data.h = h;
     }
 
     #[func]
@@ -206,12 +222,7 @@ impl TwistedWispSingleton {
         node_inlet: u32,
     ) {
         let flow = self.ctx.as_mut().unwrap().get_flow_mut(&flow_name).unwrap();
-        flow.connect(
-            FlowNodeIndex(node_out.into()),
-            node_outlet,
-            FlowNodeIndex(node_in.into()),
-            node_inlet,
-        );
+        flow.connect(node_out.into(), node_outlet, node_in.into(), node_inlet);
         let ctx = self.ctx.as_ref().unwrap();
         let func = ctx.get_function(&flow_name).unwrap();
         self.runner
@@ -231,12 +242,7 @@ impl TwistedWispSingleton {
         node_inlet: u32,
     ) {
         let flow = self.ctx.as_mut().unwrap().get_flow_mut(&flow_name).unwrap();
-        flow.disconnect(
-            FlowNodeIndex(node_out.into()),
-            node_outlet,
-            FlowNodeIndex(node_in.into()),
-            node_inlet,
-        );
+        flow.disconnect(node_out.into(), node_outlet, node_in.into(), node_inlet);
         let ctx = self.ctx.as_ref().unwrap();
         let func = ctx.get_function(&flow_name).unwrap();
         self.runner
