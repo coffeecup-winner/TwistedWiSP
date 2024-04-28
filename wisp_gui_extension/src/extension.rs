@@ -1,14 +1,8 @@
 use std::path::Path;
 
 use godot::{engine::Engine, prelude::*};
-use twisted_wisp::{
-    CodeFunction, DefaultInputValue, FlowFunction, FunctionInput, FunctionOutput, WispContext,
-    WispFunction,
-};
-use twisted_wisp_ir::{
-    BinaryOpType, ComparisonOpType, FunctionOutputIndex, Instruction, LocalRef, Operand,
-    SourceLocation, TargetLocation, VarRef,
-};
+
+use twisted_wisp::{CodeFunctionParser, FlowFunction, WispContext, WispFunction};
 use twisted_wisp_protocol::WispRunnerClient;
 
 struct TwistedWispExtension;
@@ -46,55 +40,10 @@ struct TwistedWispSingleton {
     ctx: Option<WispContext>,
 }
 
-// TODO: Remove this
-fn create_test_function() -> Box<dyn WispFunction> {
-    Box::new(CodeFunction::new(
-        "test".into(),
-        vec![FunctionInput::new(DefaultInputValue::Value(0.0))],
-        vec![FunctionOutput],
-        vec![],
-        vec![
-            Instruction::AllocLocal(LocalRef(0)),
-            Instruction::BinaryOp(
-                VarRef(0),
-                BinaryOpType::Add,
-                Operand::Arg(0),
-                Operand::Literal(0.01),
-            ),
-            Instruction::Store(TargetLocation::Local(LocalRef(0)), Operand::Var(VarRef(0))),
-            Instruction::ComparisonOp(
-                VarRef(1),
-                ComparisonOpType::Greater,
-                Operand::Var(VarRef(0)),
-                Operand::Literal(1.0),
-            ),
-            Instruction::Conditional(
-                VarRef(1),
-                vec![
-                    Instruction::BinaryOp(
-                        VarRef(0),
-                        BinaryOpType::Subtract,
-                        Operand::Var(VarRef(0)),
-                        Operand::Literal(1.0),
-                    ),
-                    Instruction::Store(TargetLocation::Local(LocalRef(0)), Operand::Var(VarRef(0))),
-                ],
-                vec![],
-            ),
-            Instruction::Load(VarRef(0), SourceLocation::Local(LocalRef(0))),
-            Instruction::Store(
-                TargetLocation::FunctionOutput(FunctionOutputIndex(0)),
-                Operand::Var(VarRef(0)),
-            ),
-        ],
-        None,
-    ))
-}
-
 #[godot_api]
 impl TwistedWispSingleton {
     #[func]
-    fn init(&mut self, wisp_exe_path: String) {
+    fn init(&mut self, wisp_exe_path: String, wisp_core_path: String) {
         godot::log::godot_print!("init: {}", wisp_exe_path);
 
         let mut runner = WispRunnerClient::init(Path::new(&wisp_exe_path));
@@ -103,8 +52,17 @@ impl TwistedWispSingleton {
         let mut ctx = WispContext::new(sys_info.num_channels);
         ctx.add_builtin_functions();
 
-        // TODO: Remove this
-        ctx.add_function(create_test_function());
+        for file in std::fs::read_dir(Path::new(&wisp_core_path)).expect("Failed to open core path")
+        {
+            let path = file.unwrap().path();
+            let text = std::fs::read_to_string(path).expect("Failed to read file");
+            let mut parser = CodeFunctionParser::new(&text);
+            godot_print!("Adding core functions:");
+            while let Some(func) = parser.parse_function() {
+                godot_print!("  - {}", func.name());
+                ctx.add_function(Box::new(func));
+            }
+        }
 
         for f in ctx.functions_iter() {
             runner.context_add_or_update_function(f.get_ir_function(&ctx));

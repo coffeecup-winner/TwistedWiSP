@@ -40,6 +40,10 @@ func _on_chkbtn_dsp_toggled(toggled_on):
 
 
 func _on_open_file_selected(f):
+	for node in get_children():
+		if node is GraphNode:
+			# TODO: Fix debugger errors resulting from this
+			remove_child(node)
 	wisp_file_path = f
 	wisp_flow_name = TwistedWisp.function_open(wisp_file_path)
 	var node_map = {}

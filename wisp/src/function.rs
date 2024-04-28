@@ -4,8 +4,9 @@ use crate::{context::WispContext, FlowFunction};
 
 use twisted_wisp_ir::{DataRef, IRFunction};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct FunctionInput {
+    pub name: String,
     pub fallback: DefaultInputValue,
 }
 
@@ -20,8 +21,8 @@ pub enum DefaultInputValue {
 }
 
 impl FunctionInput {
-    pub fn new(fallback: DefaultInputValue) -> Self {
-        FunctionInput { fallback }
+    pub fn new(name: String, fallback: DefaultInputValue) -> Self {
+        FunctionInput { name, fallback }
     }
 }
 
@@ -31,14 +32,14 @@ pub struct FunctionOutput;
 #[derive(Debug)]
 pub struct FunctionDataItem {
     pub name: String,
-    pub default_value: f32,
+    pub init_value: f32,
 }
 
 impl FunctionDataItem {
     pub fn new(name: String, default_value: f32) -> Self {
         FunctionDataItem {
             name,
-            default_value,
+            init_value: default_value,
         }
     }
 }

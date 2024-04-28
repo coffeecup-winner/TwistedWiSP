@@ -1,13 +1,8 @@
 use std::collections::{hash_map, HashMap};
 
-use crate::{
-    CodeFunction, DefaultInputValue, FunctionDataItem, FunctionInput, FunctionOutput, WispFunction,
-};
+use crate::{CodeFunction, DefaultInputValue, FunctionInput, WispFunction};
 
-use twisted_wisp_ir::{
-    DataRef, FunctionOutputIndex, Instruction, Operand, SignalOutputIndex, SourceLocation,
-    TargetLocation, VarRef,
-};
+use twisted_wisp_ir::{Instruction, Operand, SignalOutputIndex, TargetLocation};
 
 #[derive(Debug)]
 pub struct WispContext {
@@ -25,16 +20,24 @@ impl WispContext {
 
     pub fn add_builtin_functions(&mut self) {
         self.add_function(Self::build_function_out(self));
-        self.add_function(Self::build_function_lag());
     }
 
     fn build_function_out(ctx: &WispContext) -> Box<dyn WispFunction> {
         assert!(ctx.num_outputs > 0, "Invalid number of output channels");
-        let mut out_inputs = vec![FunctionInput::new(DefaultInputValue::Value(0.0))];
+        let mut out_inputs = vec![FunctionInput::new(
+            "ch".into(),
+            DefaultInputValue::Value(0.0),
+        )];
         out_inputs.extend(vec![
-            FunctionInput::new(DefaultInputValue::Normal);
+            FunctionInput::new(
+                "ch".into(),
+                DefaultInputValue::Normal
+            );
             ctx.num_outputs as usize - 1
         ]);
+        for (i, item) in out_inputs.iter_mut().enumerate() {
+            item.name += &i.to_string();
+        }
         let mut instructions = vec![];
         for i in 0..ctx.num_outputs {
             instructions.push(Instruction::Store(
@@ -49,24 +52,6 @@ impl WispContext {
             vec![],
             instructions,
             None,
-        ))
-    }
-
-    fn build_function_lag() -> Box<dyn WispFunction> {
-        Box::new(CodeFunction::new(
-            "lag".into(),
-            vec![FunctionInput::new(DefaultInputValue::Skip)],
-            vec![FunctionOutput],
-            vec![FunctionDataItem::new("prev".into(), 0.0)],
-            vec![
-                Instruction::Load(VarRef(0), SourceLocation::Data(DataRef(0))),
-                Instruction::Store(
-                    TargetLocation::FunctionOutput(FunctionOutputIndex(0)),
-                    Operand::Var(VarRef(0)),
-                ),
-                Instruction::Store(TargetLocation::Data(DataRef(0)), Operand::Arg(0)),
-            ],
-            Some(DataRef(0)),
         ))
     }
 
