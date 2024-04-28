@@ -2,6 +2,7 @@ extends GraphEdit
 
 @export
 var wisp_flow_name = ""
+var wisp_file_path = ""
 
 var FlowGraphNodeSelector = preload("res://flow_graph_node_selector.tscn")
 
@@ -37,8 +38,43 @@ func _on_chkbtn_dsp_toggled(toggled_on):
 		TwistedWisp.dsp_stop()
 
 
+func _on_open_file_selected(f):
+	wisp_file_path = f
+	wisp_flow_name = TwistedWisp.function_open(wisp_file_path)
+
+
+func _on_save_file_selected(f):
+	wisp_file_path = f
+	TwistedWisp.function_save(wisp_flow_name, wisp_file_path)
+
+
 func _on_gui_input(event):
-	if event is InputEventKey:
+	if event.is_action("ui_flow_graph_view_open") and event.is_pressed() and not event.is_echo():
+		accept_event()
+		var fd = FileDialog.new()
+		fd.access = FileDialog.ACCESS_FILESYSTEM
+		fd.dialog_hide_on_ok = true
+		fd.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+		fd.filters = PackedStringArray(["*.twf ; TwistedWiSP Flow Files"])
+		fd.title = "Open a flow graph"
+		fd.use_native_dialog = true
+		fd.connect("file_selected", _on_open_file_selected)
+		fd.popup()
+	elif event.is_action("ui_flow_graph_view_save") and event.is_pressed() and not event.is_echo():
+		accept_event()
+		if wisp_file_path:
+			TwistedWisp.function_save(wisp_flow_name, wisp_file_path)
+		else:
+			var fd = FileDialog.new()
+			fd.access = FileDialog.ACCESS_FILESYSTEM
+			fd.dialog_hide_on_ok = true
+			fd.file_mode = FileDialog.FILE_MODE_SAVE_FILE
+			fd.filters = PackedStringArray(["*.twf ; TwistedWiSP Flow Files"])
+			fd.title = "Save a flow graph"
+			fd.use_native_dialog = true
+			fd.connect("file_selected", _on_save_file_selected)
+			fd.popup()
+	elif event is InputEventKey:
 		if event.pressed and event.keycode == KEY_N:
 			accept_event()
 			var selector = FlowGraphNodeSelector.instantiate()

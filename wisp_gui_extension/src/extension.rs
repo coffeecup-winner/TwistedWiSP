@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{io::Write, path::Path};
 
 use godot::{engine::Engine, prelude::*};
 use twisted_wisp::{
@@ -172,6 +172,21 @@ impl TwistedWispSingleton {
             .as_mut()
             .unwrap()
             .context_set_main_function(name);
+    }
+
+    #[func]
+    fn function_open(&mut self, path: String) -> String {
+        let _f = std::fs::File::open(Path::new(&path)).expect("Failed to open file to load");
+        // TODO: Implement this
+        "TODO".into()
+    }
+
+    #[func]
+    fn function_save(&mut self, name: String, path: String) {
+        let _func = self.ctx.as_mut().unwrap().get_function(&name).unwrap();
+        let mut f = std::fs::File::create(Path::new(&path)).expect("Failed to open file to save");
+        f.write_all("TODO".as_bytes())
+            .expect("Failed to write flow to file");
     }
 
     #[func]
