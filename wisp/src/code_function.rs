@@ -432,7 +432,11 @@ impl<'source> CodeFunctionParser<'source> {
                     let source_location = self.parse_sloc()?;
                     instructions.push(Instruction::Load(var_ref, source_location));
                 }
-                t @ Token::Add | t @ Token::Sub | t @ Token::Mul | t @ Token::Div => {
+                t @ Token::Add
+                | t @ Token::Sub
+                | t @ Token::Mul
+                | t @ Token::Div
+                | t @ Token::Rem => {
                     let vref = self.parse_vref()?;
                     self.expect_token(Token::Comma)?;
                     let op0 = self.parse_op()?;
