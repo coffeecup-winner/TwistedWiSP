@@ -34,6 +34,7 @@ pub enum BinaryOpType {
     Subtract,
     Multiply,
     Divide,
+    Remainder,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]

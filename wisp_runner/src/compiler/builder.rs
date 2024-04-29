@@ -339,6 +339,9 @@ impl SignalProcessorBuilder {
                             mctx.build("binop_mul", |b, n| b.build_float_mul(left, right, n))
                         }
                         Divide => mctx.build("binop_div", |b, n| b.build_float_div(left, right, n)),
+                        Remainder => {
+                            mctx.build("binop_rem", |b, n| b.build_float_rem(left, right, n))
+                        }
                     }?;
                     fctx.vars.insert(*vref, res.as_basic_value_enum());
                 }

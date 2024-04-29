@@ -130,6 +130,7 @@ impl WispFunction for CodeFunction {
                             BinaryOpType::Subtract => "sub",
                             BinaryOpType::Multiply => "mul",
                             BinaryOpType::Divide => "div",
+                            BinaryOpType::Remainder => "rem",
                         },
                         vref.0,
                         format_operand(op0),
@@ -247,6 +248,8 @@ enum Token {
     Mul,
     #[token("div")]
     Div,
+    #[token("rem")]
+    Rem,
     #[token("cmp.eq")]
     Equal,
     #[token("cmp.ne")]
@@ -440,6 +443,7 @@ impl<'source> CodeFunctionParser<'source> {
                         Token::Sub => BinaryOpType::Subtract,
                         Token::Mul => BinaryOpType::Multiply,
                         Token::Div => BinaryOpType::Divide,
+                        Token::Rem => BinaryOpType::Remainder,
                         _ => unreachable!(),
                     };
                     instructions.push(Instruction::BinaryOp(vref, type_, op0, op1))
