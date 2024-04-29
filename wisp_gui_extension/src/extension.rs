@@ -147,12 +147,28 @@ impl TwistedWispSingleton {
     #[func]
     fn function_open(&mut self, path: String) -> String {
         let s = std::fs::read_to_string(Path::new(&path)).expect("Failed to open file to load");
-        let func = FlowFunction::load(&s).expect("Failed to parse the flow function data");
+        let mut func = FlowFunction::load(&s).expect("Failed to parse the flow function data");
         let ctx = self.ctx_mut();
-        let name = func.name().to_owned();
-        let ir_function = func.get_ir_function(ctx);
-        self.runner_mut()
-            .context_add_or_update_function(ir_function);
+        let flow_name = func.name().to_owned();
+        let flow = func.as_flow_mut().unwrap();
+        let mut ir_functions = vec![];
+        for n in flow.node_indices() {
+            let node = flow.get_node(n).unwrap();
+            if let Some(text) = &node.expr {
+                let mut parts = node.name.split('$');
+                let id = parts.nth(2).unwrap().parse::<u32>().unwrap();
+                let math_func = Box::new(
+                    MathFunctionParser::parse_function(&flow_name, id, text.clone()).unwrap(),
+                );
+                ir_functions.push(math_func.get_ir_function(ctx));
+                ctx.add_function(math_func);
+            }
+        }
+        ir_functions.push(func.get_ir_function(ctx));
+        let runner = self.runner_mut();
+        for f in ir_functions {
+            runner.context_add_or_update_function(f);
+        }
         let ctx = self.ctx_mut();
         if let Some(f) = ctx.get_function_mut(func.name()) {
             *f = func;
@@ -160,7 +176,7 @@ impl TwistedWispSingleton {
         } else {
             ctx.add_function(func);
         }
-        name
+        flow_name
     }
 
     #[func]
@@ -197,7 +213,7 @@ impl TwistedWispSingleton {
             let func = Box::new(
                 MathFunctionParser::parse_function(&flow_name, id, func_text.clone()).unwrap(),
             );
-            let idx = flow.add_node(func.name().into());
+            let idx = flow.add_node(func.name().into(), Some(func_text.clone()));
             let func_name = func.name().to_owned();
             let ir_function = func.get_ir_function(ctx);
             ctx.add_function(func);
@@ -205,7 +221,7 @@ impl TwistedWispSingleton {
                 .context_add_or_update_function(ir_function);
             (idx, func_name)
         } else {
-            (flow.add_node(func_text.clone()), func_text.clone())
+            (flow.add_node(func_text.clone(), None), func_text.clone())
         };
         dict! {
             "idx": idx.index() as u32,
@@ -222,6 +238,21 @@ impl TwistedWispSingleton {
             .and_then(|f| f.as_flow())
             .unwrap();
         flow.get_node(node_idx.into()).unwrap().name.clone()
+    }
+
+    #[func]
+    fn flow_get_node_display_name(&mut self, flow_name: String, node_idx: u32) -> String {
+        let flow = self
+            .ctx()
+            .get_function(&flow_name)
+            .and_then(|f| f.as_flow())
+            .unwrap();
+        let node = flow.get_node(node_idx.into()).unwrap();
+        if let Some(expr) = &node.expr {
+            expr.clone()
+        } else {
+            node.name.clone()
+        }
     }
 
     #[func]

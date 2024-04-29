@@ -122,6 +122,7 @@ func add_flow_node(func_name, idx, pos):
 		node.position_offset.y = coords.y
 		node.size.x = coords.w
 		node.size.y = coords.h
+		display_name = TwistedWisp.flow_get_node_display_name(wisp_flow_name, idx)
 	
 	node.title = display_name
 
@@ -138,6 +139,7 @@ func add_flow_node(func_name, idx, pos):
 		node.set_slot_enabled_right(i, true)
 	
 	node.wisp_node_idx = idx
+	node.wisp_func_name = func_name
 	add_child(node)
 	return node
 

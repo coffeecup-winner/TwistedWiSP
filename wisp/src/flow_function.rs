@@ -14,6 +14,7 @@ use twisted_wisp_ir::{CallId, IRFunction, Instruction, Operand, SourceLocation, 
 #[derive(Debug, Clone)]
 pub struct FlowNode {
     pub name: String,
+    pub expr: Option<String>,
     pub data: FlowNodeData,
 }
 
@@ -104,9 +105,15 @@ impl WispFunction for FlowFunction {
             let y = parts.next()?.parse::<i32>().ok()?;
             let w = parts.next()?.parse::<u32>().ok()?;
             let h = parts.next()?.parse::<u32>().ok()?;
+            let expr = if name.contains('$') {
+                Some(lines.next()?.into())
+            } else {
+                None
+            };
             let node_idx = graph.add_node(FlowNode {
                 name: name.into(),
                 data: FlowNodeData { x, y, w, h },
+                expr,
             });
             assert_eq!(node_idx.index().id() as u32, idx);
         }
@@ -149,6 +156,9 @@ impl WispFunction for FlowFunction {
                 "{} {} {} {} {}\n",
                 n.name, n.data.x, n.data.y, n.data.w, n.data.h
             ));
+            if let Some(expr) = &n.expr {
+                s.push_str(&format!("{}\n", expr));
+            }
         }
         for idx in self.graph.edge_indices() {
             let endpoints = self.graph.edge_endpoints(idx).unwrap();
@@ -181,10 +191,11 @@ impl FlowFunction {
         id
     }
 
-    pub fn add_node(&mut self, name: String) -> FlowNodeIndex {
+    pub fn add_node(&mut self, name: String, expr: Option<String>) -> FlowNodeIndex {
         self.graph.add_node(FlowNode {
             name,
             data: Default::default(),
+            expr,
         })
     }
 
