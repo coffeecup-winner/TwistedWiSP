@@ -14,6 +14,7 @@ func _ready():
 	TwistedWisp.function_set_main(func_name)
 	graph.wisp_flow_name = func_name
 	add_child(graph)
+	graph.grab_focus()
 
 
 func _process(_delta):
