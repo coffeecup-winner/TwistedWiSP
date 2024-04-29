@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 
-use twisted_wisp_ir::{CallId, DataRef, IRFunction, Instruction};
+use twisted_wisp_ir::{CallId, DataRef, IRFunction, Instruction, SourceLocation};
 
 use crate::context::WispContext;
 
@@ -31,15 +31,21 @@ fn calculate_function_data_layout(
 ) -> Option<FunctionDataLayout> {
     let mut children_data_sizes = BTreeMap::new();
     for insn in func.instructions().iter() {
-        if let Instruction::Call(id, name, _, _) = insn {
-            if let Some(child_data_layout) = data_layout.get(name) {
-                children_data_sizes.insert(*id, child_data_layout.total_size);
-            } else if let Some(child_data_layout) =
-                calculate_function_data_layout(wctx.get_function(name).unwrap(), wctx, data_layout)
-            {
-                children_data_sizes.insert(*id, child_data_layout.total_size);
-                data_layout.insert(name.into(), child_data_layout);
+        match insn {
+            Instruction::Call(id, name, _, _)
+            | Instruction::Load(_, SourceLocation::LastValue(id, name, _)) => {
+                if let Some(child_data_layout) = data_layout.get(name) {
+                    children_data_sizes.insert(*id, child_data_layout.total_size);
+                } else if let Some(child_data_layout) = calculate_function_data_layout(
+                    wctx.get_function(name).unwrap(),
+                    wctx,
+                    data_layout,
+                ) {
+                    children_data_sizes.insert(*id, child_data_layout.total_size);
+                    data_layout.insert(name.into(), child_data_layout);
+                }
             }
+            _ => (),
         }
     }
 
