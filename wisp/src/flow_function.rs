@@ -9,7 +9,9 @@ use petgraph::{
 
 use crate::{context::WispContext, DefaultInputValue, FunctionInput, FunctionOutput, WispFunction};
 
-use twisted_wisp_ir::{CallId, IRFunction, Instruction, Operand, SourceLocation, VarRef};
+use twisted_wisp_ir::{
+    BinaryOpType, CallId, IRFunction, Instruction, Operand, SourceLocation, VarRef,
+};
 
 #[derive(Debug, Clone)]
 pub struct FlowNode {
@@ -303,6 +305,7 @@ impl FlowFunction {
 
             let mut inputs = vec![];
             for idx in 0..func.inputs_count() {
+                // Add all incoming signals to the input list
                 for e in self.graph.edges_directed(n, Direction::Incoming) {
                     if e.weight().input_index != idx {
                         continue;
@@ -329,6 +332,21 @@ impl FlowFunction {
                         inputs.push(Operand::Var(vref));
                     }
                 }
+                // If there are several signals for this input, combine them
+                while (inputs.len() as u32) > idx + 1 {
+                    let vref0 = inputs.pop().unwrap();
+                    let vref1 = inputs.pop().unwrap();
+                    let vref_result = VarRef(vref_id);
+                    vref_id += 1;
+                    instructions.push(Instruction::BinaryOp(
+                        vref_result,
+                        BinaryOpType::Add,
+                        vref0,
+                        vref1,
+                    ));
+                    inputs.push(Operand::Var(vref_result));
+                }
+                // If there are not enough inputs, add a fallback value
                 if (inputs.len() as u32) < idx + 1 {
                     match func.input(idx).unwrap().fallback {
                         DefaultInputValue::Value(v) => {
