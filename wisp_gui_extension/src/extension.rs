@@ -72,21 +72,33 @@ impl TwistedWispSingleton {
         self.ctx = Some(ctx);
     }
 
+    fn runner_mut(&mut self) -> &mut WispRunnerClient {
+        self.runner.as_mut().unwrap()
+    }
+
+    fn ctx(&self) -> &WispContext {
+        self.ctx.as_ref().unwrap()
+    }
+
+    fn ctx_mut(&mut self) -> &mut WispContext {
+        self.ctx.as_mut().unwrap()
+    }
+
     #[func]
     fn dsp_start(&mut self) {
         godot::log::godot_print!("enable_dsp");
-        self.runner.as_mut().unwrap().dsp_start();
+        self.runner_mut().dsp_start();
     }
 
     #[func]
     fn dsp_stop(&mut self) {
         godot::log::godot_print!("disable_dsp");
-        self.runner.as_mut().unwrap().dsp_stop();
+        self.runner_mut().dsp_stop();
     }
 
     #[func]
     fn function_create(&mut self) -> String {
-        let ctx = self.ctx.as_mut().unwrap();
+        let ctx = self.ctx_mut();
         let mut name;
         let mut idx = 0;
         loop {
@@ -104,13 +116,13 @@ impl TwistedWispSingleton {
     #[func]
     fn function_remove(&mut self, name: String) {
         // TODO: Handle this on the runner side
-        self.ctx.as_mut().unwrap().remove_function(&name);
+        self.ctx_mut().remove_function(&name);
     }
 
     #[func]
     fn function_list(&mut self) -> Array<GString> {
         let mut array = Array::new();
-        for f in self.ctx.as_mut().unwrap().functions_iter() {
+        for f in self.ctx_mut().functions_iter() {
             array.push(f.name().into());
         }
         array
@@ -118,7 +130,7 @@ impl TwistedWispSingleton {
 
     #[func]
     fn function_get_metadata(&mut self, name: String) -> Dictionary {
-        let func = self.ctx.as_mut().unwrap().get_function(&name).unwrap();
+        let func = self.ctx_mut().get_function(&name).unwrap();
         dict! {
             "num_inlets": func.inputs_count(),
             "num_outlets": func.outputs_count(),
@@ -127,25 +139,22 @@ impl TwistedWispSingleton {
 
     #[func]
     fn function_set_main(&mut self, name: String) {
-        self.runner
-            .as_mut()
-            .unwrap()
-            .context_set_main_function(name);
+        self.runner_mut().context_set_main_function(name);
     }
 
     #[func]
     fn function_open(&mut self, path: String) -> String {
         let s = std::fs::read_to_string(Path::new(&path)).expect("Failed to open file to load");
         let func = FlowFunction::load(&s).expect("Failed to parse the flow function data");
-        let ctx = self.ctx.as_mut().unwrap();
+        let ctx = self.ctx_mut();
         let name = func.name().to_owned();
-        self.runner
-            .as_mut()
-            .unwrap()
-            .context_add_or_update_function(func.get_ir_function(ctx));
+        let ir_function = func.get_ir_function(ctx);
+        self.runner_mut()
+            .context_add_or_update_function(ir_function);
+        let ctx = self.ctx_mut();
         if let Some(f) = ctx.get_function_mut(func.name()) {
             *f = func;
-            self.runner.as_mut().unwrap().context_update();
+            self.runner_mut().context_update();
         } else {
             ctx.add_function(func);
         }
@@ -154,7 +163,7 @@ impl TwistedWispSingleton {
 
     #[func]
     fn function_save(&mut self, name: String, path: String) {
-        let func = self.ctx.as_mut().unwrap().get_function(&name).unwrap();
+        let func = self.ctx_mut().get_function(&name).unwrap();
         let s = func.save();
         std::fs::write(Path::new(&path), s.as_bytes())
             .expect("Failed to save flow function to file");
@@ -164,9 +173,7 @@ impl TwistedWispSingleton {
     fn flow_list_nodes(&mut self, flow_name: String) -> Array<u32> {
         let mut array = Array::new();
         let flow = self
-            .ctx
-            .as_mut()
-            .unwrap()
+            .ctx_mut()
             .get_function_mut(&flow_name)
             .and_then(|f| f.as_flow_mut())
             .unwrap();
@@ -179,9 +186,7 @@ impl TwistedWispSingleton {
     #[func]
     fn flow_add_node(&mut self, flow_name: String, func_name: String) -> u32 {
         let flow = self
-            .ctx
-            .as_mut()
-            .unwrap()
+            .ctx_mut()
             .get_function_mut(&flow_name)
             .and_then(|f| f.as_flow_mut())
             .unwrap();
@@ -192,9 +197,7 @@ impl TwistedWispSingleton {
     #[func]
     fn flow_get_node_name(&mut self, flow_name: String, node_idx: u32) -> String {
         let flow = self
-            .ctx
-            .as_ref()
-            .unwrap()
+            .ctx()
             .get_function(&flow_name)
             .and_then(|f| f.as_flow())
             .unwrap();
@@ -204,9 +207,7 @@ impl TwistedWispSingleton {
     #[func]
     fn flow_get_node_coordinates(&mut self, flow_name: String, node_idx: u32) -> Dictionary {
         let flow = self
-            .ctx
-            .as_ref()
-            .unwrap()
+            .ctx()
             .get_function(&flow_name)
             .and_then(|f| f.as_flow())
             .unwrap();
@@ -230,9 +231,7 @@ impl TwistedWispSingleton {
         h: u32,
     ) {
         let flow = self
-            .ctx
-            .as_mut()
-            .unwrap()
+            .ctx_mut()
             .get_function_mut(&flow_name)
             .and_then(|f| f.as_flow_mut())
             .unwrap();
@@ -247,9 +246,7 @@ impl TwistedWispSingleton {
     fn flow_list_connections(&mut self, flow_name: String) -> Array<u32> {
         let mut array = Array::new();
         let flow = self
-            .ctx
-            .as_mut()
-            .unwrap()
+            .ctx_mut()
             .get_function_mut(&flow_name)
             .and_then(|f| f.as_flow_mut())
             .unwrap();
@@ -262,9 +259,7 @@ impl TwistedWispSingleton {
     #[func]
     fn flow_get_connection(&mut self, flow_name: String, conn_idx: u32) -> Dictionary {
         let flow = self
-            .ctx
-            .as_mut()
-            .unwrap()
+            .ctx_mut()
             .get_function_mut(&flow_name)
             .and_then(|f| f.as_flow_mut())
             .unwrap();
@@ -287,20 +282,17 @@ impl TwistedWispSingleton {
         node_inlet: u32,
     ) {
         let flow = self
-            .ctx
-            .as_mut()
-            .unwrap()
+            .ctx_mut()
             .get_function_mut(&flow_name)
             .and_then(|f| f.as_flow_mut())
             .unwrap();
         flow.connect(node_out.into(), node_outlet, node_in.into(), node_inlet);
-        let ctx = self.ctx.as_ref().unwrap();
+        let ctx = self.ctx();
         let func = ctx.get_function(&flow_name).unwrap();
-        self.runner
-            .as_mut()
-            .unwrap()
-            .context_add_or_update_function(func.get_ir_function(ctx));
-        self.runner.as_mut().unwrap().context_update();
+        let ir_function = func.get_ir_function(ctx);
+        let runner = self.runner_mut();
+        runner.context_add_or_update_function(ir_function);
+        runner.context_update();
     }
 
     #[func]
@@ -313,19 +305,16 @@ impl TwistedWispSingleton {
         node_inlet: u32,
     ) {
         let flow = self
-            .ctx
-            .as_mut()
-            .unwrap()
+            .ctx_mut()
             .get_function_mut(&flow_name)
             .and_then(|f| f.as_flow_mut())
             .unwrap();
         flow.disconnect(node_out.into(), node_outlet, node_in.into(), node_inlet);
-        let ctx = self.ctx.as_ref().unwrap();
+        let ctx = self.ctx();
         let func = ctx.get_function(&flow_name).unwrap();
-        self.runner
-            .as_mut()
-            .unwrap()
-            .context_add_or_update_function(func.get_ir_function(ctx));
-        self.runner.as_mut().unwrap().context_update();
+        let ir_function = func.get_ir_function(ctx);
+        let runner = self.runner_mut();
+        runner.context_add_or_update_function(ir_function);
+        runner.context_update();
     }
 }
