@@ -4,7 +4,10 @@ use pest::{
     Parser,
 };
 use pest_derive::Parser;
-use twisted_wisp_ir::{BinaryOpType, Constant};
+use twisted_wisp_ir::{
+    BinaryOpType, Constant, FunctionOutputIndex, IRFunction, IRFunctionInput, IRFunctionOutput,
+    Instruction, Operand, TargetLocation, VarRef,
+};
 
 use crate::{DefaultInputValue, FunctionInput, FunctionOutput, WispContext, WispFunction};
 
@@ -40,19 +43,19 @@ impl WispFunction for MathFunction {
         self.outputs.get(idx as usize)
     }
 
-    fn get_ir_function(&self, _ctx: &WispContext) -> twisted_wisp_ir::IRFunction {
-        todo!()
+    fn get_ir_function(&self, _ctx: &WispContext) -> IRFunction {
+        self.compile_ir_function()
     }
 
     fn load(_s: &str) -> Option<Box<dyn WispFunction>>
     where
         Self: Sized,
     {
-        todo!()
+        panic!("Must not be called, use MathFunctionParser::parse_function instead");
     }
 
     fn save(&self) -> String {
-        todo!()
+        self.expr_string.clone()
     }
 }
 
@@ -83,13 +86,54 @@ impl MathFunction {
             _ => 0,
         }
     }
+
+    fn compile_ir_function(&self) -> IRFunction {
+        IRFunction {
+            name: self.name.clone(),
+            inputs: self.inputs.iter().map(|_| IRFunctionInput).collect(),
+            outputs: self.outputs.iter().map(|_| IRFunctionOutput).collect(),
+            data: vec![],
+            ir: self.compile_ir(),
+        }
+    }
+
+    fn compile_ir(&self) -> Vec<Instruction> {
+        let mut result = vec![];
+        let mut vref_id_gen = 0;
+        let op = Self::compile(&self.expr, &mut result, &mut vref_id_gen);
+        result.push(Instruction::Store(
+            TargetLocation::FunctionOutput(FunctionOutputIndex(0)),
+            op,
+        ));
+        result
+    }
+
+    fn compile(
+        expr: &MathExpression,
+        result: &mut Vec<Instruction>,
+        vref_id_gen: &mut u32,
+    ) -> Operand {
+        match expr {
+            MathExpression::Number(v) => Operand::Literal(*v),
+            MathExpression::Argument(idx) => Operand::Arg(*idx),
+            MathExpression::Constant(c) => Operand::Constant(*c),
+            MathExpression::BinaryOp(type_, lhs, rhs) => {
+                let vref = VarRef(*vref_id_gen);
+                *vref_id_gen += 1;
+                let op0 = Self::compile(lhs, result, vref_id_gen);
+                let op1 = Self::compile(rhs, result, vref_id_gen);
+                result.push(Instruction::BinaryOp(vref, *type_, op0, op1));
+                Operand::Var(vref)
+            }
+        }
+    }
 }
 
 #[derive(Parser)]
 #[grammar = "math_function.pest"]
 pub struct MathFunctionParser;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum MathExpression {
     Number(f32),
     Argument(u32),
@@ -108,8 +152,8 @@ lazy_static::lazy_static! {
 
 impl MathFunctionParser {
     pub fn parse_function(flow_name: &str, id: u32, expr_string: String) -> Option<MathFunction> {
-        let pairs = Self::parse(Rule::math_function, &expr_string).ok()?;
-        let expr = Self::parse_expr(pairs)?;
+        let mut pairs = Self::parse(Rule::math_function, &expr_string).ok()?;
+        let expr = Self::parse_expr(pairs.next().unwrap().into_inner())?;
         Some(MathFunction::new(flow_name, id, expr_string, expr))
     }
 

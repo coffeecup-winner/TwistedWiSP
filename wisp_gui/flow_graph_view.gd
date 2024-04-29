@@ -48,7 +48,7 @@ func _on_open_file_selected(f):
 	wisp_flow_name = TwistedWisp.function_open(wisp_file_path)
 	var node_map = {}
 	for idx in TwistedWisp.flow_list_nodes(wisp_flow_name):
-		var node = add_flow_node(TwistedWisp.flow_get_node_name(wisp_flow_name, idx), idx)
+		var node = add_flow_node(TwistedWisp.flow_get_node_name(wisp_flow_name, idx), idx, null)
 		node_map[idx] = node
 	for idx in TwistedWisp.flow_list_connections(wisp_flow_name):
 		var conn = TwistedWisp.flow_get_connection(wisp_flow_name, idx)
@@ -99,25 +99,15 @@ func _on_gui_input(event):
 			selector.grab_focus()
 
 
-func add_flow_node(name, idx):
+func add_flow_node(func_name, idx, pos):
 	var node = FlowGraphNode.instantiate()
-	node.title = name
-	
-	var metadata = TwistedWisp.function_get_metadata(name)
-	var rows_count = max(metadata.num_inlets, metadata.num_outlets)
-	
-	for i in range(0, rows_count):
-		node.add_child(Label.new())
-	
-	for i in range(0, metadata.num_inlets):
-		node.set_slot_enabled_left(i, true)
-	
-	for i in range(0, metadata.num_outlets):
-		node.set_slot_enabled_right(i, true)
-
+	var display_name = func_name
 	if idx == null:
-		idx = TwistedWisp.flow_add_node(wisp_flow_name, name)
-		node.position_offset = self.position
+		var result = TwistedWisp.flow_add_node(wisp_flow_name, func_name)
+		idx = result.idx
+		func_name = result.name
+		display_name = result.display_name
+		node.position_offset = pos
 		node.size = Vector2(80, 80)
 		TwistedWisp.flow_set_node_coordinates(
 			wisp_flow_name,
@@ -132,6 +122,20 @@ func add_flow_node(name, idx):
 		node.position_offset.y = coords.y
 		node.size.x = coords.w
 		node.size.y = coords.h
+	
+	node.title = display_name
+
+	var metadata = TwistedWisp.function_get_metadata(func_name)
+	var rows_count = max(metadata.num_inlets, metadata.num_outlets)
+	
+	for i in range(0, rows_count):
+		node.add_child(Label.new())
+	
+	for i in range(0, metadata.num_inlets):
+		node.set_slot_enabled_left(i, true)
+	
+	for i in range(0, metadata.num_outlets):
+		node.set_slot_enabled_right(i, true)
 	
 	node.wisp_node_idx = idx
 	add_child(node)

@@ -186,23 +186,32 @@ impl TwistedWispSingleton {
     }
 
     #[func]
-    fn flow_add_node(&mut self, flow_name: String, func_name: String) -> u32 {
+    fn flow_add_node(&mut self, flow_name: String, func_text: String) -> Dictionary {
         let ctx = self.ctx_mut();
         let flow = ctx
             .get_function_mut(&flow_name)
             .and_then(|f| f.as_flow_mut())
             .unwrap();
-        let idx = if func_name.starts_with('=') {
+        let (idx, func_name) = if func_text.starts_with('=') {
             let id = flow.next_math_function_id();
-            let func =
-                Box::new(MathFunctionParser::parse_function(&flow_name, id, func_name).unwrap());
+            let func = Box::new(
+                MathFunctionParser::parse_function(&flow_name, id, func_text.clone()).unwrap(),
+            );
             let idx = flow.add_node(func.name().into());
+            let func_name = func.name().to_owned();
+            let ir_function = func.get_ir_function(ctx);
             ctx.add_function(func);
-            idx
+            self.runner_mut()
+                .context_add_or_update_function(ir_function);
+            (idx, func_name)
         } else {
-            flow.add_node(func_name)
+            (flow.add_node(func_text.clone()), func_text.clone())
         };
-        idx.index() as u32
+        dict! {
+            "idx": idx.index() as u32,
+            "name": func_name,
+            "display_name": func_text,
+        }
     }
 
     #[func]
