@@ -1,0 +1,20 @@
+WHITESPACE = _{" "}
+
+// r"-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?
+f32 = @{ "-"? ~ ("0" | ('1'..'9') ~ ASCII_DIGIT*) ~ ("." ~ ASCII_DIGIT+)? ~ (^"e" ~ ("+" | "-")? ~ ASCII_DIGIT+)? }
+arg = @{ "$" ~ASCII_DIGIT+ }
+id = @{ ("_" | ASCII_ALPHA) ~ ("_" | "." | ASCII_ALPHANUMERIC)+ }
+
+unary_minus = { "-" }
+atom = _{ f32 | arg | id | unary_minus? ~ "(" ~ expr ~ ")" }
+
+bin_op = _{ add | subtract | multiply | divide | remainder }
+    add = { "+" }
+    subtract = { "-" }
+    multiply = { "*" }
+    divide = { "/" }
+    remainder = { "%" }
+
+expr = { atom ~ (bin_op ~ atom)* }
+
+math_function = _{ SOI ~ "=" ~ expr ~ EOI }

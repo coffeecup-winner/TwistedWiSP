@@ -40,6 +40,7 @@ pub struct FlowFunction {
     name: String,
     graph: FlowGraph,
     ir: RefCell<Vec<Instruction>>,
+    math_function_id_gen: u32,
 }
 
 impl WispFunction for FlowFunction {
@@ -130,6 +131,7 @@ impl WispFunction for FlowFunction {
             name: name.into(),
             graph,
             ir: RefCell::new(vec![]),
+            math_function_id_gen: 0,
         }))
     }
 
@@ -169,7 +171,14 @@ impl FlowFunction {
             name,
             graph: Default::default(),
             ir: Default::default(),
+            math_function_id_gen: 0,
         }
+    }
+
+    pub fn next_math_function_id(&mut self) -> u32 {
+        let id = self.math_function_id_gen;
+        self.math_function_id_gen += 1;
+        id
     }
 
     pub fn add_node(&mut self, name: String) -> FlowNodeIndex {

@@ -2,7 +2,9 @@ use std::path::Path;
 
 use godot::{engine::Engine, prelude::*};
 
-use twisted_wisp::{CodeFunctionParser, FlowFunction, WispContext, WispFunction};
+use twisted_wisp::{
+    CodeFunctionParser, FlowFunction, MathFunctionParser, WispContext, WispFunction,
+};
 use twisted_wisp_protocol::WispRunnerClient;
 
 struct TwistedWispExtension;
@@ -185,12 +187,21 @@ impl TwistedWispSingleton {
 
     #[func]
     fn flow_add_node(&mut self, flow_name: String, func_name: String) -> u32 {
-        let flow = self
-            .ctx_mut()
+        let ctx = self.ctx_mut();
+        let flow = ctx
             .get_function_mut(&flow_name)
             .and_then(|f| f.as_flow_mut())
             .unwrap();
-        let idx = flow.add_node(func_name);
+        let idx = if func_name.starts_with('=') {
+            let id = flow.next_math_function_id();
+            let func =
+                Box::new(MathFunctionParser::parse_function(&flow_name, id, func_name).unwrap());
+            let idx = flow.add_node(func.name().into());
+            ctx.add_function(func);
+            idx
+        } else {
+            flow.add_node(func_name)
+        };
         idx.index() as u32
     }
 
