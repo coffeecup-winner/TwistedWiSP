@@ -6,7 +6,7 @@ arg = @{ "$" ~ASCII_DIGIT+ }
 id = @{ ("_" | ASCII_ALPHA) ~ ("_" | "." | ASCII_ALPHANUMERIC)+ }
 
 unary_minus = { "-" }
-atom = _{ f32 | arg | id | unary_minus? ~ "(" ~ expr ~ ")" }
+atom = _{ f32 | unary_minus? ~ (arg | id | "(" ~ expr ~ ")") }
 
 bin_op = _{ add | subtract | multiply | divide | remainder }
     add = { "+" }

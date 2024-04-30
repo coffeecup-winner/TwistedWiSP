@@ -118,10 +118,10 @@ impl MathFunction {
             MathExpression::Argument(idx) => Operand::Arg(*idx),
             MathExpression::Constant(c) => Operand::Constant(*c),
             MathExpression::BinaryOp(type_, lhs, rhs) => {
-                let vref = VarRef(*vref_id_gen);
-                *vref_id_gen += 1;
                 let op0 = Self::compile(lhs, result, vref_id_gen);
                 let op1 = Self::compile(rhs, result, vref_id_gen);
+                let vref = VarRef(*vref_id_gen);
+                *vref_id_gen += 1;
                 result.push(Instruction::BinaryOp(vref, *type_, op0, op1));
                 Operand::Var(vref)
             }
@@ -199,5 +199,463 @@ impl MathFunctionParser {
                 _ => unreachable!(),
             })
             .parse(pairs)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ========================================================================
+    // MathExpression tests
+    // ========================================================================
+
+    fn parse_function(s: &str, expected_inputs_count: u32) -> MathFunction {
+        let func = MathFunctionParser::parse_function("test", 0, s.to_string()).unwrap();
+        assert_eq!("math$test$0", func.name());
+        assert_eq!(expected_inputs_count, func.inputs_count());
+        assert_eq!(1, func.outputs_count());
+        func
+    }
+
+    #[test]
+    fn test_parse_number() {
+        let func = parse_function("= 42", 0);
+        assert_eq!(MathExpression::Number(42.0), func.expr);
+    }
+
+    #[test]
+    fn test_parse_argument() {
+        let func = parse_function("= $0", 1);
+        assert_eq!(MathExpression::Argument(0), func.expr);
+    }
+
+    #[test]
+    fn test_parse_constant() {
+        let func = parse_function("= SampleRate", 0);
+        assert_eq!(MathExpression::Constant(Constant::SampleRate), func.expr);
+    }
+
+    #[test]
+    fn test_parse_addition() {
+        let func = parse_function("= 1 + $0", 1);
+        assert_eq!(
+            MathExpression::BinaryOp(
+                BinaryOpType::Add,
+                Box::new(MathExpression::Number(1.0)),
+                Box::new(MathExpression::Argument(0))
+            ),
+            func.expr
+        );
+    }
+
+    #[test]
+    fn test_parse_subtraction() {
+        let func = parse_function("= $0 - $1", 2);
+        assert_eq!(
+            MathExpression::BinaryOp(
+                BinaryOpType::Subtract,
+                Box::new(MathExpression::Argument(0)),
+                Box::new(MathExpression::Argument(1))
+            ),
+            func.expr
+        );
+    }
+
+    #[test]
+    fn test_parse_multiplication() {
+        let func = parse_function("= $0 * 3", 1);
+        assert_eq!(
+            MathExpression::BinaryOp(
+                BinaryOpType::Multiply,
+                Box::new(MathExpression::Argument(0)),
+                Box::new(MathExpression::Number(3.0))
+            ),
+            func.expr
+        );
+    }
+
+    #[test]
+    fn test_parse_division() {
+        let func = parse_function("= 6 / 2.5", 0);
+        assert_eq!(
+            MathExpression::BinaryOp(
+                BinaryOpType::Divide,
+                Box::new(MathExpression::Number(6.0)),
+                Box::new(MathExpression::Number(2.5))
+            ),
+            func.expr
+        );
+    }
+
+    #[test]
+    fn test_parse_remainder() {
+        let func = parse_function("= 7.42 % -0.3", 0);
+        assert_eq!(
+            MathExpression::BinaryOp(
+                BinaryOpType::Remainder,
+                Box::new(MathExpression::Number(7.42)),
+                Box::new(MathExpression::Number(-0.3))
+            ),
+            func.expr
+        );
+    }
+
+    #[test]
+    fn test_parse_unary_minus() {
+        let func = parse_function("= -(-$0) * -SampleRate", 1);
+        assert_eq!(
+            MathExpression::BinaryOp(
+                BinaryOpType::Multiply,
+                Box::new(MathExpression::BinaryOp(
+                    BinaryOpType::Subtract,
+                    Box::new(MathExpression::Number(0.0)),
+                    Box::new(MathExpression::BinaryOp(
+                        BinaryOpType::Subtract,
+                        Box::new(MathExpression::Number(0.0)),
+                        Box::new(MathExpression::Argument(0))
+                    ))
+                )),
+                Box::new(MathExpression::BinaryOp(
+                    BinaryOpType::Subtract,
+                    Box::new(MathExpression::Number(0.0)),
+                    Box::new(MathExpression::Constant(Constant::SampleRate))
+                ))
+            ),
+            func.expr
+        );
+    }
+
+    #[test]
+    fn test_parse_complex_expression() {
+        let func = parse_function("= 1 + 2 * $0 - 3 / 4.78 % 0.1e-10", 1);
+        assert_eq!(
+            MathExpression::BinaryOp(
+                BinaryOpType::Subtract,
+                Box::new(MathExpression::BinaryOp(
+                    BinaryOpType::Add,
+                    Box::new(MathExpression::Number(1.0)),
+                    Box::new(MathExpression::BinaryOp(
+                        BinaryOpType::Multiply,
+                        Box::new(MathExpression::Number(2.0)),
+                        Box::new(MathExpression::Argument(0))
+                    ))
+                )),
+                Box::new(MathExpression::BinaryOp(
+                    BinaryOpType::Remainder,
+                    Box::new(MathExpression::BinaryOp(
+                        BinaryOpType::Divide,
+                        Box::new(MathExpression::Number(3.0)),
+                        Box::new(MathExpression::Number(4.78))
+                    )),
+                    Box::new(MathExpression::Number(0.1e-10))
+                ))
+            ),
+            func.expr
+        );
+    }
+
+    #[test]
+    fn test_parse_complex_expression_with_parentheses() {
+        let func = parse_function("= (1 + 2) * ($0 - 3) / (4.78 % 0.1e-10)", 1);
+        assert_eq!(
+            MathExpression::BinaryOp(
+                BinaryOpType::Divide,
+                Box::new(MathExpression::BinaryOp(
+                    BinaryOpType::Multiply,
+                    Box::new(MathExpression::BinaryOp(
+                        BinaryOpType::Add,
+                        Box::new(MathExpression::Number(1.0)),
+                        Box::new(MathExpression::Number(2.0))
+                    )),
+                    Box::new(MathExpression::BinaryOp(
+                        BinaryOpType::Subtract,
+                        Box::new(MathExpression::Argument(0)),
+                        Box::new(MathExpression::Number(3.0))
+                    ))
+                )),
+                Box::new(MathExpression::BinaryOp(
+                    BinaryOpType::Remainder,
+                    Box::new(MathExpression::Number(4.78)),
+                    Box::new(MathExpression::Number(0.1e-10))
+                ))
+            ),
+            func.expr
+        );
+    }
+
+    // ========================================================================
+    // IRFunction tests
+    // ========================================================================
+
+    fn get_ir_function(f: MathFunction) -> IRFunction {
+        let ctx = WispContext::new(2);
+        let ir_func = f.get_ir_function(&ctx);
+        assert_eq!(f.name(), ir_func.name);
+        assert_eq!(f.inputs_count(), ir_func.inputs.len() as u32);
+        assert_eq!(f.outputs_count(), ir_func.outputs.len() as u32);
+        ir_func
+    }
+
+    #[test]
+    fn test_ir_number() {
+        let func = get_ir_function(parse_function("= 42", 0));
+        assert_eq!(
+            vec![Instruction::Store(
+                TargetLocation::FunctionOutput(FunctionOutputIndex(0)),
+                Operand::Literal(42.0)
+            )],
+            func.ir
+        );
+    }
+
+    #[test]
+    fn test_ir_argument() {
+        let func = get_ir_function(parse_function("= $0", 1));
+        assert_eq!(
+            vec![Instruction::Store(
+                TargetLocation::FunctionOutput(FunctionOutputIndex(0)),
+                Operand::Arg(0)
+            )],
+            func.ir
+        );
+    }
+
+    #[test]
+    fn test_ir_constant() {
+        let func = get_ir_function(parse_function("= SampleRate", 0));
+        assert_eq!(
+            vec![Instruction::Store(
+                TargetLocation::FunctionOutput(FunctionOutputIndex(0)),
+                Operand::Constant(Constant::SampleRate)
+            )],
+            func.ir
+        );
+    }
+
+    #[test]
+    fn test_ir_addition() {
+        let func = get_ir_function(parse_function("= 1 + $0", 1));
+        assert_eq!(
+            vec![
+                Instruction::BinaryOp(
+                    VarRef(0),
+                    BinaryOpType::Add,
+                    Operand::Literal(1.0),
+                    Operand::Arg(0)
+                ),
+                Instruction::Store(
+                    TargetLocation::FunctionOutput(FunctionOutputIndex(0)),
+                    Operand::Var(VarRef(0))
+                )
+            ],
+            func.ir
+        );
+    }
+
+    #[test]
+    fn test_ir_subtraction() {
+        let func = get_ir_function(parse_function("= $0 - $1", 2));
+        assert_eq!(
+            vec![
+                Instruction::BinaryOp(
+                    VarRef(0),
+                    BinaryOpType::Subtract,
+                    Operand::Arg(0),
+                    Operand::Arg(1)
+                ),
+                Instruction::Store(
+                    TargetLocation::FunctionOutput(FunctionOutputIndex(0)),
+                    Operand::Var(VarRef(0))
+                )
+            ],
+            func.ir
+        );
+    }
+
+    #[test]
+    fn test_ir_multiplication() {
+        let func = get_ir_function(parse_function("= $0 * 3", 1));
+        assert_eq!(
+            vec![
+                Instruction::BinaryOp(
+                    VarRef(0),
+                    BinaryOpType::Multiply,
+                    Operand::Arg(0),
+                    Operand::Literal(3.0)
+                ),
+                Instruction::Store(
+                    TargetLocation::FunctionOutput(FunctionOutputIndex(0)),
+                    Operand::Var(VarRef(0))
+                )
+            ],
+            func.ir
+        );
+    }
+
+    #[test]
+    fn test_ir_division() {
+        let func = get_ir_function(parse_function("= 6 / 2.5", 0));
+        assert_eq!(
+            vec![
+                Instruction::BinaryOp(
+                    VarRef(0),
+                    BinaryOpType::Divide,
+                    Operand::Literal(6.0),
+                    Operand::Literal(2.5)
+                ),
+                Instruction::Store(
+                    TargetLocation::FunctionOutput(FunctionOutputIndex(0)),
+                    Operand::Var(VarRef(0))
+                )
+            ],
+            func.ir
+        );
+    }
+
+    #[test]
+    fn test_ir_remainder() {
+        let func = get_ir_function(parse_function("= 7.42 % -0.3", 0));
+        assert_eq!(
+            vec![
+                Instruction::BinaryOp(
+                    VarRef(0),
+                    BinaryOpType::Remainder,
+                    Operand::Literal(7.42),
+                    Operand::Literal(-0.3)
+                ),
+                Instruction::Store(
+                    TargetLocation::FunctionOutput(FunctionOutputIndex(0)),
+                    Operand::Var(VarRef(0))
+                )
+            ],
+            func.ir
+        );
+    }
+
+    #[test]
+    fn test_ir_unary_minus() {
+        let func = get_ir_function(parse_function("= -(-$0) * -SampleRate", 1));
+        assert_eq!(
+            vec![
+                Instruction::BinaryOp(
+                    VarRef(0),
+                    BinaryOpType::Subtract,
+                    Operand::Literal(0.0),
+                    Operand::Arg(0)
+                ),
+                Instruction::BinaryOp(
+                    VarRef(1),
+                    BinaryOpType::Subtract,
+                    Operand::Literal(0.0),
+                    Operand::Var(VarRef(0)),
+                ),
+                Instruction::BinaryOp(
+                    VarRef(2),
+                    BinaryOpType::Subtract,
+                    Operand::Literal(0.0),
+                    Operand::Constant(Constant::SampleRate)
+                ),
+                Instruction::BinaryOp(
+                    VarRef(3),
+                    BinaryOpType::Multiply,
+                    Operand::Var(VarRef(1)),
+                    Operand::Var(VarRef(2))
+                ),
+                Instruction::Store(
+                    TargetLocation::FunctionOutput(FunctionOutputIndex(0)),
+                    Operand::Var(VarRef(3))
+                )
+            ],
+            func.ir
+        );
+    }
+
+    #[test]
+    fn test_ir_complex_expression() {
+        let func = get_ir_function(parse_function("= 1 + 2 * $0 - 3 / 4.78 % 0.1e-10", 1));
+        assert_eq!(
+            vec![
+                Instruction::BinaryOp(
+                    VarRef(0),
+                    BinaryOpType::Multiply,
+                    Operand::Literal(2.0),
+                    Operand::Arg(0)
+                ),
+                Instruction::BinaryOp(
+                    VarRef(1),
+                    BinaryOpType::Add,
+                    Operand::Literal(1.0),
+                    Operand::Var(VarRef(0))
+                ),
+                Instruction::BinaryOp(
+                    VarRef(2),
+                    BinaryOpType::Divide,
+                    Operand::Literal(3.0),
+                    Operand::Literal(4.78)
+                ),
+                Instruction::BinaryOp(
+                    VarRef(3),
+                    BinaryOpType::Remainder,
+                    Operand::Var(VarRef(2)),
+                    Operand::Literal(0.1e-10)
+                ),
+                Instruction::BinaryOp(
+                    VarRef(4),
+                    BinaryOpType::Subtract,
+                    Operand::Var(VarRef(1)),
+                    Operand::Var(VarRef(3))
+                ),
+                Instruction::Store(
+                    TargetLocation::FunctionOutput(FunctionOutputIndex(0)),
+                    Operand::Var(VarRef(4))
+                )
+            ],
+            func.ir
+        );
+    }
+
+    #[test]
+    fn test_ir_complex_expression_with_parentheses() {
+        let func = get_ir_function(parse_function("= (1 + 2) * ($0 - 3) / (4.78 % 0.1e-10)", 1));
+        assert_eq!(
+            vec![
+                Instruction::BinaryOp(
+                    VarRef(0),
+                    BinaryOpType::Add,
+                    Operand::Literal(1.0),
+                    Operand::Literal(2.0)
+                ),
+                Instruction::BinaryOp(
+                    VarRef(1),
+                    BinaryOpType::Subtract,
+                    Operand::Arg(0),
+                    Operand::Literal(3.0)
+                ),
+                Instruction::BinaryOp(
+                    VarRef(2),
+                    BinaryOpType::Multiply,
+                    Operand::Var(VarRef(0)),
+                    Operand::Var(VarRef(1))
+                ),
+                Instruction::BinaryOp(
+                    VarRef(3),
+                    BinaryOpType::Remainder,
+                    Operand::Literal(4.78),
+                    Operand::Literal(0.1e-10)
+                ),
+                Instruction::BinaryOp(
+                    VarRef(4),
+                    BinaryOpType::Divide,
+                    Operand::Var(VarRef(2)),
+                    Operand::Var(VarRef(3))
+                ),
+                Instruction::Store(
+                    TargetLocation::FunctionOutput(FunctionOutputIndex(0)),
+                    Operand::Var(VarRef(4))
+                )
+            ],
+            func.ir
+        );
     }
 }

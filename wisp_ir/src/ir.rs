@@ -15,7 +15,7 @@ pub struct FunctionOutputIndex(pub u32);
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Serialize, Deserialize)]
 pub struct SignalOutputIndex(pub u32);
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Operand {
     Constant(Constant),
     Literal(f32),
@@ -50,14 +50,14 @@ pub enum ComparisonOpType {
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Serialize, Deserialize)]
 pub struct CallId(pub u32);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum SourceLocation {
     Local(LocalRef),
     Data(DataRef),
     LastValue(CallId, String, DataRef),
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum TargetLocation {
     Local(LocalRef),
     Data(DataRef),
@@ -65,7 +65,7 @@ pub enum TargetLocation {
     SignalOutput(SignalOutputIndex),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Instruction {
     AllocLocal(LocalRef),
 
