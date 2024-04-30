@@ -155,8 +155,8 @@ impl TwistedWispSingleton {
         for n in flow.node_indices() {
             let node = flow.get_node(n).unwrap();
             if let Some(text) = &node.expr {
-                let mut parts = node.name.split('$');
-                let id = parts.nth(2).unwrap().parse::<u32>().unwrap();
+                let parts = node.name.split('$');
+                let id = parts.last().unwrap().parse::<u32>().unwrap();
                 let math_func = Box::new(
                     MathFunctionParser::parse_function(&flow_name, id, text.clone()).unwrap(),
                 );

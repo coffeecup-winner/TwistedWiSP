@@ -99,6 +99,7 @@ impl WispFunction for FlowFunction {
         let node_count = parts.next()?.parse::<u32>().ok()?;
         let edge_count = parts.next()?.parse::<u32>().ok()?;
         let mut graph = FlowGraph::new();
+        let mut math_function_id_gen = 0;
         for idx in 0..node_count {
             let line = lines.next()?;
             let mut parts = line.split(' ');
@@ -108,6 +109,9 @@ impl WispFunction for FlowFunction {
             let w = parts.next()?.parse::<u32>().ok()?;
             let h = parts.next()?.parse::<u32>().ok()?;
             let expr = if name.contains('$') {
+                let parts = name.split('$');
+                let id = parts.last()?.parse::<u32>().ok()?;
+                math_function_id_gen = math_function_id_gen.max(id + 1);
                 Some(lines.next()?.into())
             } else {
                 None
@@ -140,7 +144,7 @@ impl WispFunction for FlowFunction {
             name: name.into(),
             graph,
             ir: RefCell::new(vec![]),
-            math_function_id_gen: 0,
+            math_function_id_gen,
         }))
     }
 
