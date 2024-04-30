@@ -296,6 +296,7 @@ impl FlowFunction {
         let mut vref_id = 0;
         let mut output_vrefs = HashMap::new();
         let mut instructions = vec![];
+        let mut lag_calls = vec![];
 
         let topo = Topo::new(&filtered_graph);
         'nodes: for n in topo.iter(&filtered_graph) {
@@ -366,21 +367,525 @@ impl FlowFunction {
                     }
                 }
             }
-            let mut outputs = vec![];
-            for idx in 0..func.outputs_count() {
-                let vref = VarRef(vref_id);
-                outputs.push(vref);
-                vref_id += 1;
-                output_vrefs.insert((n, idx), vref);
+            // For lag calls we don't need any outputs
+            if func.lag_value().is_some() {
+                lag_calls.push(Instruction::Call(
+                    CallId(n.index() as u32),
+                    self.graph.node_weight(n).unwrap().name.clone(),
+                    inputs,
+                    vec![],
+                ))
+            } else {
+                let mut outputs = vec![];
+                for idx in 0..func.outputs_count() {
+                    let vref = VarRef(vref_id);
+                    outputs.push(vref);
+                    vref_id += 1;
+                    output_vrefs.insert((n, idx), vref);
+                }
+                instructions.push(Instruction::Call(
+                    CallId(n.index() as u32),
+                    self.graph.node_weight(n).unwrap().name.clone(),
+                    inputs,
+                    outputs,
+                ));
             }
-            instructions.push(Instruction::Call(
-                CallId(n.index() as u32),
-                self.graph.node_weight(n).unwrap().name.clone(),
-                inputs,
-                outputs,
-            ));
         }
 
+        instructions.append(&mut lag_calls);
+
         instructions
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use twisted_wisp_ir::DataRef;
+
+    use crate::{CodeFunction, FunctionDataItem};
+
+    use super::*;
+
+    fn test_ctx() -> WispContext {
+        let mut ctx = WispContext::new(2);
+        ctx.add_builtin_functions();
+        ctx
+    }
+
+    fn lag_function() -> Box<CodeFunction> {
+        Box::new(CodeFunction::new(
+            "lag".into(),
+            vec![FunctionInput {
+                name: "in".into(),
+                fallback: DefaultInputValue::Value(0.0),
+            }],
+            vec![],
+            vec![FunctionDataItem::new("lag".into(), 0.0)],
+            vec![],
+            Some(DataRef(0)),
+        ))
+    }
+
+    fn create_function(name: &str, num_inputs: u32, num_outputs: u32) -> Box<CodeFunction> {
+        Box::new(CodeFunction::new(
+            name.into(),
+            (0..num_inputs)
+                .map(|i| FunctionInput {
+                    name: format!("in{}", i),
+                    fallback: DefaultInputValue::Value(0.0),
+                })
+                .collect(),
+            (0..num_outputs).map(|_| FunctionOutput).collect(),
+            vec![],
+            vec![],
+            None,
+        ))
+    }
+
+    #[test]
+    fn test_empty_flow() {
+        let ctx = test_ctx();
+        let f = FlowFunction::new("test".into());
+
+        let ir = f.compile_to_ir(&ctx);
+        assert_eq!(Vec::<Instruction>::new(), ir,);
+    }
+
+    #[test]
+    fn test_empty_output() {
+        let ctx = test_ctx();
+        let mut f = FlowFunction::new("test".into());
+        f.add_node("out".into(), None);
+
+        let ir = f.compile_to_ir(&ctx);
+        assert_eq!(
+            vec![Instruction::Call(
+                CallId(0),
+                "out".into(),
+                vec![Operand::Literal(0.0), Operand::Literal(0.0)],
+                vec![]
+            ),],
+            ir,
+        );
+    }
+
+    #[test]
+    fn test_single_node_into_out() {
+        let mut ctx = test_ctx();
+        ctx.add_function(create_function("test", 0, 1));
+
+        let mut f = FlowFunction::new("test".into());
+        let idx_test = f.add_node("test".into(), None);
+        let idx_out = f.add_node("out".into(), None);
+        f.connect(idx_test, 0, idx_out, 0);
+
+        let ir = f.compile_to_ir(&ctx);
+        assert_eq!(
+            vec![
+                Instruction::Call(CallId(0), "test".into(), vec![], vec![VarRef(0)]),
+                Instruction::Call(
+                    CallId(1),
+                    "out".into(),
+                    vec![Operand::Var(VarRef(0)), Operand::Var(VarRef(0))],
+                    vec![]
+                ),
+            ],
+            ir,
+        );
+    }
+
+    #[test]
+    fn test_single_node_into_out_normalization() {
+        let mut ctx = test_ctx();
+        ctx.add_function(create_function("test", 0, 1));
+
+        let mut f = FlowFunction::new("test".into());
+        let idx_test = f.add_node("test".into(), None);
+        let idx_out = f.add_node("out".into(), None);
+        f.connect(idx_test, 0, idx_out, 1);
+
+        let ir = f.compile_to_ir(&ctx);
+        assert_eq!(
+            vec![
+                Instruction::Call(CallId(0), "test".into(), vec![], vec![VarRef(0)]),
+                Instruction::Call(
+                    CallId(1),
+                    "out".into(),
+                    vec![Operand::Literal(0.0), Operand::Var(VarRef(0))],
+                    vec![]
+                ),
+            ],
+            ir,
+        );
+    }
+
+    #[test]
+    fn test_node_input_summation() {
+        let mut ctx = test_ctx();
+        ctx.add_function(create_function("test", 0, 1));
+
+        let mut f = FlowFunction::new("test".into());
+        let idx_test0 = f.add_node("test".into(), None);
+        let idx_test1 = f.add_node("test".into(), None);
+        let idx_out = f.add_node("out".into(), None);
+        f.connect(idx_test0, 0, idx_out, 0);
+        f.connect(idx_test1, 0, idx_out, 0);
+
+        let ir = f.compile_to_ir(&ctx);
+        assert_eq!(
+            vec![
+                Instruction::Call(CallId(1), "test".into(), vec![], vec![VarRef(0)]),
+                Instruction::Call(CallId(0), "test".into(), vec![], vec![VarRef(1)]),
+                Instruction::BinaryOp(
+                    VarRef(2),
+                    BinaryOpType::Add,
+                    Operand::Var(VarRef(1)),
+                    Operand::Var(VarRef(0)),
+                ),
+                Instruction::Call(
+                    CallId(2),
+                    "out".into(),
+                    vec![Operand::Var(VarRef(2)), Operand::Var(VarRef(2))],
+                    vec![]
+                ),
+            ],
+            ir,
+        );
+    }
+
+    #[test]
+    fn test_call_graph() {
+        let mut ctx = test_ctx();
+        ctx.add_function(create_function("src", 0, 1));
+        ctx.add_function(create_function("1to1", 1, 1));
+        ctx.add_function(create_function("2to1", 2, 1));
+
+        let mut f = FlowFunction::new("test".into());
+        let idx_src = f.add_node("src".into(), None);
+        let idx_1to1 = f.add_node("1to1".into(), None);
+        let idx_2to1_0 = f.add_node("2to1".into(), None);
+        let idx_2to1_1 = f.add_node("2to1".into(), None);
+        let idx_out = f.add_node("out".into(), None);
+        f.connect(idx_src, 0, idx_2to1_0, 0);
+        f.connect(idx_src, 0, idx_1to1, 0);
+        f.connect(idx_1to1, 0, idx_2to1_0, 1);
+        f.connect(idx_2to1_0, 0, idx_2to1_1, 0);
+        f.connect(idx_src, 0, idx_2to1_1, 1);
+        f.connect(idx_2to1_1, 0, idx_out, 0);
+        //  src -> 2to1 -> 2to1 -> out
+        //   \-1to1-/      /
+        //    \-----------/
+
+        let ir = f.compile_to_ir(&ctx);
+        assert_eq!(
+            vec![
+                Instruction::Call(CallId(0), "src".into(), vec![], vec![VarRef(0)]),
+                Instruction::Call(
+                    CallId(1),
+                    "1to1".into(),
+                    vec![Operand::Var(VarRef(0))],
+                    vec![VarRef(1)]
+                ),
+                Instruction::Call(
+                    CallId(2),
+                    "2to1".into(),
+                    vec![Operand::Var(VarRef(0)), Operand::Var(VarRef(1))],
+                    vec![VarRef(2)]
+                ),
+                Instruction::Call(
+                    CallId(3),
+                    "2to1".into(),
+                    vec![Operand::Var(VarRef(2)), Operand::Var(VarRef(0))],
+                    vec![VarRef(3)]
+                ),
+                Instruction::Call(
+                    CallId(4),
+                    "out".into(),
+                    vec![Operand::Var(VarRef(3)), Operand::Var(VarRef(3))],
+                    vec![]
+                ),
+            ],
+            ir,
+        );
+    }
+
+    #[test]
+    fn test_lag_function() {
+        let mut ctx = test_ctx();
+        ctx.add_function(lag_function());
+        ctx.add_function(create_function("test", 1, 1));
+
+        let mut f = FlowFunction::new("test".into());
+        let idx_lag = f.add_node("lag".into(), None);
+        let idx_test = f.add_node("test".into(), None);
+        let idx_out = f.add_node("out".into(), None);
+        f.connect(idx_lag, 0, idx_test, 0);
+        f.connect(idx_test, 0, idx_lag, 0);
+        f.connect(idx_test, 0, idx_out, 0);
+        //   lag
+        //  /   \
+        //  test -> out
+
+        let ir = f.compile_to_ir(&ctx);
+        assert_eq!(
+            vec![
+                Instruction::Load(
+                    VarRef(0),
+                    SourceLocation::LastValue(CallId(0), "lag".into(), DataRef(0)),
+                ),
+                Instruction::Call(
+                    CallId(1),
+                    "test".into(),
+                    vec![Operand::Var(VarRef(0))],
+                    vec![VarRef(1)]
+                ),
+                Instruction::Call(
+                    CallId(2),
+                    "out".into(),
+                    vec![Operand::Var(VarRef(1)), Operand::Var(VarRef(1))],
+                    vec![]
+                ),
+                Instruction::Call(
+                    CallId(0),
+                    "lag".into(),
+                    vec![Operand::Var(VarRef(1))],
+                    vec![]
+                ),
+            ],
+            ir,
+        );
+    }
+
+    #[test]
+    fn test_two_lag_nodes() {
+        let mut ctx = test_ctx();
+        ctx.add_function(lag_function());
+        ctx.add_function(create_function("test", 1, 1));
+
+        let mut f = FlowFunction::new("test".into());
+        let idx_lag0 = f.add_node("lag".into(), None);
+        let idx_lag1 = f.add_node("lag".into(), None);
+        let idx_test = f.add_node("test".into(), None);
+        let idx_out = f.add_node("out".into(), None);
+        f.connect(idx_lag0, 0, idx_test, 0);
+        f.connect(idx_test, 0, idx_lag0, 0);
+        f.connect(idx_lag1, 0, idx_test, 0);
+        f.connect(idx_test, 0, idx_lag1, 0);
+        f.connect(idx_test, 0, idx_out, 0);
+        //   lag0
+        //  /   \
+        //  test -> out
+        //  \   /
+        //   lag1
+
+        let ir = f.compile_to_ir(&ctx);
+        assert_eq!(
+            vec![
+                Instruction::Load(
+                    VarRef(0),
+                    SourceLocation::LastValue(CallId(1), "lag".into(), DataRef(0)),
+                ),
+                Instruction::Load(
+                    VarRef(1),
+                    SourceLocation::LastValue(CallId(0), "lag".into(), DataRef(0)),
+                ),
+                Instruction::BinaryOp(
+                    VarRef(2),
+                    BinaryOpType::Add,
+                    Operand::Var(VarRef(1)),
+                    Operand::Var(VarRef(0)),
+                ),
+                Instruction::Call(
+                    CallId(2),
+                    "test".into(),
+                    vec![Operand::Var(VarRef(2))],
+                    vec![VarRef(3)]
+                ),
+                Instruction::Call(
+                    CallId(3),
+                    "out".into(),
+                    vec![Operand::Var(VarRef(3)), Operand::Var(VarRef(3))],
+                    vec![]
+                ),
+                Instruction::Call(
+                    CallId(0),
+                    "lag".into(),
+                    vec![Operand::Var(VarRef(3))],
+                    vec![]
+                ),
+                Instruction::Call(
+                    CallId(1),
+                    "lag".into(),
+                    vec![Operand::Var(VarRef(3))],
+                    vec![]
+                ),
+            ],
+            ir,
+        );
+    }
+
+    #[test]
+    fn test_two_lag_nodes_chained() {
+        let mut ctx = test_ctx();
+        ctx.add_function(lag_function());
+        ctx.add_function(create_function("test", 1, 1));
+
+        let mut f = FlowFunction::new("test".into());
+        let idx_lag0 = f.add_node("lag".into(), None);
+        let idx_lag1 = f.add_node("lag".into(), None);
+        let idx_test = f.add_node("test".into(), None);
+        let idx_out = f.add_node("out".into(), None);
+        f.connect(idx_lag0, 0, idx_lag1, 0);
+        f.connect(idx_lag0, 0, idx_test, 0);
+        f.connect(idx_test, 0, idx_lag0, 0);
+        f.connect(idx_lag1, 0, idx_test, 0);
+        f.connect(idx_test, 0, idx_lag1, 0);
+        f.connect(idx_test, 0, idx_out, 0);
+        //  lag0 - lag1
+        //    \\  //
+        //     test -> out
+
+        let ir = f.compile_to_ir(&ctx);
+        assert_eq!(
+            vec![
+                Instruction::Load(
+                    VarRef(0),
+                    SourceLocation::LastValue(CallId(1), "lag".into(), DataRef(0)),
+                ),
+                Instruction::Load(
+                    VarRef(1),
+                    SourceLocation::LastValue(CallId(0), "lag".into(), DataRef(0)),
+                ),
+                Instruction::BinaryOp(
+                    VarRef(2),
+                    BinaryOpType::Add,
+                    Operand::Var(VarRef(1)),
+                    Operand::Var(VarRef(0)),
+                ),
+                Instruction::Call(
+                    CallId(2),
+                    "test".into(),
+                    vec![Operand::Var(VarRef(2))],
+                    vec![VarRef(3)]
+                ),
+                Instruction::Load(
+                    VarRef(4),
+                    SourceLocation::LastValue(CallId(0), "lag".into(), DataRef(0)),
+                ),
+                Instruction::BinaryOp(
+                    VarRef(5),
+                    BinaryOpType::Add,
+                    Operand::Var(VarRef(4)),
+                    Operand::Var(VarRef(3)),
+                ),
+                Instruction::Call(
+                    CallId(3),
+                    "out".into(),
+                    vec![Operand::Var(VarRef(3)), Operand::Var(VarRef(3))],
+                    vec![]
+                ),
+                Instruction::Call(
+                    CallId(0),
+                    "lag".into(),
+                    vec![Operand::Var(VarRef(3))],
+                    vec![]
+                ),
+                Instruction::Call(
+                    CallId(1),
+                    "lag".into(),
+                    vec![Operand::Var(VarRef(5))],
+                    vec![]
+                ),
+            ],
+            ir,
+        );
+    }
+
+    #[test]
+    fn test_two_lag_nodes_crosslinked() {
+        let mut ctx = test_ctx();
+        ctx.add_function(lag_function());
+        ctx.add_function(create_function("test", 1, 1));
+
+        let mut f = FlowFunction::new("test".into());
+        let idx_lag0 = f.add_node("lag".into(), None);
+        let idx_lag1 = f.add_node("lag".into(), None);
+        let idx_test = f.add_node("test".into(), None);
+        let idx_out = f.add_node("out".into(), None);
+        f.connect(idx_lag0, 0, idx_lag1, 0);
+        f.connect(idx_lag1, 0, idx_lag0, 0);
+        f.connect(idx_lag0, 0, idx_test, 0);
+        f.connect(idx_test, 0, idx_lag0, 0);
+        f.connect(idx_lag1, 0, idx_test, 0);
+        f.connect(idx_test, 0, idx_lag1, 0);
+        f.connect(idx_test, 0, idx_out, 0);
+        //  lag0 = lag1
+        //    \\  //
+        //     test -> out
+
+        let ir = f.compile_to_ir(&ctx);
+        assert_eq!(
+            vec![
+                Instruction::Load(
+                    VarRef(0),
+                    SourceLocation::LastValue(CallId(1), "lag".into(), DataRef(0)),
+                ),
+                Instruction::Load(
+                    VarRef(1),
+                    SourceLocation::LastValue(CallId(0), "lag".into(), DataRef(0)),
+                ),
+                Instruction::BinaryOp(
+                    VarRef(2),
+                    BinaryOpType::Add,
+                    Operand::Var(VarRef(1)),
+                    Operand::Var(VarRef(0)),
+                ),
+                Instruction::Call(
+                    CallId(2),
+                    "test".into(),
+                    vec![Operand::Var(VarRef(2))],
+                    vec![VarRef(3)]
+                ),
+                Instruction::Load(
+                    VarRef(4),
+                    SourceLocation::LastValue(CallId(1), "lag".into(), DataRef(0)),
+                ),
+                Instruction::BinaryOp(
+                    VarRef(5),
+                    BinaryOpType::Add,
+                    Operand::Var(VarRef(4)),
+                    Operand::Var(VarRef(3)),
+                ),
+                Instruction::Load(
+                    VarRef(6),
+                    SourceLocation::LastValue(CallId(0), "lag".into(), DataRef(0)),
+                ),
+                Instruction::BinaryOp(
+                    VarRef(7),
+                    BinaryOpType::Add,
+                    Operand::Var(VarRef(6)),
+                    Operand::Var(VarRef(3)),
+                ),
+                Instruction::Call(
+                    CallId(3),
+                    "out".into(),
+                    vec![Operand::Var(VarRef(3)), Operand::Var(VarRef(3))],
+                    vec![]
+                ),
+                Instruction::Call(
+                    CallId(0),
+                    "lag".into(),
+                    vec![Operand::Var(VarRef(5))],
+                    vec![]
+                ),
+                Instruction::Call(
+                    CallId(1),
+                    "lag".into(),
+                    vec![Operand::Var(VarRef(7))],
+                    vec![]
+                ),
+            ],
+            ir,
+        );
     }
 }

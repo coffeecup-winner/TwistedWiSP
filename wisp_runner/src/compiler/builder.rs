@@ -439,8 +439,13 @@ impl SignalProcessorBuilder {
                     match callee_func.outputs().len() {
                         0 => { /* do nothing */ }
                         1 => {
-                            fctx.vars
-                                .insert(out_vrefs[0], res.into_float_value().as_basic_value_enum());
+                            // If we don't have to capture the result, don't capture it
+                            if out_vrefs.len() == 1 {
+                                fctx.vars.insert(
+                                    out_vrefs[0],
+                                    res.into_float_value().as_basic_value_enum(),
+                                );
+                            }
                         }
                         _ => todo!(),
                     }
