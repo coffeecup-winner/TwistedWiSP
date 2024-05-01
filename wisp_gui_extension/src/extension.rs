@@ -3,7 +3,8 @@ use std::path::Path;
 use godot::{engine::Engine, prelude::*};
 
 use twisted_wisp::{FlowFunction, MathFunctionParser, WispContext, WispFunction};
-use twisted_wisp_protocol::WispRunnerClient;
+use twisted_wisp_ir::CallId;
+use twisted_wisp_protocol::{DataIndex, WispRunnerClient};
 
 struct TwistedWispExtension;
 
@@ -343,5 +344,11 @@ impl TwistedWispSingleton {
         let runner = self.runner_mut();
         runner.context_add_or_update_function(ir_function);
         runner.context_update();
+    }
+
+    #[func]
+    fn flow_node_on_value_changed(&mut self, flow_name: String, node_idx: u32, value: f32) {
+        self.runner_mut()
+            .context_set_data_value(flow_name, CallId(node_idx), DataIndex(0), value);
     }
 }

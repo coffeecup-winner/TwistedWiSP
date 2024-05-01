@@ -62,6 +62,11 @@ pub fn main(mut wisp: WispContext, device: ConfiguredAudioDevice) -> Result<(), 
                 wisp.set_main_function(&name);
                 reply(&output, WispCommandResponse::Ok(()))
             }
+            WispCommand::ContextSetDataValue(name, id, idx, value) => {
+                runtime.set_data_value(name, id, idx.0, value);
+                // TODO: Async update
+                reply(&output, WispCommandResponse::Ok(()))
+            }
             WispCommand::ContextUpdate => {
                 runtime.switch_to_signal_processor(
                     &execution_context,

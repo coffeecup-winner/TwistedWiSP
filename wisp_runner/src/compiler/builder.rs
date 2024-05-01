@@ -42,7 +42,8 @@ impl SignalProcessorBuilder {
             .create_jit_execution_engine(OptimizationLevel::None)
             .map_err(|_| SignalProcessCreationError::InitEE)?;
 
-        let data_layout = calculate_data_layout(wctx.get_function(top_level).unwrap(), wctx);
+        let (data_layout, called_functions) =
+            calculate_data_layout(wctx.get_function(top_level).unwrap(), wctx);
         let mut mctx = ModuleContext::new(ectx.llvm(), wctx, &module, data_layout);
 
         let g_output = module.add_global(mctx.types.pf32, None, "wisp_global_output");
@@ -61,6 +62,10 @@ impl SignalProcessorBuilder {
         execution_engine.add_global_mapping(&g_wisp_debug, wisp_debug as usize);
 
         for (name, func) in wctx.functions_iter() {
+            if !called_functions.contains(name) {
+                continue;
+            }
+
             // >1 returns is currently not supported
             assert!(func.outputs().len() < 2);
             let mut arg_types = vec![];
@@ -77,6 +82,10 @@ impl SignalProcessorBuilder {
         }
 
         for (_, func) in wctx.functions_iter() {
+            if !called_functions.contains(func.name()) {
+                continue;
+            }
+
             self.build_function(ectx, &mut mctx, func)?;
         }
 
@@ -138,9 +147,10 @@ impl SignalProcessorBuilder {
         Ok((
             SignalProcessor::new(
                 spctx,
+                top_level,
                 unsafe { function.into_raw() },
+                mctx.data_layout,
                 wctx.num_outputs(),
-                mctx.data_layout.get(top_level).map_or(0, |l| l.total_size),
             ),
             execution_engine,
         ))

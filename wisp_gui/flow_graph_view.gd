@@ -5,6 +5,7 @@ var wisp_flow_name = ""
 var wisp_file_path = ""
 
 var FlowGraphNode = preload("res://flow_graph_node.tscn")
+var FlowGraphNode_HSlider = preload("res://flow_graph_node_h_slider.tscn")
 var FlowGraphNodeSelector = preload("res://flow_graph_node_selector.tscn")
 
 func _ready():
@@ -101,8 +102,15 @@ func _on_gui_input(event):
 			selector.grab_focus()
 
 
+func create_node(func_name):
+	if func_name == "control":
+		return FlowGraphNode_HSlider.instantiate()
+	else:
+		return FlowGraphNode.instantiate()
+
+
 func add_flow_node(func_name, idx, pos):
-	var node = FlowGraphNode.instantiate()
+	var node = create_node(func_name)
 	var display_name = func_name
 	if idx == null:
 		var result = TwistedWisp.flow_add_node(wisp_flow_name, func_name)
@@ -110,7 +118,10 @@ func add_flow_node(func_name, idx, pos):
 		func_name = result.name
 		display_name = result.display_name
 		node.position_offset = pos
-		node.size = Vector2(80, 80)
+		if func_name == "control":
+			node.size = Vector2(120, 60)
+		else:
+			node.size = Vector2(80, 80)
 		TwistedWisp.flow_set_node_coordinates(
 			wisp_flow_name,
 			node.wisp_node_idx,
@@ -131,19 +142,26 @@ func add_flow_node(func_name, idx, pos):
 	var metadata = TwistedWisp.function_get_metadata(func_name)
 	var rows_count = max(metadata.num_inlets, metadata.num_outlets)
 	
-	for i in range(0, rows_count):
+	while (node.get_child_count() < rows_count):
 		node.add_child(Label.new())
 	
 	for i in range(0, metadata.num_inlets):
 		node.set_slot_enabled_left(i, true)
 	
 	for i in range(0, metadata.num_outlets):
-		node.set_slot_enabled_right(i, true)
+		node.set_slot_enabled_right(i, true) 
+	
+	if func_name == "control":
+		node.connect("value_changed", _on_control_value_changed)
 	
 	node.wisp_node_idx = idx
 	node.wisp_func_name = func_name
 	add_child(node)
 	return node
+
+
+func _on_control_value_changed(idx, value):
+	TwistedWisp.flow_node_on_value_changed(wisp_flow_name, idx, value)
 
 
 func _on_end_node_move():

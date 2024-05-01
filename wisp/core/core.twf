@@ -11,3 +11,12 @@ begin
   store #0, %0
   store @0, $0
 end
+
+func control
+outputs 1
+data
+  value: 0
+begin
+  load %0, @0
+  store #0, %0
+end

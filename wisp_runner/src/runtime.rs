@@ -5,6 +5,7 @@ use std::{
 
 use cpal::Stream;
 use inkwell::execution_engine::ExecutionEngine;
+use twisted_wisp_ir::CallId;
 
 use crate::{
     audio::device::ConfiguredAudioDevice,
@@ -98,5 +99,17 @@ impl<'ectx> WispRuntime<'ectx> {
             self.paused_processor = Some((sp, ee));
         }
         Ok(())
+    }
+
+    pub fn set_data_value(&mut self, name: String, id: CallId, idx: u32, value: f32) {
+        let mut running_processor = self.processor_mutex.borrow_mut().lock().unwrap();
+        if running_processor.is_some() {
+            running_processor
+                .as_mut()
+                .unwrap()
+                .set_data_value(name, id, idx, value);
+        } else if let Some(paused_processor) = self.paused_processor.as_mut() {
+            paused_processor.0.set_data_value(name, id, idx, value);
+        }
     }
 }

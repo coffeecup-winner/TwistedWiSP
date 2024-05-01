@@ -1,10 +1,13 @@
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use twisted_wisp_ir::IRFunction;
+use twisted_wisp_ir::{CallId, IRFunction};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SystemInfo {
     pub num_channels: u32,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DataIndex(pub u32);
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum WispCommand {
@@ -19,6 +22,7 @@ pub enum WispCommand {
     ContextAddOrUpdateFunction(IRFunction),
     ContextRemoveFunction(String),
     ContextSetMainFunction(String),
+    ContextSetDataValue(String, CallId, DataIndex, f32),
     ContextUpdate,
 }
 

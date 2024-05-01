@@ -5,9 +5,9 @@ use std::{
     process::{Child, Command, Stdio},
 };
 
-use twisted_wisp_ir::IRFunction;
+use twisted_wisp_ir::{CallId, IRFunction};
 
-use crate::{CommandResponse, SystemInfo, WispCommand, WispCommandResponse};
+use crate::{CommandResponse, DataIndex, SystemInfo, WispCommand, WispCommandResponse};
 
 pub struct WispRunnerClient {
     wisp_process: Child,
@@ -92,6 +92,10 @@ impl WispRunnerClient {
 
     pub fn context_set_main_function(&mut self, name: String) {
         self.execute_command(WispCommand::ContextSetMainFunction(name))
+    }
+
+    pub fn context_set_data_value(&mut self, name: String, id: CallId, idx: DataIndex, value: f32) {
+        self.execute_command(WispCommand::ContextSetDataValue(name, id, idx, value))
     }
 
     pub fn context_update(&mut self) {
