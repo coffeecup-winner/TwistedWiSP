@@ -36,7 +36,11 @@ impl<'ectx> WispRuntime<'ectx> {
                     sp.process(buffer);
                     // Clip the output to safe levels
                     for b in buffer.iter_mut() {
-                        *b = b.clamp(-1.0, 1.0);
+                        if b.is_nan() {
+                            *b = 0.0;
+                        } else {
+                            *b = b.clamp(-1.0, 1.0);
+                        }
                     }
                 } else {
                     // Silence if no signal processor
