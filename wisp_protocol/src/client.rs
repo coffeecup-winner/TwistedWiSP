@@ -14,9 +14,20 @@ pub struct WispRunnerClient {
 }
 
 impl WispRunnerClient {
-    pub fn init(exe_path: &Path) -> WispRunnerClient {
+    pub fn init(
+        exe_path: &Path,
+        preferred_buffer_size: Option<u32>,
+        preferred_sample_rate: Option<u32>,
+    ) -> WispRunnerClient {
         let log_file = File::create("wisp.log").expect("Failed to create the log file");
-        let child = Command::new(exe_path)
+        let mut command = Command::new(exe_path);
+        if let Some(buffer_size) = preferred_buffer_size {
+            command.args(["--audio-buffer-size", &buffer_size.to_string()]);
+        }
+        if let Some(sample_rate) = preferred_sample_rate {
+            command.args(["--audio-sample-rate", &sample_rate.to_string()]);
+        }
+        let child = command
             .arg("--server")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

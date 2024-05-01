@@ -46,7 +46,7 @@ impl TwistedWispSingleton {
     fn init(&mut self, wisp_exe_path: String, wisp_core_path: String) {
         godot::log::godot_print!("init: {}", wisp_exe_path);
 
-        let mut runner = WispRunnerClient::init(Path::new(&wisp_exe_path));
+        let mut runner = WispRunnerClient::init(Path::new(&wisp_exe_path), Some(256), Some(48000));
         let sys_info = runner.get_system_info();
 
         let mut ctx = WispContext::new(sys_info.num_channels);

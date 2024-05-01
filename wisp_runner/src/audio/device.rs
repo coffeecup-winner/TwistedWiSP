@@ -1,6 +1,6 @@
 use cpal::{
     traits::{DeviceTrait, HostTrait},
-    Device, Stream, StreamConfig,
+    BufferSize, Device, SampleFormat, SampleRate, Stream, StreamConfig, SupportedBufferSize,
 };
 use log::{error, info};
 
@@ -13,9 +13,17 @@ impl ConfiguredAudioDevice {
     pub fn open(
         preferred_host: Option<String>,
         preferred_device: Option<String>,
+        preferred_output_channels: Option<u16>,
+        preferred_buffer_size: Option<u32>,
+        preferred_sample_rate: Option<u32>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let device = Self::select_output_audio_device(preferred_host, preferred_device)?;
-        let config = Self::select_output_audio_device_config(&device);
+        let config = Self::select_output_audio_device_config(
+            &device,
+            preferred_output_channels,
+            preferred_buffer_size,
+            preferred_sample_rate,
+        );
         Ok(ConfiguredAudioDevice { device, config })
     }
 
@@ -123,12 +131,39 @@ impl ConfiguredAudioDevice {
         Ok(device)
     }
 
-    fn select_output_audio_device_config(device: &Device) -> StreamConfig {
-        let supported_config = device
-            .default_output_config()
-            .expect("No default config for the selected audio device");
-        let config: StreamConfig = supported_config.into();
-        // Add buffer size selection here
+    fn select_output_audio_device_config(
+        device: &Device,
+        preferred_output_channels: Option<u16>,
+        preferred_buffer_size: Option<u32>,
+        preferred_sample_rate: Option<u32>,
+    ) -> StreamConfig {
+        let supported_config_range = device
+            .supported_output_configs()
+            .expect("No supported configs for the selected audio device")
+            .find(|c| {
+                c.channels() == preferred_output_channels.unwrap_or(2)
+                    || c.sample_format() == SampleFormat::F32
+            })
+            .expect("No supported configs with the preferred number of channels");
+        let supported_config = supported_config_range
+            .with_sample_rate(SampleRate(preferred_sample_rate.unwrap_or(44100)));
+        let buffer_size = if let Some(mut buffer_size) = preferred_buffer_size {
+            if let SupportedBufferSize::Range { min, max } = supported_config.buffer_size() {
+                let size = buffer_size.clamp(*min, *max);
+                if size != buffer_size {
+                    error!(
+                        "Preferred buffer size {} is out of range, using {} instead",
+                        buffer_size, size
+                    );
+                    buffer_size = size;
+                }
+            }
+            BufferSize::Fixed(buffer_size)
+        } else {
+            BufferSize::Default
+        };
+        let mut config: StreamConfig = supported_config.into();
+        config.buffer_size = buffer_size;
         info!("Selected audio device config: ");
         info!("  - channels: {}", config.channels);
         info!("  - bufsize: {:?}", config.buffer_size);

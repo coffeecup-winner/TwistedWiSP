@@ -22,6 +22,12 @@ struct Args {
     audio_host: Option<String>,
     #[arg(short = 'd', long)]
     audio_device: Option<String>,
+    #[arg(short = 'o', long)]
+    audio_output_channels: Option<u16>,
+    #[arg(short = 'b', long)]
+    audio_buffer_size: Option<u32>,
+    #[arg(short = 'r', long)]
+    audio_sample_rate: Option<u32>,
     #[arg(short, long)]
     server: bool,
 
@@ -46,7 +52,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
-    let device = ConfiguredAudioDevice::open(args.audio_host, args.audio_device)?;
+    let device = ConfiguredAudioDevice::open(
+        args.audio_host,
+        args.audio_device,
+        args.audio_output_channels,
+        args.audio_buffer_size,
+        args.audio_sample_rate,
+    )?;
     let wisp = WispContext::new(device.num_output_channels(), device.sample_rate());
 
     if args.server {
