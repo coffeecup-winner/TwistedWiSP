@@ -76,9 +76,11 @@ func _on_gui_input(event):
 		fd.use_native_dialog = true
 		fd.connect("file_selected", _on_open_file_selected)
 		fd.popup()
-	elif event.is_action("ui_flow_graph_view_save") and event.is_pressed() and not event.is_echo():
+	elif ((event.is_action("ui_flow_graph_view_save_as") or event.is_action("ui_flow_graph_view_save"))
+			and event.is_pressed()
+			and not event.is_echo()):
 		accept_event()
-		if wisp_file_path:
+		if wisp_file_path and not event.is_action("ui_flow_graph_view_save_as"):
 			TwistedWisp.function_save(wisp_flow_name, wisp_file_path)
 		else:
 			var fd = FileDialog.new()
