@@ -53,8 +53,8 @@ fn calculate_function_data_layout(
     let mut total_size = 0;
     for (idx, _) in func.data().iter().enumerate() {
         own_data_offsets.insert(DataRef(idx as u32), total_size);
-        // All data is f32 at the moment
-        total_size += 4;
+        // All data is f32 at the moment, size is in elements
+        total_size += 1;
     }
 
     if total_size == 0 && children_data_sizes.is_empty() {
