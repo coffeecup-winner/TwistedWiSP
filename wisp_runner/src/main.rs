@@ -34,7 +34,6 @@ struct Args {
 
 fn main() -> Result<(), Box<dyn Error>> {
     stderrlog::new()
-        .module(module_path!())
         .verbosity(LogLevelNum::Debug)
         .timestamp(stderrlog::Timestamp::Microsecond)
         .init()

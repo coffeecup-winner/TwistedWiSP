@@ -9,6 +9,7 @@ use crate::{
     MathFunctionParser, WispFunction,
 };
 
+use log::info;
 use twisted_wisp_ir::{Instruction, Operand, SignalOutputIndex, TargetLocation};
 
 #[derive(Debug)]
@@ -73,9 +74,9 @@ impl WispContext {
         for file in std::fs::read_dir(Path::new(wisp_core_path))? {
             let text = std::fs::read_to_string(file?.path())?;
             let mut parser = CodeFunctionParser::new(&text);
-            // godot_print!("Adding core functions:");
+            info!("Adding core functions:");
             while let Some(func) = parser.parse_function() {
-                // godot_print!("  - {}", func.name());
+                info!("  - {}", func.name());
                 self.add_function(Box::new(func));
             }
         }
@@ -87,6 +88,7 @@ impl WispContext {
         // TODO: Load flow or code function
         let mut func = FlowFunction::load(&text).expect("Failed to parse the flow function data");
         let flow_name = func.name().to_owned();
+        info!("Loading function: {}", flow_name);
         let flow = func.as_flow_mut().unwrap();
         let mut math_function_names = vec![];
         for n in flow.node_indices() {
@@ -97,6 +99,7 @@ impl WispContext {
                 let math_func = Box::new(
                     MathFunctionParser::parse_function(&flow_name, id, text.clone()).unwrap(),
                 );
+                info!("  - {}: {}", math_func.name(), text);
                 math_function_names.push(math_func.name().into());
                 self.add_function(math_func);
             }
