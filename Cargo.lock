@@ -1228,6 +1228,7 @@ dependencies = [
  "log",
  "stderrlog",
  "thiserror",
+ "twisted-wisp",
  "twisted-wisp-ir",
  "twisted-wisp-protocol",
 ]

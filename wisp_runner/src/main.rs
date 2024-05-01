@@ -7,6 +7,8 @@ mod server;
 use std::error::Error;
 
 use clap::Parser;
+use context::{WispContext, WispExecutionContext};
+use runtime::WispRuntime;
 use stderrlog::LogLevelNum;
 
 use crate::audio::device::ConfiguredAudioDevice;
@@ -22,6 +24,12 @@ struct Args {
     audio_device: Option<String>,
     #[arg(short, long)]
     server: bool,
+
+    // Non-server mode
+    #[arg(short, long)]
+    core_lib_path: Option<String>,
+    #[arg()]
+    file_name: Option<String>,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -40,27 +48,43 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     let device = ConfiguredAudioDevice::open(args.audio_host, args.audio_device)?;
-    let wisp = context::WispContext::new(device.num_output_channels(), device.sample_rate());
+    let wisp = WispContext::new(device.num_output_channels(), device.sample_rate());
 
     if args.server {
-        return crate::server::main(wisp, device);
+        crate::server::main(wisp, device)
+    } else {
+        run_file(
+            args.core_lib_path.expect("No core library path provided"),
+            args.file_name.expect("No file name provided"),
+            wisp,
+            device,
+        )
+    }
+}
+
+fn run_file(
+    core_lib_path: String,
+    file_path: String,
+    mut wisp: WispContext,
+    device: ConfiguredAudioDevice,
+) -> Result<(), Box<dyn Error>> {
+    let mut core_context = twisted_wisp::WispContext::new(wisp.num_outputs());
+    core_context.add_builtin_functions();
+    core_context.load_core_functions(&core_lib_path)?;
+    let result = core_context.load_function(&file_path)?;
+
+    for f in core_context.functions_iter() {
+        wisp.add_function(f.get_ir_function(&core_context));
     }
 
-    // let (mut processor, _ee) = wisp.create_signal_processor("example")?;
-    // let mut v = vec![0.0; 64];
-    // let start = std::time::Instant::now();
-    // processor.process(&mut v);
-    // let end = std::time::Instant::now();
-    // let duration_ns = (end - start).as_nanos();
-    // info!("Result: {:?}", v);
-    // let time_limit_ns =
-    //     1_000_000_000 / device.sample_rate() * v.len() as u32 / device.num_output_channels();
-    // info!(
-    //     "Took {}.{}µs (CPU usage: {:.2}%)",
-    //     duration_ns / 1000,
-    //     duration_ns % 1000,
-    //     (duration_ns as f32 / time_limit_ns as f32 * 100.0)
-    // );
+    let execution_context = WispExecutionContext::init();
+    let mut runtime = WispRuntime::init(device);
 
-    Ok(())
+    runtime.switch_to_signal_processor(&execution_context, &wisp, &result.name)?;
+    runtime.start_dsp();
+
+    loop {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        // Wait until Ctrl+C
+    }
 }

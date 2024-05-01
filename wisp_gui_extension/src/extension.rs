@@ -2,9 +2,7 @@ use std::path::Path;
 
 use godot::{engine::Engine, prelude::*};
 
-use twisted_wisp::{
-    CodeFunctionParser, FlowFunction, MathFunctionParser, WispContext, WispFunction,
-};
+use twisted_wisp::{FlowFunction, MathFunctionParser, WispContext, WispFunction};
 use twisted_wisp_protocol::WispRunnerClient;
 
 struct TwistedWispExtension;
@@ -53,18 +51,8 @@ impl TwistedWispSingleton {
 
         let mut ctx = WispContext::new(sys_info.num_channels);
         ctx.add_builtin_functions();
-
-        for file in std::fs::read_dir(Path::new(&wisp_core_path)).expect("Failed to open core path")
-        {
-            let path = file.unwrap().path();
-            let text = std::fs::read_to_string(path).expect("Failed to read file");
-            let mut parser = CodeFunctionParser::new(&text);
-            godot_print!("Adding core functions:");
-            while let Some(func) = parser.parse_function() {
-                godot_print!("  - {}", func.name());
-                ctx.add_function(Box::new(func));
-            }
-        }
+        ctx.load_core_functions(&wisp_core_path)
+            .expect("Failed to load core functions");
 
         for f in ctx.functions_iter() {
             runner.context_add_or_update_function(f.get_ir_function(&ctx));
@@ -146,37 +134,25 @@ impl TwistedWispSingleton {
 
     #[func]
     fn function_open(&mut self, path: String) -> String {
-        let s = std::fs::read_to_string(Path::new(&path)).expect("Failed to open file to load");
-        let mut func = FlowFunction::load(&s).expect("Failed to parse the flow function data");
-        let ctx = self.ctx_mut();
-        let flow_name = func.name().to_owned();
-        let flow = func.as_flow_mut().unwrap();
+        let result = self
+            .ctx_mut()
+            .load_function(&path)
+            .expect("Failed to load the flow function");
+        let ctx = self.ctx();
         let mut ir_functions = vec![];
-        for n in flow.node_indices() {
-            let node = flow.get_node(n).unwrap();
-            if let Some(text) = &node.expr {
-                let parts = node.name.split('$');
-                let id = parts.last().unwrap().parse::<u32>().unwrap();
-                let math_func = Box::new(
-                    MathFunctionParser::parse_function(&flow_name, id, text.clone()).unwrap(),
-                );
-                ir_functions.push(math_func.get_ir_function(ctx));
-                ctx.add_function(math_func);
-            }
+        for name in result.math_function_names {
+            let math_func = ctx.get_function(&name).unwrap();
+            ir_functions.push(math_func.get_ir_function(ctx));
         }
-        ir_functions.push(func.get_ir_function(ctx));
+        ir_functions.push(ctx.get_function(&result.name).unwrap().get_ir_function(ctx));
         let runner = self.runner_mut();
         for f in ir_functions {
             runner.context_add_or_update_function(f);
         }
-        let ctx = self.ctx_mut();
-        if let Some(f) = ctx.get_function_mut(func.name()) {
-            *f = func;
-            self.runner_mut().context_update();
-        } else {
-            ctx.add_function(func);
+        if result.replaced_existing {
+            runner.context_update();
         }
-        flow_name
+        result.name
     }
 
     #[func]
