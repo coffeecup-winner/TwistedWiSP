@@ -7,7 +7,7 @@ use crate::context::WispContext;
 #[derive(Debug)]
 pub struct FunctionDataLayout {
     pub own_data_offsets: BTreeMap<DataRef, u32>,
-    pub children_data_offsets: BTreeMap<CallId, u32>,
+    pub children_data_offsets: BTreeMap<CallId, (String, u32)>,
     pub total_size: u32,
 }
 
@@ -42,14 +42,14 @@ fn calculate_function_data_layout(
             | Instruction::Load(_, SourceLocation::LastValue(id, name, _)) => {
                 called_functions.insert(name.into());
                 if let Some(child_data_layout) = data_layout.get(name) {
-                    children_data_sizes.insert(*id, child_data_layout.total_size);
+                    children_data_sizes.insert(*id, (name.into(), child_data_layout.total_size));
                 } else if let Some(child_data_layout) = calculate_function_data_layout(
                     wctx.get_function(name).unwrap(),
                     wctx,
                     data_layout,
                     called_functions,
                 ) {
-                    children_data_sizes.insert(*id, child_data_layout.total_size);
+                    children_data_sizes.insert(*id, (name.into(), child_data_layout.total_size));
                     data_layout.insert(name.into(), child_data_layout);
                 }
             }
@@ -70,8 +70,8 @@ fn calculate_function_data_layout(
     }
 
     let mut children_data_offsets = BTreeMap::new();
-    for (id, size) in children_data_sizes {
-        children_data_offsets.insert(id, total_size);
+    for (id, (name, size)) in children_data_sizes {
+        children_data_offsets.insert(id, (name, total_size));
         total_size += size;
     }
 

@@ -250,7 +250,7 @@ impl SignalProcessorBuilder {
                             })?
                         }
                         LastValue(id, name, dref) => {
-                            let child_offset = *mctx
+                            let (_, child_offset) = *mctx
                                 .data_layout
                                 .get(fctx.func.name())
                                 .and_then(|l| l.children_data_offsets.get(id))
@@ -423,7 +423,7 @@ impl SignalProcessorBuilder {
                         args.push(BasicMetadataValueEnum::FloatValue(value.into_float_value()));
                     }
 
-                    if let Some(offset) = mctx
+                    if let Some((_, offset)) = mctx
                         .data_layout
                         .get(fctx.func.name())
                         .and_then(|l| l.children_data_offsets.get(id))

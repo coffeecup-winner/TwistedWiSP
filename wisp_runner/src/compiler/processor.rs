@@ -23,8 +23,10 @@ struct Watch {
 pub struct SignalProcessor {
     ctx: Box<SignalProcessorContext>,
     function: ProcessFn,
+    name: String,
     data_layout: HashMap<String, FunctionDataLayout>,
     num_outputs: usize,
+    // Fields below are mutable and need to be copy over to the new instance
     data: Vec<f32>,
     watch_id_gen: u32,
     watches: HashMap<WatchIndex, Watch>,
@@ -43,6 +45,7 @@ impl SignalProcessor {
         SignalProcessor {
             ctx,
             function,
+            name: name.to_string(),
             data_layout,
             num_outputs: num_outputs as usize,
             data: vec![0.0; data_length as usize],
@@ -76,6 +79,67 @@ impl SignalProcessor {
         }
     }
 
+    pub fn copy_from(&mut self, other: SignalProcessor) {
+        let other_layout = other.get_data_layout();
+        let own_layout = self.get_data_layout();
+
+        for (key, offset) in other_layout.iter() {
+            if own_layout.contains_key(key) {
+                self.data[own_layout[key] as usize] = other.data[*offset as usize];
+            }
+        }
+
+        let mut other_offset_to_layout_key = HashMap::new();
+        for (k, v) in other_layout {
+            other_offset_to_layout_key.insert(v, k);
+        }
+
+        for (idx, watch) in other.watches {
+            let key = &other_offset_to_layout_key[&watch.data_offset];
+            if let Some(offset) = own_layout.get(key) {
+                self.watches.insert(
+                    idx,
+                    Watch {
+                        data_offset: *offset,
+                        rate: watch.rate,
+                        history: watch.history.clone(),
+                    },
+                );
+            }
+        }
+
+        self.watch_id_gen = other.watch_id_gen;
+        self.elapsed_ticks = other.elapsed_ticks;
+    }
+
+    fn get_data_layout(&self) -> HashMap<String, u32> {
+        let mut layout = HashMap::new();
+        self.build_data_layout(&self.name, "", 0, &mut layout);
+        layout
+    }
+
+    fn build_data_layout(
+        &self,
+        name: &str,
+        prefix: &str,
+        mut current_offset: u32,
+        layout: &mut HashMap<String, u32>,
+    ) {
+        let data_layout = self.data_layout.get(name).unwrap();
+        for (id, offset) in &data_layout.own_data_offsets {
+            current_offset += *offset;
+            layout.insert(format!("{}{}@{}", prefix, name, id.0), current_offset);
+        }
+        for (id, (child_name, offset)) in &data_layout.children_data_offsets {
+            self.build_data_layout(
+                child_name,
+                &format!("{}{}#{}.", prefix, name, id.0),
+                current_offset + *offset,
+                layout,
+            );
+        }
+    }
+
     pub fn set_data_value(
         &mut self,
         name: String,
@@ -84,7 +148,7 @@ impl SignalProcessor {
         value: f32,
     ) -> Option<()> {
         let data_layout = self.data_layout.get(&name)?;
-        let child_offset = data_layout.children_data_offsets.get(&id)?;
+        let (_, child_offset) = data_layout.children_data_offsets.get(&id)?;
         // TODO: Add data index within child using idx
         let data = self.data.get_mut(*child_offset as usize)?;
         *data = value;
@@ -98,7 +162,7 @@ impl SignalProcessor {
 
     pub fn watch_data_value(&mut self, name: String, id: CallId, _idx: u32) -> Option<WatchIndex> {
         let data_layout = self.data_layout.get(&name)?;
-        let child_offset = data_layout.children_data_offsets.get(&id)?;
+        let (_, child_offset) = data_layout.children_data_offsets.get(&id)?;
         // TODO: Add data index within child using idx
         let idx = WatchIndex(self.watch_id_gen);
         self.watch_id_gen += 1;
@@ -106,7 +170,7 @@ impl SignalProcessor {
             idx,
             Watch {
                 data_offset: *child_offset,
-                rate: 16,
+                rate: 64,
                 history: AllocRingBuffer::new(4096),
             },
         );

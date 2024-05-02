@@ -91,12 +91,19 @@ impl<'ectx> WispRuntime<'ectx> {
         ctx: &WispContext,
         top_level: &str,
     ) -> Result<(), SignalProcessCreationError> {
-        let (sp, ee) = self.builder.create_signal_processor(ectx, ctx, top_level)?;
+        let (mut sp, ee) = self.builder.create_signal_processor(ectx, ctx, top_level)?;
         let mut running_processor = self.processor_mutex.borrow_mut().lock().unwrap();
         if running_processor.is_some() {
+            // Before we can switch to the new processor, we need to copy the data from the old one.
+            // If this becomes a performance issue, we could do this in phases to avoid holding
+            // the mutex and blocking the audio thread for too long.
+            sp.copy_from(running_processor.take().unwrap());
             *running_processor = Some(sp);
             self.ee_ref = Some(ee);
         } else {
+            if let Some(paused_processor) = self.paused_processor.take() {
+                sp.copy_from(paused_processor.0);
+            }
             self.paused_processor = Some((sp, ee));
         }
         Ok(())
