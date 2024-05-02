@@ -44,6 +44,7 @@ pub struct FlowFunction {
     graph: FlowGraph,
     ir: RefCell<Vec<Instruction>>,
     math_function_id_gen: u32,
+    watch_idx_map: HashMap<u32, FlowNodeIndex>,
 }
 
 impl WispFunction for FlowFunction {
@@ -145,6 +146,7 @@ impl WispFunction for FlowFunction {
             graph,
             ir: RefCell::new(vec![]),
             math_function_id_gen,
+            watch_idx_map: Default::default(),
         }))
     }
 
@@ -188,6 +190,7 @@ impl FlowFunction {
             graph: Default::default(),
             ir: Default::default(),
             math_function_id_gen: 0,
+            watch_idx_map: Default::default(),
         }
     }
 
@@ -219,6 +222,15 @@ impl FlowFunction {
 
     pub fn edge_indices(&self) -> EdgeIndices<FlowConnection> {
         self.graph.edge_indices()
+    }
+
+    // TODO: Should it be stored here at all?
+    pub fn add_watch_idx(&mut self, node_idx: FlowNodeIndex, idx: u32) {
+        self.watch_idx_map.insert(idx, node_idx);
+    }
+
+    pub fn watch_idx_to_node_idx(&self, idx: u32) -> FlowNodeIndex {
+        self.watch_idx_map[&idx]
     }
 
     pub fn get_connection(

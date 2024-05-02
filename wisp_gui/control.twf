@@ -1,5 +1,5 @@
 flow:flow_0 7 7
-math$flow_0$0 890 269 80 80
+math$flow_0$0 400 200 237 103
 = ($0 + $1 / SampleRate) % 1.0
 control 240 380 120 71
 lag 480 320 80 80

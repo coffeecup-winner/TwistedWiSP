@@ -47,7 +47,7 @@ impl TwistedWispSingleton {
     fn init(&mut self, wisp_exe_path: String, wisp_core_path: String) {
         godot::log::godot_print!("init: {}", wisp_exe_path);
 
-        let mut runner = WispRunnerClient::init(Path::new(&wisp_exe_path), Some(256), Some(48000));
+        let mut runner = WispRunnerClient::init(Path::new(&wisp_exe_path), Some(512), Some(48000));
         let sys_info = runner.get_system_info();
 
         let mut ctx = WispContext::new(sys_info.num_channels);
@@ -200,6 +200,33 @@ impl TwistedWispSingleton {
         } else {
             (flow.add_node(func_text.clone(), None), func_text.clone())
         };
+        if &func_name == "watch" {
+            // TODO: Maybe remove this and do flow borrow checking at runtime?
+            let ctx = self.ctx();
+            let flow = ctx
+                .get_function(&flow_name)
+                .and_then(|f| f.as_flow())
+                .unwrap();
+            let ir_function = flow.get_ir_function(ctx);
+            let runner = self.runner_mut();
+            // NOTE: We do not update the watch function as we expect it to never change
+            // at runtime and it's a part of the core library
+            runner.context_add_or_update_function(ir_function);
+            runner.context_update();
+            let watch_idx = runner
+                .context_watch_data_value(
+                    flow_name.clone(),
+                    CallId(idx.index() as u32),
+                    DataIndex(0),
+                )
+                .expect("Failed to watch a data value");
+            let flow = self
+                .ctx_mut()
+                .get_function_mut(&flow_name)
+                .and_then(|f| f.as_flow_mut())
+                .unwrap();
+            flow.add_watch_idx(idx, watch_idx.0);
+        }
         dict! {
             "idx": idx.index() as u32,
             "name": func_name,
@@ -350,5 +377,26 @@ impl TwistedWispSingleton {
     fn flow_node_on_value_changed(&mut self, flow_name: String, node_idx: u32, value: f32) {
         self.runner_mut()
             .context_set_data_value(flow_name, CallId(node_idx), DataIndex(0), value);
+    }
+
+    #[func]
+    fn flow_get_watch_updates(&mut self, flow_name: String) -> Dictionary {
+        let watches = self.runner_mut().context_query_watched_data_values();
+        let flow = self
+            .ctx()
+            .get_function(&flow_name)
+            .and_then(|f| f.as_flow())
+            .unwrap();
+        let mut updates = Dictionary::new();
+        for (idx, values) in watches.values {
+            let mut array = Array::new();
+            for value in values {
+                array.push(value);
+            }
+            if !array.is_empty() {
+                updates.insert(flow.watch_idx_to_node_idx(idx.0).index() as u32, array);
+            }
+        }
+        updates
     }
 }

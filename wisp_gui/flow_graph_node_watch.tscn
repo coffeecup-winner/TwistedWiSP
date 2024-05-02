@@ -1,0 +1,21 @@
+[gd_scene load_steps=3 format=3 uid="uid://cj7eiuc42se15"]
+
+[ext_resource type="PackedScene" uid="uid://4nigkq8bojto" path="res://flow_graph_node.tscn" id="1_3g2pw"]
+[ext_resource type="Script" path="res://flow_graph_node_watch.gd" id="2_sfp5r"]
+
+[node name="FlowGraphNodeWatch" instance=ExtResource("1_3g2pw")]
+offset_right = 72.0
+offset_bottom = 83.0
+slot/0/left_enabled = false
+slot/0/left_type = 0
+slot/0/left_color = Color(1, 1, 1, 1)
+slot/0/left_icon = null
+slot/0/right_enabled = false
+slot/0/right_type = 0
+slot/0/right_color = Color(1, 1, 1, 1)
+slot/0/right_icon = null
+slot/0/draw_stylebox = true
+script = ExtResource("2_sfp5r")
+
+[node name="Value" type="Label" parent="." index="1"]
+layout_mode = 2

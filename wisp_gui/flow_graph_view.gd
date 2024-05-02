@@ -6,6 +6,8 @@ var wisp_file_path = ""
 
 var FlowGraphNode = preload("res://flow_graph_node.tscn")
 var FlowGraphNode_HSlider = preload("res://flow_graph_node_h_slider.tscn")
+var FlowGraphNodeWatch = preload("res://flow_graph_node_watch.tscn")
+
 var FlowGraphNodeSelector = preload("res://flow_graph_node_selector.tscn")
 
 func _ready():
@@ -103,10 +105,10 @@ func _on_gui_input(event):
 
 
 func create_node(func_name):
-	if func_name == "control":
-		return FlowGraphNode_HSlider.instantiate()
-	else:
-		return FlowGraphNode.instantiate()
+	match func_name:
+		"control": return FlowGraphNode_HSlider.instantiate()
+		"watch": return FlowGraphNodeWatch.instantiate()
+		_: return FlowGraphNode.instantiate()
 
 
 func add_flow_node(func_name, idx, pos):
@@ -153,6 +155,8 @@ func add_flow_node(func_name, idx, pos):
 	
 	if func_name == "control":
 		node.connect("value_changed", _on_control_value_changed)
+	elif func_name == "watch":
+		node.add_to_group("watches")
 	
 	node.wisp_node_idx = idx
 	node.wisp_func_name = func_name
@@ -174,3 +178,10 @@ func _on_end_node_move():
 				int(node.position_offset.y),
 				int(node.size.x),
 				int(node.size.y))
+
+
+func _process(_delta):
+	var updates = TwistedWisp.flow_get_watch_updates(wisp_flow_name)
+	for node in get_children():
+		if node is GraphNode and node.is_in_group("watches") and node.wisp_node_idx in updates:
+			node.process_watch_updates(updates[node.wisp_node_idx])
