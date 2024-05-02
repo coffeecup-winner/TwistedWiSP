@@ -7,7 +7,10 @@ use std::{
 
 use twisted_wisp_ir::{CallId, IRFunction};
 
-use crate::{CommandResponse, DataIndex, SystemInfo, WispCommand, WispCommandResponse};
+use crate::{
+    CommandResponse, DataIndex, SystemInfo, WatchIndex, WatchedDataValues, WispCommand,
+    WispCommandResponse,
+};
 
 pub struct WispRunnerClient {
     wisp_process: Child,
@@ -96,6 +99,23 @@ impl WispRunnerClient {
 
     pub fn context_set_data_value(&mut self, name: String, id: CallId, idx: DataIndex, value: f32) {
         self.execute_command(WispCommand::ContextSetDataValue(name, id, idx, value))
+    }
+
+    pub fn context_watch_data_value(
+        &mut self,
+        name: String,
+        id: CallId,
+        idx: DataIndex,
+    ) -> Option<WatchIndex> {
+        self.execute_command(WispCommand::ContextWatchDataValue(name, id, idx))
+    }
+
+    pub fn context_unwatch_data_value(&mut self, idx: WatchIndex) {
+        self.execute_command(WispCommand::ContextUnwatchDataValue(idx))
+    }
+
+    pub fn context_query_watched_data_values(&mut self) -> WatchedDataValues {
+        self.execute_command(WispCommand::ContextQueryWatchedDataValues)
     }
 
     pub fn context_update(&mut self) {

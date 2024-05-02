@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use twisted_wisp_ir::{CallId, IRFunction};
 
@@ -6,8 +8,16 @@ pub struct SystemInfo {
     pub num_channels: u32,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Serialize, Deserialize)]
 pub struct DataIndex(pub u32);
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+pub struct WatchIndex(pub u32);
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct WatchedDataValues {
+    pub values: HashMap<WatchIndex, Vec<f32>>,
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum WispCommand {
@@ -23,6 +33,9 @@ pub enum WispCommand {
     ContextRemoveFunction(String),
     ContextSetMainFunction(String),
     ContextSetDataValue(String, CallId, DataIndex, f32),
+    ContextWatchDataValue(String, CallId, DataIndex), // -> Option<WatchIndex>
+    ContextUnwatchDataValue(WatchIndex),
+    ContextQueryWatchedDataValues, // -> WatchedDataValues
     ContextUpdate,
 }
 
@@ -46,6 +59,8 @@ pub enum WispCommandResponse<T> {
 pub trait CommandResponse: Serialize + DeserializeOwned {}
 impl CommandResponse for () {}
 impl CommandResponse for SystemInfo {}
+impl CommandResponse for Option<WatchIndex> {}
+impl CommandResponse for WatchedDataValues {}
 
 impl<T> WispCommandResponse<T>
 where

@@ -6,6 +6,7 @@ use std::{
 use cpal::Stream;
 use inkwell::execution_engine::ExecutionEngine;
 use twisted_wisp_ir::CallId;
+use twisted_wisp_protocol::{WatchIndex, WatchedDataValues};
 
 use crate::{
     audio::device::ConfiguredAudioDevice,
@@ -110,6 +111,43 @@ impl<'ectx> WispRuntime<'ectx> {
                 .set_data_value(name, id, idx, value);
         } else if let Some(paused_processor) = self.paused_processor.as_mut() {
             paused_processor.0.set_data_value(name, id, idx, value);
+        }
+    }
+
+    pub fn watch_data_value(&mut self, name: String, id: CallId, idx: u32) -> Option<WatchIndex> {
+        let mut running_processor = self.processor_mutex.borrow_mut().lock().unwrap();
+        if running_processor.is_some() {
+            running_processor
+                .as_mut()
+                .unwrap()
+                .watch_data_value(name, id, idx)
+        } else if let Some(paused_processor) = self.paused_processor.as_mut() {
+            paused_processor.0.watch_data_value(name, id, idx)
+        } else {
+            None
+        }
+    }
+
+    pub fn unwatch_data_value(&mut self, idx: WatchIndex) {
+        let mut running_processor = self.processor_mutex.borrow_mut().lock().unwrap();
+        if running_processor.is_some() {
+            running_processor.as_mut().unwrap().unwatch_data_value(idx);
+        } else if let Some(paused_processor) = self.paused_processor.as_mut() {
+            paused_processor.0.unwatch_data_value(idx);
+        }
+    }
+
+    pub fn query_watched_data_values(&mut self) -> WatchedDataValues {
+        let mut running_processor = self.processor_mutex.borrow_mut().lock().unwrap();
+        if running_processor.is_some() {
+            running_processor
+                .as_mut()
+                .unwrap()
+                .query_watched_data_value()
+        } else if let Some(paused_processor) = self.paused_processor.as_mut() {
+            paused_processor.0.query_watched_data_value()
+        } else {
+            WatchedDataValues::default()
         }
     }
 }
