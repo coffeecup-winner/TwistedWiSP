@@ -181,10 +181,10 @@ impl SignalProcessor {
         self.watches.remove(&idx);
     }
 
-    pub fn query_watched_data_value(&self) -> WatchedDataValues {
+    pub fn query_watched_data_value(&mut self) -> WatchedDataValues {
         let mut values = HashMap::new();
-        for (idx, watch) in &self.watches {
-            values.insert(*idx, watch.history.to_vec());
+        for (idx, watch) in &mut self.watches {
+            values.insert(*idx, watch.history.drain().collect());
         }
         WatchedDataValues { values }
     }
