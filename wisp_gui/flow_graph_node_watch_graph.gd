@@ -7,10 +7,10 @@ var data = []
 
 func process_watch_updates(values):
 	data.append_array(values)
-	var length = graph_size.x
+	var length = int(graph_size.x)
 	if len(data) > length:
 		data = data.slice(-length)
-
+	
 	while $Graph/GraphLine.get_point_count() > length:
 		$Graph/GraphLine.remove_point($Graph/GraphLine.get_point_count() - 1)
 	while $Graph/GraphLine.get_point_count() < length:
