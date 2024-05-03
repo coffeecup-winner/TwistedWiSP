@@ -13,7 +13,6 @@ config_version=5
 config/name="Twisted WiSP"
 run/main_scene="res://twisted_wisp.tscn"
 config/features=PackedStringArray("4.2", "Forward Plus")
-run/low_processor_mode=true
 config/icon="res://icon.svg"
 
 [input]
