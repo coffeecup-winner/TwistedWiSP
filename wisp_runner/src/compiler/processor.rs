@@ -170,7 +170,7 @@ impl SignalProcessor {
             idx,
             Watch {
                 data_offset: *child_offset,
-                rate: 64,
+                rate: 1,
                 history: AllocRingBuffer::new(4096),
             },
         );
