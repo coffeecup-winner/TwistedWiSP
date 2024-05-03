@@ -7,6 +7,7 @@ var wisp_file_path = ""
 var FlowGraphNode = preload("res://flow_graph_node.tscn")
 var FlowGraphNode_HSlider = preload("res://flow_graph_node_h_slider.tscn")
 var FlowGraphNodeWatch = preload("res://flow_graph_node_watch.tscn")
+var FlowGraphNodeWatch_Graph = preload("res://flow_graph_node_watch_graph.tscn")
 
 var FlowGraphNodeSelector = preload("res://flow_graph_node_selector.tscn")
 
@@ -107,7 +108,7 @@ func _on_gui_input(event):
 func create_node(func_name):
 	match func_name:
 		"control": return FlowGraphNode_HSlider.instantiate()
-		"watch": return FlowGraphNodeWatch.instantiate()
+		"watch": return FlowGraphNodeWatch_Graph.instantiate()
 		_: return FlowGraphNode.instantiate()
 
 
@@ -122,7 +123,7 @@ func add_flow_node(func_name, idx, pos):
 		node.position_offset = pos
 		if func_name == "control":
 			node.size = Vector2(120, 60)
-		else:
+		elif func_name != "watch":
 			node.size = Vector2(80, 80)
 		TwistedWisp.flow_set_node_coordinates(
 			wisp_flow_name,

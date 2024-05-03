@@ -1,0 +1,38 @@
+[gd_scene load_steps=3 format=3 uid="uid://b1l2bpicf7d83"]
+
+[ext_resource type="PackedScene" uid="uid://4nigkq8bojto" path="res://flow_graph_node.tscn" id="1_v0wmp"]
+[ext_resource type="Script" path="res://flow_graph_node_watch_graph.gd" id="2_y7va3"]
+
+[node name="FlowGraphNodeWatch_Graph" instance=ExtResource("1_v0wmp")]
+offset_right = 180.0
+offset_bottom = 110.0
+resizable = true
+slot/0/left_enabled = false
+slot/0/left_type = 0
+slot/0/left_color = Color(1, 1, 1, 1)
+slot/0/left_icon = null
+slot/0/right_enabled = false
+slot/0/right_type = 0
+slot/0/right_color = Color(1, 1, 1, 1)
+slot/0/right_icon = null
+slot/0/draw_stylebox = true
+script = ExtResource("2_y7va3")
+
+[node name="Label" type="Label" parent="." index="1"]
+layout_mode = 2
+
+[node name="Graph" type="Polygon2D" parent="." index="2"]
+position = Vector2(20, 43)
+polygon = PackedVector2Array(0, 0, 140, 0, 140, 50, 0, 50)
+
+[node name="GraphLine" type="Line2D" parent="Graph" index="0"]
+width = 1.0
+default_color = Color(0, 0, 0, 1)
+antialiased = true
+
+[node name="CenterLine" type="Line2D" parent="Graph" index="1"]
+points = PackedVector2Array(0, 25, 140, 25)
+width = 1.0
+default_color = Color(0, 0, 0, 1)
+
+[connection signal="resized" from="." to="." method="_on_resized"]
