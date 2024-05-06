@@ -24,6 +24,7 @@ offset_bottom = 35.0
 grow_horizontal = 0
 text = "DSP"
 
+[connection signal="delete_nodes_request" from="." to="." method="_on_delete_nodes_request"]
 [connection signal="end_node_move" from="." to="." method="_on_end_node_move"]
 [connection signal="gui_input" from="." to="." method="_on_gui_input"]
 [connection signal="toggled" from="chkbtnDSP" to="." method="_on_chkbtn_dsp_toggled"]

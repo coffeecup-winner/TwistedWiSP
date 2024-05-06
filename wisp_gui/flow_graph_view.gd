@@ -36,6 +36,23 @@ func _on_disconnection_request(from_node, from_port, to_node, to_port):
 		to_port)
 
 
+func _on_delete_nodes_request(node_names):
+	for node_name in node_names:
+		# TODO: Check group instead
+		var node = get_node(NodePath(node_name))
+		if node is GraphNode:
+			TwistedWisp.flow_remove_node(wisp_flow_name, node.wisp_node_idx)
+			# TODO: Have the extension return the connection list?
+			var connections_to_delete = []
+			for conn in get_connection_list():
+				if conn.from_node == node_name or conn.to_node == node_name:
+					connections_to_delete.append(conn)
+			for conn in connections_to_delete:
+				disconnect_node(conn.from_node, conn.from_port, conn.to_node, conn.to_port)
+		remove_child(node)
+		node.queue_free()
+
+
 func _on_chkbtn_dsp_toggled(toggled_on):
 	if toggled_on:
 		TwistedWisp.dsp_start()

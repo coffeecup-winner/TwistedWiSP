@@ -235,6 +235,31 @@ impl TwistedWispSingleton {
     }
 
     #[func]
+    fn flow_remove_node(&mut self, flow_name: String, node_idx: u32) {
+        let ctx = self.ctx_mut();
+        let flow = ctx
+            .get_function_mut(&flow_name)
+            .and_then(|f| f.as_flow_mut())
+            .unwrap();
+        let node = flow
+            .remove_node(node_idx.into())
+            .expect("Failed to remove a node");
+        if node.expr.is_some() {
+            ctx.remove_function(&node.name);
+        }
+        // Not removing watches here since they will automaticaly be removed
+        // during the data layout update and will stop being sent
+        let flow = ctx.get_function(&flow_name).unwrap();
+        let ir_function = flow.get_ir_function(ctx);
+        let runner = self.runner_mut();
+        if node.expr.is_some() {
+            runner.context_remove_function(node.name);
+        }
+        runner.context_add_or_update_function(ir_function);
+        runner.context_update();
+    }
+
+    #[func]
     fn flow_get_node_name(&mut self, flow_name: String, node_idx: u32) -> String {
         let flow = self
             .ctx()

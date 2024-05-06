@@ -208,6 +208,18 @@ impl FlowFunction {
         })
     }
 
+    pub fn remove_node(&mut self, idx: FlowNodeIndex) -> Option<FlowNode> {
+        let watch_idx = self
+            .watch_idx_map
+            .iter()
+            .find(|(_k, v)| **v == idx)
+            .map(|(k, _)| *k);
+        if let Some(idx) = watch_idx {
+            self.watch_idx_map.remove(&idx);
+        }
+        self.graph.remove_node(idx)
+    }
+
     pub fn node_indices(&self) -> NodeIndices<FlowNode> {
         self.graph.node_indices()
     }
