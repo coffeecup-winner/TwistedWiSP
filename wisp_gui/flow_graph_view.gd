@@ -4,6 +4,7 @@ extends GraphEdit
 var wisp_flow_name = ""
 var wisp_file_path = ""
 
+const GROUP_NODES = "nodes"
 const GROUP_WATCHES = "watches"
 
 const NODE_NAME_CONTROL = "control"
@@ -43,9 +44,8 @@ func _on_disconnection_request(from_node, from_port, to_node, to_port):
 
 func _on_delete_nodes_request(node_names):
 	for node_name in node_names:
-		# TODO: Check group instead
 		var node = get_node(NodePath(node_name))
-		if node is GraphNode:
+		if node.is_in_group(GROUP_NODES):
 			TwistedWisp.flow_remove_node(wisp_flow_name, node.wisp_node_idx)
 			# TODO: Have the extension return the connection list?
 			var connections_to_delete = []
@@ -66,10 +66,11 @@ func _on_chkbtn_dsp_toggled(toggled_on):
 
 
 func _on_open_file_selected(f):
+	clear_connections()
 	for node in get_children():
-		if node is GraphNode:
-			# TODO: Fix debugger errors resulting from this
+		if node.is_in_group(GROUP_NODES):
 			remove_child(node)
+			node.queue_free()
 	wisp_file_path = f
 	wisp_flow_name = TwistedWisp.function_open(wisp_file_path)
 	var node_map = {}
@@ -181,6 +182,8 @@ func add_flow_node(func_name, idx, pos):
 	elif func_name == NODE_NAME_WATCH:
 		node.add_to_group(GROUP_WATCHES)
 	
+	node.add_to_group(GROUP_NODES)
+	
 	node.wisp_node_idx = idx
 	node.wisp_func_name = func_name
 	add_child(node)
@@ -193,7 +196,7 @@ func _on_control_value_changed(idx, value):
 
 func _on_end_node_move():
 	for node in get_children():
-		if node is GraphNode and node.selected:
+		if node.is_in_group(GROUP_NODES) and node.selected:
 			TwistedWisp.flow_set_node_coordinates(
 				wisp_flow_name,
 				node.wisp_node_idx,
