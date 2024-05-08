@@ -16,7 +16,7 @@ use twisted_wisp_ir::{
 #[derive(Debug, Clone)]
 pub struct FlowNode {
     pub name: String,
-    pub expr: Option<String>,
+    pub display_text: String,
     pub data: FlowNodeData,
 }
 
@@ -43,7 +43,6 @@ pub struct FlowFunction {
     name: String,
     graph: FlowGraph,
     ir: RefCell<Vec<Instruction>>,
-    math_function_id_gen: u32,
     watch_idx_map: HashMap<u32, FlowNodeIndex>,
 }
 
@@ -100,7 +99,6 @@ impl WispFunction for FlowFunction {
         let node_count = parts.next()?.parse::<u32>().ok()?;
         let edge_count = parts.next()?.parse::<u32>().ok()?;
         let mut graph = FlowGraph::new();
-        let mut math_function_id_gen = 0;
         for idx in 0..node_count {
             let line = lines.next()?;
             let mut parts = line.split(' ');
@@ -109,18 +107,11 @@ impl WispFunction for FlowFunction {
             let y = parts.next()?.parse::<i32>().ok()?;
             let w = parts.next()?.parse::<u32>().ok()?;
             let h = parts.next()?.parse::<u32>().ok()?;
-            let expr = if name.contains('$') {
-                let parts = name.split('$');
-                let id = parts.last()?.parse::<u32>().ok()?;
-                math_function_id_gen = math_function_id_gen.max(id + 1);
-                Some(lines.next()?.into())
-            } else {
-                None
-            };
+            let display_text = lines.next()?.into();
             let node_idx = graph.add_node(FlowNode {
                 name: name.into(),
                 data: FlowNodeData { x, y, w, h },
-                expr,
+                display_text,
             });
             assert_eq!(node_idx.index().id() as u32, idx);
         }
@@ -145,7 +136,6 @@ impl WispFunction for FlowFunction {
             name: name.into(),
             graph,
             ir: RefCell::new(vec![]),
-            math_function_id_gen,
             watch_idx_map: Default::default(),
         }))
     }
@@ -164,9 +154,7 @@ impl WispFunction for FlowFunction {
                 "{} {} {} {} {}\n",
                 n.name, n.data.x, n.data.y, n.data.w, n.data.h
             ));
-            if let Some(expr) = &n.expr {
-                s.push_str(&format!("{}\n", expr));
-            }
+            s.push_str(&format!("{}\n", n.display_text));
         }
         for idx in self.graph.edge_indices() {
             let endpoints = self.graph.edge_endpoints(idx).unwrap();
@@ -189,22 +177,15 @@ impl FlowFunction {
             name,
             graph: Default::default(),
             ir: Default::default(),
-            math_function_id_gen: 0,
             watch_idx_map: Default::default(),
         }
     }
 
-    pub fn next_math_function_id(&mut self) -> u32 {
-        let id = self.math_function_id_gen;
-        self.math_function_id_gen += 1;
-        id
-    }
-
-    pub fn add_node(&mut self, name: String, expr: Option<String>) -> FlowNodeIndex {
+    pub fn add_node(&mut self, name: &str, display_text: &str) -> FlowNodeIndex {
         self.graph.add_node(FlowNode {
-            name,
+            name: name.to_owned(),
             data: Default::default(),
-            expr,
+            display_text: display_text.to_owned(),
         })
     }
 
@@ -470,6 +451,10 @@ mod tests {
         ))
     }
 
+    fn add_node(f: &mut FlowFunction, name: &str) -> FlowNodeIndex {
+        f.add_node(name, name)
+    }
+
     #[test]
     fn test_empty_flow() {
         let ctx = test_ctx();
@@ -483,7 +468,7 @@ mod tests {
     fn test_empty_output() {
         let ctx = test_ctx();
         let mut f = FlowFunction::new("test".into());
-        f.add_node("out".into(), None);
+        add_node(&mut f, "out");
 
         let ir = f.compile_to_ir(&ctx);
         assert_eq!(
@@ -503,8 +488,8 @@ mod tests {
         ctx.add_function(create_function("test", 0, 1));
 
         let mut f = FlowFunction::new("test".into());
-        let idx_test = f.add_node("test".into(), None);
-        let idx_out = f.add_node("out".into(), None);
+        let idx_test = add_node(&mut f, "test");
+        let idx_out = add_node(&mut f, "out");
         f.connect(idx_test, 0, idx_out, 0);
 
         let ir = f.compile_to_ir(&ctx);
@@ -528,8 +513,8 @@ mod tests {
         ctx.add_function(create_function("test", 0, 1));
 
         let mut f = FlowFunction::new("test".into());
-        let idx_test = f.add_node("test".into(), None);
-        let idx_out = f.add_node("out".into(), None);
+        let idx_test = add_node(&mut f, "test");
+        let idx_out = add_node(&mut f, "out");
         f.connect(idx_test, 0, idx_out, 1);
 
         let ir = f.compile_to_ir(&ctx);
@@ -553,9 +538,9 @@ mod tests {
         ctx.add_function(create_function("test", 0, 1));
 
         let mut f = FlowFunction::new("test".into());
-        let idx_test0 = f.add_node("test".into(), None);
-        let idx_test1 = f.add_node("test".into(), None);
-        let idx_out = f.add_node("out".into(), None);
+        let idx_test0 = add_node(&mut f, "test");
+        let idx_test1 = add_node(&mut f, "test");
+        let idx_out = add_node(&mut f, "out");
         f.connect(idx_test0, 0, idx_out, 0);
         f.connect(idx_test1, 0, idx_out, 0);
 
@@ -589,11 +574,11 @@ mod tests {
         ctx.add_function(create_function("2to1", 2, 1));
 
         let mut f = FlowFunction::new("test".into());
-        let idx_src = f.add_node("src".into(), None);
-        let idx_1to1 = f.add_node("1to1".into(), None);
-        let idx_2to1_0 = f.add_node("2to1".into(), None);
-        let idx_2to1_1 = f.add_node("2to1".into(), None);
-        let idx_out = f.add_node("out".into(), None);
+        let idx_src = add_node(&mut f, "src");
+        let idx_1to1 = add_node(&mut f, "1to1");
+        let idx_2to1_0 = add_node(&mut f, "2to1");
+        let idx_2to1_1 = add_node(&mut f, "2to1");
+        let idx_out = add_node(&mut f, "out");
         f.connect(idx_src, 0, idx_2to1_0, 0);
         f.connect(idx_src, 0, idx_1to1, 0);
         f.connect(idx_1to1, 0, idx_2to1_0, 1);
@@ -644,9 +629,9 @@ mod tests {
         ctx.add_function(create_function("test", 1, 1));
 
         let mut f = FlowFunction::new("test".into());
-        let idx_lag = f.add_node("lag".into(), None);
-        let idx_test = f.add_node("test".into(), None);
-        let idx_out = f.add_node("out".into(), None);
+        let idx_lag = add_node(&mut f, "lag");
+        let idx_test = add_node(&mut f, "test");
+        let idx_out = add_node(&mut f, "out");
         f.connect(idx_lag, 0, idx_test, 0);
         f.connect(idx_test, 0, idx_lag, 0);
         f.connect(idx_test, 0, idx_out, 0);
@@ -691,10 +676,10 @@ mod tests {
         ctx.add_function(create_function("test", 1, 1));
 
         let mut f = FlowFunction::new("test".into());
-        let idx_lag0 = f.add_node("lag".into(), None);
-        let idx_lag1 = f.add_node("lag".into(), None);
-        let idx_test = f.add_node("test".into(), None);
-        let idx_out = f.add_node("out".into(), None);
+        let idx_lag0 = add_node(&mut f, "lag");
+        let idx_lag1 = add_node(&mut f, "lag");
+        let idx_test = add_node(&mut f, "test");
+        let idx_out = add_node(&mut f, "out");
         f.connect(idx_lag0, 0, idx_test, 0);
         f.connect(idx_test, 0, idx_lag0, 0);
         f.connect(idx_lag1, 0, idx_test, 0);
@@ -759,10 +744,10 @@ mod tests {
         ctx.add_function(create_function("test", 1, 1));
 
         let mut f = FlowFunction::new("test".into());
-        let idx_lag0 = f.add_node("lag".into(), None);
-        let idx_lag1 = f.add_node("lag".into(), None);
-        let idx_test = f.add_node("test".into(), None);
-        let idx_out = f.add_node("out".into(), None);
+        let idx_lag0 = add_node(&mut f, "lag");
+        let idx_lag1 = add_node(&mut f, "lag");
+        let idx_test = add_node(&mut f, "test");
+        let idx_out = add_node(&mut f, "out");
         f.connect(idx_lag0, 0, idx_lag1, 0);
         f.connect(idx_lag0, 0, idx_test, 0);
         f.connect(idx_test, 0, idx_lag0, 0);
@@ -836,10 +821,10 @@ mod tests {
         ctx.add_function(create_function("test", 1, 1));
 
         let mut f = FlowFunction::new("test".into());
-        let idx_lag0 = f.add_node("lag".into(), None);
-        let idx_lag1 = f.add_node("lag".into(), None);
-        let idx_test = f.add_node("test".into(), None);
-        let idx_out = f.add_node("out".into(), None);
+        let idx_lag0 = add_node(&mut f, "lag");
+        let idx_lag1 = add_node(&mut f, "lag");
+        let idx_test = add_node(&mut f, "test");
+        let idx_out = add_node(&mut f, "out");
         f.connect(idx_lag0, 0, idx_lag1, 0);
         f.connect(idx_lag1, 0, idx_lag0, 0);
         f.connect(idx_lag0, 0, idx_test, 0);

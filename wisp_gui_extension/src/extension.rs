@@ -2,7 +2,7 @@ use std::path::Path;
 
 use godot::{engine::Engine, prelude::*};
 
-use twisted_wisp::{FlowFunction, MathFunctionParser, WispContext, WispFunction};
+use twisted_wisp::{FlowFunction, WispContext, WispFunction};
 use twisted_wisp_ir::CallId;
 use twisted_wisp_protocol::{DataIndex, WispRunnerClient};
 
@@ -31,6 +31,15 @@ unsafe impl ExtensionLibrary for TwistedWispExtension {
             singleton.free();
         }
     }
+}
+
+#[derive(GodotClass)]
+#[class(no_init)]
+struct FlowNodeAddResult {
+    #[var]
+    idx: u32,
+    #[var]
+    name: GString,
 }
 
 #[derive(GodotClass)]
@@ -179,34 +188,23 @@ impl TwistedWispSingleton {
     }
 
     #[func]
-    fn flow_add_node(&mut self, flow_name: String, func_text: String) -> Dictionary {
+    pub fn flow_add_node(
+        &mut self,
+        flow_name: String,
+        func_text: String,
+    ) -> Option<Gd<FlowNodeAddResult>> {
         let ctx = self.ctx_mut();
-        let flow = ctx
-            .get_function_mut(&flow_name)
-            .and_then(|f| f.as_flow_mut())
-            .unwrap();
-        let (idx, func_name) = if func_text.starts_with('=') {
-            let id = flow.next_math_function_id();
-            let func = Box::new(
-                MathFunctionParser::parse_function(&flow_name, id, func_text.clone()).unwrap(),
-            );
-            let idx = flow.add_node(func.name().into(), Some(func_text.clone()));
-            let func_name = func.name().to_owned();
+        let (idx, func_name) = ctx.flow_add_node(&flow_name, &func_text);
+        if func_name.starts_with("$math") {
+            let func = ctx.get_function(&func_name).unwrap();
             let ir_function = func.get_ir_function(ctx);
-            ctx.add_function(func);
             self.runner_mut()
                 .context_add_or_update_function(ir_function);
-            (idx, func_name)
-        } else {
-            (flow.add_node(func_text.clone(), None), func_text.clone())
-        };
+        }
         if &func_name == "watch" {
             // TODO: Maybe remove this and do flow borrow checking at runtime?
             let ctx = self.ctx();
-            let flow = ctx
-                .get_function(&flow_name)
-                .and_then(|f| f.as_flow())
-                .unwrap();
+            let flow = ctx.get_function(&flow_name).and_then(|f| f.as_flow())?;
             let ir_function = flow.get_ir_function(ctx);
             let runner = self.runner_mut();
             // NOTE: We do not update the watch function as we expect it to never change
@@ -223,37 +221,28 @@ impl TwistedWispSingleton {
             let flow = self
                 .ctx_mut()
                 .get_function_mut(&flow_name)
-                .and_then(|f| f.as_flow_mut())
-                .unwrap();
+                .and_then(|f| f.as_flow_mut())?;
             flow.add_watch_idx(idx, watch_idx.0);
         }
-        dict! {
-            "idx": idx.index() as u32,
-            "name": func_name,
-            "display_name": func_text,
-        }
+        Some(Gd::from_object(FlowNodeAddResult {
+            idx: idx.index() as u32,
+            name: func_name.into(),
+        }))
     }
 
     #[func]
     fn flow_remove_node(&mut self, flow_name: String, node_idx: u32) {
         let ctx = self.ctx_mut();
-        let flow = ctx
-            .get_function_mut(&flow_name)
-            .and_then(|f| f.as_flow_mut())
-            .unwrap();
-        let node = flow
-            .remove_node(node_idx.into())
-            .expect("Failed to remove a node");
-        if node.expr.is_some() {
-            ctx.remove_function(&node.name);
-        }
+        let node_name = ctx
+            .flow_remove_node(&flow_name, node_idx.into())
+            .expect("Failed to remove node");
         // Not removing watches here since they will automaticaly be removed
         // during the data layout update and will stop being sent
         let flow = ctx.get_function(&flow_name).unwrap();
         let ir_function = flow.get_ir_function(ctx);
         let runner = self.runner_mut();
-        if node.expr.is_some() {
-            runner.context_remove_function(node.name);
+        if node_name.starts_with("$math") {
+            runner.context_remove_function(node_name);
         }
         runner.context_add_or_update_function(ir_function);
         runner.context_update();
@@ -277,11 +266,7 @@ impl TwistedWispSingleton {
             .and_then(|f| f.as_flow())
             .unwrap();
         let node = flow.get_node(node_idx.into()).unwrap();
-        if let Some(expr) = &node.expr {
-            expr.clone()
-        } else {
-            node.name.clone()
-        }
+        node.display_text.clone()
     }
 
     #[func]

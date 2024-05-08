@@ -5,8 +5,8 @@ use std::{
 };
 
 use crate::{
-    CodeFunction, CodeFunctionParser, DefaultInputValue, FlowFunction, FunctionInput,
-    MathFunctionParser, WispFunction,
+    CodeFunction, CodeFunctionParser, DefaultInputValue, FlowFunction, FlowNodeIndex,
+    FunctionInput, MathFunctionParser, WispFunction,
 };
 
 use log::info;
@@ -23,6 +23,7 @@ pub struct LoadFunctionResult {
 pub struct WispContext {
     num_outputs: u32,
     functions: HashMap<String, Box<dyn WispFunction>>,
+    math_function_id_gen: HashMap<String, u32>,
 }
 
 impl WispContext {
@@ -30,11 +31,13 @@ impl WispContext {
         WispContext {
             num_outputs,
             functions: HashMap::new(),
+            math_function_id_gen: HashMap::new(),
         }
     }
 
     pub fn add_builtin_functions(&mut self) {
         self.add_function(Self::build_function_out(self));
+        self.add_function(Self::build_function_stub());
     }
 
     fn build_function_out(ctx: &WispContext) -> Box<dyn WispFunction> {
@@ -70,6 +73,17 @@ impl WispContext {
         ))
     }
 
+    fn build_function_stub() -> Box<dyn WispFunction> {
+        Box::new(CodeFunction::new(
+            "$stub".into(),
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            None,
+        ))
+    }
+
     pub fn load_core_functions(&mut self, wisp_core_path: &str) -> Result<(), Box<dyn Error>> {
         for file in std::fs::read_dir(Path::new(wisp_core_path))? {
             let text = std::fs::read_to_string(file?.path())?;
@@ -93,11 +107,16 @@ impl WispContext {
         let mut math_function_names = vec![];
         for n in flow.node_indices() {
             let node = flow.get_node(n).unwrap();
-            if let Some(text) = &node.expr {
+            if node.name.starts_with("$math") {
                 let parts = node.name.split('$');
                 let id = parts.last().unwrap().parse::<u32>().unwrap();
+                let id_gen = self
+                    .math_function_id_gen
+                    .entry(flow_name.to_string())
+                    .or_insert(0);
+                *id_gen = (*id_gen).max(id + 1);
                 let math_func = Box::new(
-                    MathFunctionParser::parse_function(&flow_name, id, text.clone()).unwrap(),
+                    MathFunctionParser::parse_function(&flow_name, id, &node.display_text).unwrap(),
                 );
                 info!("  - {}: {}", math_func.name(), text);
                 math_function_names.push(math_func.name().into());
@@ -134,5 +153,51 @@ impl WispContext {
 
     pub fn get_function_mut(&mut self, name: &str) -> Option<&mut Box<dyn WispFunction>> {
         self.functions.get_mut(name)
+    }
+
+    pub fn flow_add_node(&mut self, flow_name: &str, node_text: &str) -> (FlowNodeIndex, String) {
+        let func_name = if node_text.starts_with('=') {
+            let id_gen = self
+                .math_function_id_gen
+                .entry(flow_name.to_string())
+                .or_insert(0);
+            let id = *id_gen;
+            *id_gen += 1;
+            if let Some(func) = MathFunctionParser::parse_function(flow_name, id, node_text) {
+                let func_name = func.name().to_owned();
+                self.add_function(Box::new(func));
+                func_name
+            } else {
+                "$stub".into()
+            }
+        } else if let Some(func) = self.get_function(node_text) {
+            func.name().to_owned()
+        } else {
+            "$stub".into()
+        };
+
+        let flow = self
+            .get_function_mut(flow_name)
+            .unwrap()
+            .as_flow_mut()
+            .unwrap();
+        let idx = flow.add_node(&func_name, node_text);
+        (idx, func_name)
+    }
+
+    pub fn flow_remove_node(&mut self, flow_name: &str, node_idx: FlowNodeIndex) -> Option<String> {
+        let flow = self
+            .get_function_mut(flow_name)
+            .unwrap()
+            .as_flow_mut()
+            .unwrap();
+        if let Some(node) = flow.remove_node(node_idx) {
+            if node.name.starts_with("$math") {
+                self.remove_function(&node.name);
+            }
+            Some(node.name)
+        } else {
+            None
+        }
     }
 }

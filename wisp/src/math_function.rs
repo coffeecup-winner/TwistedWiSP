@@ -69,7 +69,7 @@ impl MathFunction {
             ));
         }
         MathFunction {
-            name: format!("math${}${}", flow_name, id),
+            name: format!("$math${}${}", flow_name, id),
             expr_string,
             expr,
             inputs,
@@ -151,10 +151,15 @@ lazy_static::lazy_static! {
 }
 
 impl MathFunctionParser {
-    pub fn parse_function(flow_name: &str, id: u32, expr_string: String) -> Option<MathFunction> {
-        let mut pairs = Self::parse(Rule::math_function, &expr_string).ok()?;
+    pub fn parse_function(flow_name: &str, id: u32, expr_string: &str) -> Option<MathFunction> {
+        let mut pairs = Self::parse(Rule::math_function, expr_string).ok()?;
         let expr = Self::parse_expr(pairs.next().unwrap().into_inner())?;
-        Some(MathFunction::new(flow_name, id, expr_string, expr))
+        Some(MathFunction::new(
+            flow_name,
+            id,
+            expr_string.to_owned(),
+            expr,
+        ))
     }
 
     fn parse_expr(pairs: Pairs<Rule>) -> Option<MathExpression> {
@@ -211,8 +216,8 @@ mod tests {
     // ========================================================================
 
     fn parse_function(s: &str, expected_inputs_count: u32) -> MathFunction {
-        let func = MathFunctionParser::parse_function("test", 0, s.to_string()).unwrap();
-        assert_eq!("math$test$0", func.name());
+        let func = MathFunctionParser::parse_function("test", 0, s).unwrap();
+        assert_eq!("$math$test$0", func.name());
         assert_eq!(expected_inputs_count, func.inputs_count());
         assert_eq!(1, func.outputs_count());
         func

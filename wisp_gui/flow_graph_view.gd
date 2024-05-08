@@ -7,6 +7,7 @@ var wisp_file_path = ""
 const GROUP_NODES = "nodes"
 const GROUP_WATCHES = "watches"
 
+# Known WiSP function names
 const NODE_NAME_CONTROL = "control"
 const NODE_NAME_WATCH = "watch"
 
@@ -136,13 +137,13 @@ func create_node(func_name):
 
 
 func add_flow_node(func_name, idx, pos):
-	var node = create_node(func_name)
+	var node
 	var display_name = func_name
 	if idx == null:
 		var result = TwistedWisp.flow_add_node(wisp_flow_name, func_name)
 		idx = result.idx
 		func_name = result.name
-		display_name = result.display_name
+		node = create_node(func_name)
 		node.position_offset = pos
 		if func_name == NODE_NAME_CONTROL:
 			node.size = Vector2(120, 60)
@@ -156,6 +157,7 @@ func add_flow_node(func_name, idx, pos):
 			int(node.size.x),
 			int(node.size.y))
 	else:
+		node = create_node(func_name)
 		var coords = TwistedWisp.flow_get_node_coordinates(wisp_flow_name, idx)
 		node.position_offset.x = coords.x
 		node.position_offset.y = coords.y
@@ -164,7 +166,7 @@ func add_flow_node(func_name, idx, pos):
 		display_name = TwistedWisp.flow_get_node_display_name(wisp_flow_name, idx)
 	
 	node.title = display_name
-
+	
 	var metadata = TwistedWisp.function_get_metadata(func_name)
 	var rows_count = max(metadata.num_inlets, metadata.num_outlets)
 	
