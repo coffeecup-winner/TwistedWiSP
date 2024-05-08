@@ -8,3 +8,4 @@ func _on_text_submitted(new_text):
 
 func _on_focus_exited():
 	get_parent().remove_child.call_deferred(self)
+	self.queue_free()
