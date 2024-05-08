@@ -4,6 +4,11 @@ extends GraphEdit
 var wisp_flow_name = ""
 var wisp_file_path = ""
 
+const GROUP_WATCHES = "watches"
+
+const NODE_NAME_CONTROL = "control"
+const NODE_NAME_WATCH = "watch"
+
 var FlowGraphNode = preload("res://flow_graph_node.tscn")
 var FlowGraphNode_HSlider = preload("res://flow_graph_node_h_slider.tscn")
 var FlowGraphNodeWatch = preload("res://flow_graph_node_watch.tscn")
@@ -124,8 +129,8 @@ func _on_gui_input(event):
 
 func create_node(func_name):
 	match func_name:
-		"control": return FlowGraphNode_HSlider.instantiate()
-		"watch": return FlowGraphNodeWatch_Graph.instantiate()
+		NODE_NAME_CONTROL: return FlowGraphNode_HSlider.instantiate()
+		NODE_NAME_WATCH: return FlowGraphNodeWatch_Graph.instantiate()
 		_: return FlowGraphNode.instantiate()
 
 
@@ -138,9 +143,9 @@ func add_flow_node(func_name, idx, pos):
 		func_name = result.name
 		display_name = result.display_name
 		node.position_offset = pos
-		if func_name == "control":
+		if func_name == NODE_NAME_CONTROL:
 			node.size = Vector2(120, 60)
-		elif func_name != "watch":
+		elif func_name != NODE_NAME_WATCH:
 			node.size = Vector2(80, 80)
 		TwistedWisp.flow_set_node_coordinates(
 			wisp_flow_name,
@@ -171,10 +176,10 @@ func add_flow_node(func_name, idx, pos):
 	for i in range(0, metadata.num_outlets):
 		node.set_slot_enabled_right(i, true) 
 	
-	if func_name == "control":
+	if func_name == NODE_NAME_CONTROL:
 		node.connect("value_changed", _on_control_value_changed)
-	elif func_name == "watch":
-		node.add_to_group("watches")
+	elif func_name == NODE_NAME_WATCH:
+		node.add_to_group(GROUP_WATCHES)
 	
 	node.wisp_node_idx = idx
 	node.wisp_func_name = func_name
@@ -201,5 +206,5 @@ func _on_end_node_move():
 func _process(_delta):
 	var updates = TwistedWisp.flow_get_watch_updates(wisp_flow_name)
 	for node in get_children():
-		if node is GraphNode and node.is_in_group("watches") and node.wisp_node_idx in updates:
+		if node.is_in_group(GROUP_WATCHES) and node.wisp_node_idx in updates:
 			node.process_watch_updates(updates[node.wisp_node_idx])
