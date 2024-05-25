@@ -9,12 +9,14 @@ const GROUP_WATCHES = "watches"
 
 # Known WiSP function names
 const NODE_NAME_CONTROL = "control"
+const NODE_NAME_BUTTON = "button"
 const NODE_NAME_TOGGLE = "toggle"
 const NODE_NAME_WATCH = "watch"
 const NODE_NAME_GRAPH = "graph"
 
 var FlowGraphNode = preload("res://flow_graph_node.tscn")
 var FlowGraphNode_HSlider = preload("res://flow_graph_node_h_slider.tscn")
+var FlowGraphNode_Button = preload("res://flow_graph_node_button.tscn")
 var FlowGraphNode_Toggle = preload("res://flow_graph_node_input_toggle.tscn")
 var FlowGraphNodeWatch = preload("res://flow_graph_node_watch.tscn")
 var FlowGraphNodeWatch_Graph = preload("res://flow_graph_node_watch_graph.tscn")
@@ -135,6 +137,7 @@ func _on_gui_input(event):
 func create_node(func_name):
 	match func_name:
 		NODE_NAME_CONTROL: return FlowGraphNode_HSlider.instantiate()
+		NODE_NAME_BUTTON: return FlowGraphNode_Button.instantiate()
 		NODE_NAME_TOGGLE: return FlowGraphNode_Toggle.instantiate()
 		NODE_NAME_WATCH: return FlowGraphNodeWatch.instantiate()
 		NODE_NAME_GRAPH: return FlowGraphNodeWatch_Graph.instantiate()
@@ -185,7 +188,7 @@ func add_flow_node(func_name, idx, pos):
 	for i in range(0, metadata.num_outlets):
 		node.set_slot_enabled_right(i, true) 
 	
-	if func_name in [NODE_NAME_CONTROL, NODE_NAME_TOGGLE]:
+	if func_name in [NODE_NAME_CONTROL, NODE_NAME_BUTTON, NODE_NAME_TOGGLE]:
 		node.connect("value_changed", _on_control_value_changed)
 	elif func_name in [NODE_NAME_WATCH, NODE_NAME_GRAPH]:
 		TwistedWisp.flow_add_watch(wisp_flow_name, idx)
