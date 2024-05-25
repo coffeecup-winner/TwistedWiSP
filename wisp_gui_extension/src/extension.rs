@@ -201,33 +201,35 @@ impl TwistedWispSingleton {
             self.runner_mut()
                 .context_add_or_update_function(ir_function);
         }
-        if &func_name == "watch" {
-            // TODO: Maybe remove this and do flow borrow checking at runtime?
-            let ctx = self.ctx();
-            let flow = ctx.get_function(&flow_name).and_then(|f| f.as_flow())?;
-            let ir_function = flow.get_ir_function(ctx);
-            let runner = self.runner_mut();
-            // NOTE: We do not update the watch function as we expect it to never change
-            // at runtime and it's a part of the core library
-            runner.context_add_or_update_function(ir_function);
-            runner.context_update();
-            let watch_idx = runner
-                .context_watch_data_value(
-                    flow_name.clone(),
-                    CallId(idx.index() as u32),
-                    DataIndex(0),
-                )
-                .expect("Failed to watch a data value");
-            let flow = self
-                .ctx_mut()
-                .get_function_mut(&flow_name)
-                .and_then(|f| f.as_flow_mut())?;
-            flow.add_watch_idx(idx, watch_idx.0);
-        }
         Some(Gd::from_object(FlowNodeAddResult {
             idx: idx.index() as u32,
             name: func_name.into(),
         }))
+    }
+
+    #[func]
+    pub fn flow_add_watch(&mut self, flow_name: String, idx: u32) {
+        // TODO: Maybe remove this and do flow borrow checking at runtime?
+        let ctx = self.ctx();
+        let flow = ctx
+            .get_function(&flow_name)
+            .and_then(|f| f.as_flow())
+            .unwrap();
+        let ir_function = flow.get_ir_function(ctx);
+        let runner = self.runner_mut();
+        // NOTE: We do not update the watch function as we expect it to never change
+        // at runtime and it's a part of the core library
+        runner.context_add_or_update_function(ir_function);
+        runner.context_update();
+        let watch_idx = runner
+            .context_watch_data_value(flow_name.clone(), CallId(idx), DataIndex(0))
+            .expect("Failed to watch a data value");
+        let flow = self
+            .ctx_mut()
+            .get_function_mut(&flow_name)
+            .and_then(|f| f.as_flow_mut())
+            .unwrap();
+        flow.add_watch_idx(idx.into(), watch_idx.0);
     }
 
     #[func]

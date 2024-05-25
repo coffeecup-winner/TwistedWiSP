@@ -21,7 +21,27 @@ begin
   store #0, %0
 end
 
+func toggle
+outputs 1
+data
+  value: 0
+begin
+  load %0, @0
+  store #0, %0
+end
+
 func watch
+inputs
+  value: 0
+data
+  value: 0
+attr
+  lag_value: 0
+begin
+  store @0, $0
+end
+
+func graph
 inputs
   value: 0
 data
