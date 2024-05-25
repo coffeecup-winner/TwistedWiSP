@@ -11,7 +11,7 @@ cpal = "0.15.3"
 # CLI
 clap = { version = "4", features = ["derive"] }
 # Core
-inkwell = { version = "0.4.0", features = ["llvm16-0-prefer-dynamic"] }
+inkwell = { version = "0.4.0", features = ["llvm17-0-prefer-dynamic"] }
 # Utilities
 log = "0.4"
 ringbuffer = "0.15.0"
