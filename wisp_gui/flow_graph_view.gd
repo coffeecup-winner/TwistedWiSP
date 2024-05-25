@@ -10,6 +10,7 @@ const GROUP_WATCHES = "watches"
 # Known WiSP function names
 const NODE_NAME_CONTROL = "control"
 const NODE_NAME_WATCH = "watch"
+const NODE_NAME_GRAPH = "graph"
 
 var FlowGraphNode = preload("res://flow_graph_node.tscn")
 var FlowGraphNode_HSlider = preload("res://flow_graph_node_h_slider.tscn")
@@ -132,7 +133,8 @@ func _on_gui_input(event):
 func create_node(func_name):
 	match func_name:
 		NODE_NAME_CONTROL: return FlowGraphNode_HSlider.instantiate()
-		NODE_NAME_WATCH: return FlowGraphNodeWatch_Graph.instantiate()
+		NODE_NAME_WATCH: return FlowGraphNodeWatch.instantiate()
+		NODE_NAME_GRAPH: return FlowGraphNodeWatch_Graph.instantiate()
 		_: return FlowGraphNode.instantiate()
 
 
