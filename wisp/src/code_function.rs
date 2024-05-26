@@ -4,7 +4,8 @@ use std::{
 };
 
 use crate::{
-    DefaultInputValue, FunctionDataItem, FunctionInput, FunctionOutput, WispContext, WispFunction,
+    DataType, DefaultInputValue, FunctionDataItem, FunctionInput, FunctionOutput, WispContext,
+    WispFunction,
 };
 
 use log::error;
@@ -90,16 +91,14 @@ impl WispFunction for CodeFunction {
                 );
                 s.push_str(fallback.as_str());
             }
-            // TODO: types
-            s.push_str(&format!("{}: {}", input.name, "float"));
+            s.push_str(&format!("{}: {}", input.name, input.type_.to_str()));
             if idx < self.inputs.len() - 1 {
                 s.push_str(", ");
             }
         }
         s.push_str(") -> (");
         for (idx, output) in self.outputs.iter().enumerate() {
-            // TODO: types
-            s.push_str(&format!("{}: {}", output.name, "float"));
+            s.push_str(&format!("{}: {}", output.name, output.type_.to_str()));
             if idx < self.outputs.len() - 1 {
                 s.push_str(", ");
             }
@@ -108,8 +107,7 @@ impl WispFunction for CodeFunction {
         if !self.data.is_empty() {
             s.push_str("data\n");
             for item in &self.data {
-                // TODO: types
-                s.push_str(&format!("  {}: {}\n", item.name, "float"));
+                s.push_str(&format!("  {}: {}\n", item.name, item.type_.to_str()));
             }
         }
         s.push_str("begin\n");
@@ -369,9 +367,12 @@ impl<'source> CodeFunctionParser<'source> {
                     let input_name = id.to_owned();
                     self.next_token()?;
                     self.expect_token(Token::Colon)?;
-                    // TODO: support input types
-                    let _input_type = match self.next_token()? {
-                        Token::Identifier(id) => id.to_owned(),
+                    let input_type = match self.next_token()? {
+                        Token::Identifier(id) => match id.as_str() {
+                            "float" => DataType::Float,
+                            "array" => DataType::Array,
+                            _ => return None,
+                        },
                         _ => return None,
                     };
                     let mut fallback = DefaultInputValue::Value(0.0);
@@ -396,7 +397,7 @@ impl<'source> CodeFunctionParser<'source> {
                     if !symbols.insert(input_name.clone(), Symbol::Arg(inputs.len() as u32)) {
                         return None;
                     }
-                    inputs.push(FunctionInput::new(input_name, fallback));
+                    inputs.push(FunctionInput::new(input_name, input_type, fallback));
                     match self.peek_token()? {
                         Token::Comma => {
                             self.next_token()?;
@@ -420,12 +421,14 @@ impl<'source> CodeFunctionParser<'source> {
                     break;
                 }
                 Token::Identifier(id) => {
-                    // TODO: support output names
                     let _output_name = id.to_owned();
                     self.expect_token(Token::Colon)?;
-                    // TODO: support output types
-                    let _output_type = match self.next_token()? {
-                        Token::Identifier(id) => id.to_owned(),
+                    let output_type = match self.next_token()? {
+                        Token::Identifier(id) => match id.as_str() {
+                            "float" => DataType::Float,
+                            "array" => DataType::Array,
+                            _ => return None,
+                        },
                         _ => return None,
                     };
                     if !symbols.insert(
@@ -434,7 +437,7 @@ impl<'source> CodeFunctionParser<'source> {
                     ) {
                         return None;
                     }
-                    outputs.push(FunctionOutput::new(id));
+                    outputs.push(FunctionOutput::new(id, output_type));
                     match self.peek_token()? {
                         Token::Comma => {
                             self.next_token()?;
@@ -455,9 +458,12 @@ impl<'source> CodeFunctionParser<'source> {
             while let Token::Identifier(_) = token {
                 let data_item_name = self.parse_identifier()?;
                 self.expect_token(Token::Colon)?;
-                // TODO: support data types
-                let _data_type = match self.next_token()? {
-                    Token::Identifier(id) => id.to_owned(),
+                let data_type = match self.next_token()? {
+                    Token::Identifier(id) => match id.as_str() {
+                        "float" => DataType::Float,
+                        "array" => DataType::Array,
+                        _ => return None,
+                    },
                     _ => return None,
                 };
                 if !symbols.insert(
@@ -468,6 +474,7 @@ impl<'source> CodeFunctionParser<'source> {
                 }
                 data.push(FunctionDataItem {
                     name: data_item_name,
+                    type_: data_type,
                     init_value: 0.0,
                 });
                 token = self.peek_token()?;
@@ -884,11 +891,13 @@ mod tests {
             name: "lag".to_owned(),
             inputs: vec![FunctionInput {
                 name: "value".to_owned(),
+                type_: DataType::Float,
                 fallback: DefaultInputValue::Skip,
             }],
-            outputs: vec![FunctionOutput::new("out".to_owned())],
+            outputs: vec![FunctionOutput::new("out".to_owned(), DataType::Float)],
             data: vec![FunctionDataItem {
                 name: "prev".to_owned(),
+                type_: DataType::Float,
                 init_value: 0.0,
             }],
             ir: vec![

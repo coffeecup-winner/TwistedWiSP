@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    CodeFunction, CodeFunctionParser, DefaultInputValue, FlowFunction, FlowNodeIndex,
+    CodeFunction, CodeFunctionParser, DataType, DefaultInputValue, FlowFunction, FlowNodeIndex,
     FunctionInput, MathFunctionParser, WispFunction,
 };
 
@@ -44,11 +44,13 @@ impl WispContext {
         assert!(ctx.num_outputs > 0, "Invalid number of output channels");
         let mut out_inputs = vec![FunctionInput::new(
             "ch".into(),
+            DataType::Float,
             DefaultInputValue::Value(0.0),
         )];
         out_inputs.extend(vec![
             FunctionInput::new(
                 "ch".into(),
+                DataType::Float,
                 DefaultInputValue::Normal
             );
             ctx.num_outputs as usize - 1

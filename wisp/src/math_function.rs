@@ -9,7 +9,9 @@ use twisted_wisp_ir::{
     Instruction, Operand, TargetLocation, VarRef,
 };
 
-use crate::{DefaultInputValue, FunctionInput, FunctionOutput, WispContext, WispFunction};
+use crate::{
+    DataType, DefaultInputValue, FunctionInput, FunctionOutput, WispContext, WispFunction,
+};
 
 #[derive(Debug)]
 pub struct MathFunction {
@@ -65,6 +67,7 @@ impl MathFunction {
         for i in 0..Self::get_inputs_count(&expr) {
             inputs.push(FunctionInput::new(
                 i.to_string(),
+                DataType::Float,
                 DefaultInputValue::Value(0.0),
             ));
         }
@@ -73,7 +76,7 @@ impl MathFunction {
             expr_string,
             expr,
             inputs,
-            outputs: vec![FunctionOutput::new("out".to_owned())],
+            outputs: vec![FunctionOutput::new("out".to_owned(), DataType::Float)],
         }
     }
 

@@ -411,7 +411,7 @@ impl FlowFunction {
 mod tests {
     use twisted_wisp_ir::DataRef;
 
-    use crate::{CodeFunction, FunctionDataItem};
+    use crate::{CodeFunction, DataType, FunctionDataItem};
 
     use super::*;
 
@@ -424,12 +424,13 @@ mod tests {
     fn lag_function() -> Box<CodeFunction> {
         Box::new(CodeFunction::new(
             "lag".into(),
-            vec![FunctionInput {
-                name: "in".into(),
-                fallback: DefaultInputValue::Value(0.0),
-            }],
+            vec![FunctionInput::new(
+                "in".into(),
+                DataType::Float,
+                DefaultInputValue::Value(0.0),
+            )],
             vec![],
-            vec![FunctionDataItem::new("lag".into(), 0.0)],
+            vec![FunctionDataItem::new("lag".into(), DataType::Float, 0.0)],
             vec![],
             Some(DataRef(0)),
         ))
@@ -439,10 +440,16 @@ mod tests {
         Box::new(CodeFunction::new(
             name.into(),
             (0..num_inputs)
-                .map(|i| FunctionInput::new(format!("in{}", i), DefaultInputValue::Value(0.0)))
+                .map(|i| {
+                    FunctionInput::new(
+                        format!("in{}", i),
+                        DataType::Float,
+                        DefaultInputValue::Value(0.0),
+                    )
+                })
                 .collect(),
             (0..num_outputs)
-                .map(|i| FunctionOutput::new(format!("out{}", i)))
+                .map(|i| FunctionOutput::new(format!("out{}", i), DataType::Float))
                 .collect(),
             vec![],
             vec![],

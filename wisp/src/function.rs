@@ -4,9 +4,25 @@ use crate::{context::WispContext, FlowFunction};
 
 use twisted_wisp_ir::{DataRef, IRFunction};
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum DataType {
+    Float,
+    Array,
+}
+
+impl DataType {
+    pub fn to_str(&self) -> &str {
+        match self {
+            DataType::Float => "float",
+            DataType::Array => "array",
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub struct FunctionInput {
     pub name: String,
+    pub type_: DataType,
     pub fallback: DefaultInputValue,
 }
 
@@ -21,32 +37,39 @@ pub enum DefaultInputValue {
 }
 
 impl FunctionInput {
-    pub fn new(name: String, fallback: DefaultInputValue) -> Self {
-        FunctionInput { name, fallback }
+    pub fn new(name: String, type_: DataType, fallback: DefaultInputValue) -> Self {
+        FunctionInput {
+            name,
+            type_,
+            fallback,
+        }
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct FunctionOutput {
     pub name: String,
+    pub type_: DataType,
 }
 
 impl FunctionOutput {
-    pub fn new(name: String) -> Self {
-        FunctionOutput { name }
+    pub fn new(name: String, type_: DataType) -> Self {
+        FunctionOutput { name, type_ }
     }
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct FunctionDataItem {
     pub name: String,
+    pub type_: DataType,
     pub init_value: f32,
 }
 
 impl FunctionDataItem {
-    pub fn new(name: String, default_value: f32) -> Self {
+    pub fn new(name: String, type_: DataType, default_value: f32) -> Self {
         FunctionDataItem {
             name,
+            type_,
             init_value: default_value,
         }
     }
