@@ -1,7 +1,10 @@
+use std::{collections::HashMap, iter::Peekable};
+
 use crate::{
     DefaultInputValue, FunctionDataItem, FunctionInput, FunctionOutput, WispContext, WispFunction,
 };
 
+use log::error;
 use logos::{Lexer, Logos};
 use twisted_wisp_ir::{
     BinaryOpType, CallId, ComparisonOpType, Constant, DataRef, FunctionOutputIndex, IRFunction,
@@ -218,14 +221,8 @@ impl CodeFunction {
 enum Token {
     #[token("func")]
     Func,
-    #[token("inputs")]
-    Inputs,
-    #[token("outputs")]
-    Outputs,
     #[token("data")]
     Data,
-    #[token("attr")]
-    Attr,
     #[token("begin")]
     Begin,
     #[token("end")]
@@ -287,6 +284,10 @@ enum Token {
     CloseParen,
     #[token("->")]
     Arrow,
+    #[token("[")]
+    OpenBracket,
+    #[token("]")]
+    CloseBracket,
     #[token("last")]
     Last,
 
@@ -299,103 +300,147 @@ enum Token {
 }
 
 pub struct CodeFunctionParser<'source> {
-    lex: Lexer<'source, Token>,
+    lex: Peekable<Lexer<'source, Token>>,
 }
 
 impl<'source> CodeFunctionParser<'source> {
     pub fn new(s: &'source str) -> CodeFunctionParser<'source> {
         CodeFunctionParser {
-            lex: Token::lexer(s),
+            lex: Token::lexer(s).peekable(),
         }
     }
 
     pub fn parse_function(&mut self) -> Option<CodeFunction> {
+        let mut func_attrs = self.parse_attributes()?;
         self.expect_token(Token::Func)?;
         let name = match self.next_token()? {
             Token::Identifier(id) => id.to_owned(),
             _ => return None,
         };
 
-        let mut curr = self.next_token()?;
-
+        self.expect_token(Token::OpenParen)?;
         let mut inputs = vec![];
-        if curr == Token::Inputs {
-            let mut token = self.next_token()?;
-            while let Token::Identifier(id) = token {
-                let input_name = id.to_owned();
-                self.expect_token(Token::Colon)?;
-                let fallback = match self.next_token()? {
-                    Token::Identifier(id) => match &id[..] {
-                        "normal" => DefaultInputValue::Normal,
-                        "skip" => DefaultInputValue::Skip,
+        let mut input_attrs = None;
+        loop {
+            match self.peek_token()? {
+                Token::CloseParen => {
+                    self.next_token()?;
+                    break;
+                }
+                Token::OpenBracket => {
+                    input_attrs = Some(self.parse_attributes()?);
+                }
+                Token::Identifier(id) => {
+                    let input_name = id.to_owned();
+                    self.next_token()?;
+                    self.expect_token(Token::Colon)?;
+                    // TODO: support input types
+                    let _input_type = match self.next_token()? {
+                        Token::Identifier(id) => id.to_owned(),
                         _ => return None,
-                    },
-                    Token::F32(v) => DefaultInputValue::Value(v),
-                    Token::U32(v) => DefaultInputValue::Value(v as f32),
-                    _ => return None,
-                };
-                inputs.push(FunctionInput {
-                    name: input_name,
-                    fallback,
-                });
-                token = self.next_token()?;
+                    };
+                    let mut fallback = DefaultInputValue::Value(0.0);
+                    if let Some(attrs) = input_attrs.as_mut() {
+                        if let Some(v) = attrs.remove("default") {
+                            fallback = match v {
+                                Some(Token::Identifier(id)) => match id.as_str() {
+                                    "skip" => DefaultInputValue::Skip,
+                                    "normal" => DefaultInputValue::Normal,
+                                    _ => return None,
+                                },
+                                Some(Token::F32(v)) => DefaultInputValue::Value(v),
+                                Some(Token::U32(v)) => DefaultInputValue::Value(v as f32),
+                                None => DefaultInputValue::Value(0.0),
+                                _ => return None,
+                            }
+                        }
+                        if !attrs.is_empty() {
+                            return None;
+                        }
+                    }
+                    inputs.push(FunctionInput {
+                        name: input_name,
+                        fallback,
+                    });
+                    match self.peek_token()? {
+                        Token::Comma => {
+                            self.next_token()?;
+                            continue;
+                        }
+                        Token::CloseParen => {}
+                        _ => return None,
+                    }
+                }
+                _ => return None,
             }
-            curr = token;
         }
 
+        self.expect_token(Token::Arrow)?;
+
+        self.expect_token(Token::OpenParen)?;
         let mut outputs = vec![];
-        if curr == Token::Outputs {
-            let num_outputs = match self.next_token()? {
-                Token::U32(v) => v,
+        loop {
+            match self.next_token()? {
+                Token::CloseParen => {
+                    break;
+                }
+                Token::Identifier(id) => {
+                    // TODO: support output names
+                    let _output_name = id.to_owned();
+                    self.expect_token(Token::Colon)?;
+                    // TODO: support output types
+                    let _output_type = match self.next_token()? {
+                        Token::Identifier(id) => id.to_owned(),
+                        _ => return None,
+                    };
+                    outputs.push(FunctionOutput);
+                    match self.peek_token()? {
+                        Token::Comma => {
+                            self.next_token()?;
+                            continue;
+                        }
+                        Token::CloseParen => {}
+                        _ => return None,
+                    }
+                }
                 _ => return None,
-            };
-            outputs = vec![FunctionOutput; num_outputs as usize];
-            curr = self.next_token()?;
+            }
         }
 
         let mut data = vec![];
-        if curr == Token::Data {
-            let mut token = self.next_token()?;
-            while let Token::Identifier(id) = token {
-                let data_item_name = id.to_owned();
+        if self.peek_token()? == Token::Data {
+            self.next_token()?;
+            let mut token = self.peek_token()?;
+            while let Token::Identifier(_) = token {
+                let data_item_name = self.parse_identifier()?;
                 self.expect_token(Token::Colon)?;
-                let init_value = match self.next_token()? {
-                    Token::F32(v) => v,
-                    Token::U32(v) => v as f32,
+                // TODO: support data types
+                let _data_type = match self.next_token()? {
+                    Token::Identifier(id) => id.to_owned(),
                     _ => return None,
                 };
                 data.push(FunctionDataItem {
                     name: data_item_name,
-                    init_value,
+                    init_value: 0.0,
                 });
-                token = self.next_token()?;
+                token = self.peek_token()?;
             }
-            curr = token;
         }
 
         let mut lag_value = None;
-        if curr == Token::Attr {
-            let mut token = self.next_token()?;
-            while let Token::Identifier(id) = token {
-                match &id[..] {
-                    "lag_value" => {
-                        self.expect_token(Token::Colon)?;
-                        let value = match self.next_token()? {
-                            Token::U32(v) => v,
-                            _ => return None,
-                        };
-                        lag_value = Some(DataRef(value));
-                    }
-                    _ => return None,
-                }
-                token = self.next_token()?;
-            }
-            curr = token;
+        if let Some(v) = func_attrs.remove("lag_value") {
+            let value = match v {
+                Some(Token::U32(v)) => v,
+                _ => return None,
+            };
+            lag_value = Some(DataRef(value));
         }
 
-        if curr != Token::Begin {
+        if !func_attrs.is_empty() {
             return None;
         }
+
+        self.expect_token(Token::Begin)?;
 
         Some(CodeFunction::new(
             name,
@@ -405,6 +450,35 @@ impl<'source> CodeFunctionParser<'source> {
             self.parse_instructions()?,
             lag_value,
         ))
+    }
+
+    fn parse_attributes(&mut self) -> Option<HashMap<String, Option<Token>>> {
+        let mut attributes = HashMap::new();
+        if let Some(Token::OpenBracket) = self.peek_token() {
+            self.next_token()?;
+        } else {
+            return Some(attributes);
+        }
+        loop {
+            match self.next_token()? {
+                Token::CloseBracket => break,
+                Token::Identifier(name) => {
+                    let value = if let Some(Token::Colon) = self.peek_token() {
+                        self.next_token()?;
+                        let token = match self.next_token()? {
+                            t @ Token::Identifier(_) | t @ Token::F32(_) | t @ Token::U32(_) => t,
+                            _ => return None,
+                        };
+                        Some(token)
+                    } else {
+                        None
+                    };
+                    attributes.insert(name, value);
+                }
+                _ => return None,
+            }
+        }
+        Some(attributes)
     }
 
     fn parse_instructions(&mut self) -> Option<Vec<Instruction>> {
@@ -625,11 +699,17 @@ impl<'source> CodeFunctionParser<'source> {
         self.lex.next()?.ok()
     }
 
+    fn peek_token(&mut self) -> Option<Token> {
+        self.lex.peek().map(|t| t.clone().ok())?
+    }
+
     #[must_use]
     fn expect_token(&mut self, expected: Token) -> Option<()> {
         if let Ok(curr) = self.lex.next()? {
             if curr == expected {
                 return Some(());
+            } else {
+                error!("Expected {:?}, got {:?}", expected, curr);
             }
         }
         None

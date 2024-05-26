@@ -1,62 +1,49 @@
-func lag
-inputs
-  value: skip
-outputs 1
+[lag_value: 0]
+func lag([default: skip] value: float) -> (out: float)
 data
-  prev: 0
-attr
-  lag_value: 0
+  prev: float
 begin
   load %0, @0
   store #0, %0
   store @0, $0
 end
 
-func control
-outputs 1
+func control() -> (out: float)
 data
-  value: 0
+  value: float
 begin
   load %0, @0
   store #0, %0
 end
 
-func button
-outputs 1
+func button() -> (out: float)
 data
-  value: 0
+  value: float
 begin
   load %0, @0
   store #0, %0
 end
 
-func toggle
-outputs 1
+func toggle() -> (out: float)
 data
-  value: 0
+  value: float
 begin
   load %0, @0
   store #0, %0
 end
 
-func watch
-inputs
-  value: 0
+[lag_value: 0]
+func watch(value: float) -> ()
 data
-  value: 0
-attr
-  lag_value: 0
+  value: float
 begin
   store @0, $0
 end
 
-func graph
-inputs
-  value: 0
+[lag_value: 0]
+func graph(value: float) -> ()
 data
-  value: 0
-attr
-  lag_value: 0
+  value: float
 begin
   store @0, $0
 end
