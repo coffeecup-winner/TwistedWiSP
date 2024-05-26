@@ -15,7 +15,7 @@ use twisted_wisp_ir::{
     SignalOutputIndex, SourceLocation, TargetLocation, VarRef,
 };
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct CodeFunction {
     name: String,
     inputs: Vec<FunctionInput>,
@@ -71,41 +71,62 @@ impl WispFunction for CodeFunction {
 
     fn save(&self) -> String {
         let mut s = String::new();
-        s.push_str(&format!("func {}\n", self.name));
-        if !self.inputs.is_empty() {
-            s.push_str("inputs\n");
-            for input in &self.inputs {
-                let fallback = match input.fallback {
-                    DefaultInputValue::Value(v) => format!("{}", v),
-                    DefaultInputValue::Normal => "normal".into(),
-                    DefaultInputValue::Skip => "skip".into(),
-                };
-                s.push_str(&format!("  {}: {}\n", input.name, fallback));
+        if let Some(lag) = self.lag_value {
+            s.push_str(&format!(
+                "[lag_value: {}]\n",
+                self.data[lag.0 as usize].name
+            ));
+        }
+        s.push_str(&format!("func {}(", self.name));
+        for (idx, input) in self.inputs.iter().enumerate() {
+            if input.fallback != DefaultInputValue::Value(0.0) {
+                let fallback = format!(
+                    "[default: {}] ",
+                    match input.fallback {
+                        DefaultInputValue::Value(v) => format!("{}", v),
+                        DefaultInputValue::Normal => "normal".into(),
+                        DefaultInputValue::Skip => "skip".into(),
+                    }
+                );
+                s.push_str(fallback.as_str());
+            }
+            // TODO: types
+            s.push_str(&format!("{}: {}", input.name, "float"));
+            if idx < self.inputs.len() - 1 {
+                s.push_str(", ");
             }
         }
-        if !self.outputs.is_empty() {
-            s.push_str(&format!("outputs {}\n", self.outputs.len()));
+        s.push_str(") -> (");
+        for (idx, output) in self.outputs.iter().enumerate() {
+            // TODO: types
+            s.push_str(&format!("{}: {}", output.name, "float"));
+            if idx < self.outputs.len() - 1 {
+                s.push_str(", ");
+            }
         }
+        s.push_str(")\n");
         if !self.data.is_empty() {
             s.push_str("data\n");
             for item in &self.data {
-                s.push_str(&format!("  {}: {}\n", item.name, item.init_value));
+                // TODO: types
+                s.push_str(&format!("  {}: {}\n", item.name, "float"));
             }
-        }
-        if let Some(lag) = self.lag_value {
-            s.push_str("attr\n");
-            s.push_str(&format!("  lag_value: {}\n", lag.0));
         }
         s.push_str("begin\n");
         for insn in &self.ir {
-            fn format_insn(insn: &Instruction) -> Vec<String> {
+            fn format_insn(
+                insn: &Instruction,
+                inputs: &[FunctionInput],
+                outputs: &[FunctionOutput],
+                data: &[FunctionDataItem],
+            ) -> Vec<String> {
                 let format_operand = |op: &Operand| match op {
                     Operand::Constant(c) => match c {
                         Constant::SampleRate => "SampleRate".to_owned(),
                     },
                     Operand::Literal(value) => format!("{}", value),
                     Operand::Var(vref) => format!("%{}", vref.0),
-                    Operand::Arg(arg) => format!("${}", arg),
+                    Operand::Arg(arg) => format!("${}", inputs[*arg as usize].name),
                 };
                 match insn {
                     Instruction::AllocLocal(lref) => vec![format!("alloc !{}", lref.0)],
@@ -114,7 +135,8 @@ impl WispFunction for CodeFunction {
                         vref.0,
                         match sloc {
                             SourceLocation::Local(lref) => format!("!{}", lref.0),
-                            SourceLocation::Data(dref) => format!("@{}", dref.0),
+                            SourceLocation::Data(dref) =>
+                                format!("@{}", data[dref.0 as usize].name),
                             SourceLocation::LastValue(id, name, dref) =>
                                 format!("last#{}({}@{})", id.0, name, dref.0),
                         }
@@ -123,8 +145,10 @@ impl WispFunction for CodeFunction {
                         "store {}, {}",
                         match tloc {
                             TargetLocation::Local(lref) => format!("!{}", lref.0),
-                            TargetLocation::Data(dref) => format!("@{}", dref.0),
-                            TargetLocation::FunctionOutput(idx) => format!("#{}", idx.0),
+                            TargetLocation::Data(dref) =>
+                                format!("@{}", data[dref.0 as usize].name),
+                            TargetLocation::FunctionOutput(idx) =>
+                                format!("#{}", outputs[idx.0 as usize].name),
                             TargetLocation::SignalOutput(idx) => format!(">{}", idx.0),
                         },
                         format_operand(op)
@@ -159,13 +183,19 @@ impl WispFunction for CodeFunction {
                     Instruction::Conditional(vref, then_branch, else_branch) => {
                         let mut result = vec![format!("if %{}", vref.0)];
                         for i in then_branch {
-                            result.extend(format_insn(i).into_iter().map(|s| "  ".to_owned() + &s));
+                            result.extend(
+                                format_insn(i, inputs, outputs, data)
+                                    .into_iter()
+                                    .map(|s| "  ".to_owned() + &s),
+                            );
                         }
                         if !else_branch.is_empty() {
                             result.push("else".into());
                             for i in else_branch {
                                 result.extend(
-                                    format_insn(i).into_iter().map(|s| "  ".to_owned() + &s),
+                                    format_insn(i, inputs, outputs, data)
+                                        .into_iter()
+                                        .map(|s| "  ".to_owned() + &s),
                                 );
                             }
                         }
@@ -190,7 +220,7 @@ impl WispFunction for CodeFunction {
                     Instruction::Debug(vref) => vec![format!("debug %{}", vref.0)],
                 }
             }
-            for line in format_insn(insn) {
+            for line in format_insn(insn, &self.inputs, &self.outputs, &self.data) {
                 s.push_str(&format!("  {}\n", line));
             }
         }
@@ -366,10 +396,7 @@ impl<'source> CodeFunctionParser<'source> {
                     if !symbols.insert(input_name.clone(), Symbol::Arg(inputs.len() as u32)) {
                         return None;
                     }
-                    inputs.push(FunctionInput {
-                        name: input_name,
-                        fallback,
-                    });
+                    inputs.push(FunctionInput::new(input_name, fallback));
                     match self.peek_token()? {
                         Token::Comma => {
                             self.next_token()?;
@@ -407,7 +434,7 @@ impl<'source> CodeFunctionParser<'source> {
                     ) {
                         return None;
                     }
-                    outputs.push(FunctionOutput);
+                    outputs.push(FunctionOutput::new(id));
                     match self.peek_token()? {
                         Token::Comma => {
                             self.next_token()?;
@@ -627,7 +654,13 @@ impl<'source> CodeFunctionParser<'source> {
                 Some(_) => None,
                 None => {
                     if allow_create {
-                        let v = VarRef(symbols.known_symbols.len() as u32);
+                        let v = VarRef(
+                            symbols
+                                .known_symbols
+                                .iter()
+                                .filter(|s| matches!(s, Symbol::Var(_)))
+                                .count() as u32,
+                        );
                         symbols.insert(id, Symbol::Var(v));
                         Some(v)
                     } else {
@@ -647,7 +680,13 @@ impl<'source> CodeFunctionParser<'source> {
                 Some(Symbol::Local(l)) => Some(l),
                 _ => {
                     if allow_create {
-                        let l = LocalRef(symbols.known_symbols.len() as u32);
+                        let l = LocalRef(
+                            symbols
+                                .known_symbols
+                                .iter()
+                                .filter(|s| matches!(s, Symbol::Local(_)))
+                                .count() as u32,
+                        );
                         symbols.insert(id, Symbol::Local(l));
                         Some(l)
                     } else {
@@ -833,5 +872,67 @@ impl Symbols {
 
     pub fn get(&self, name: &str) -> Option<Symbol> {
         self.symbols.get(name).copied()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_test_function_lag() -> CodeFunction {
+        CodeFunction {
+            name: "lag".to_owned(),
+            inputs: vec![FunctionInput {
+                name: "value".to_owned(),
+                fallback: DefaultInputValue::Skip,
+            }],
+            outputs: vec![FunctionOutput::new("out".to_owned())],
+            data: vec![FunctionDataItem {
+                name: "prev".to_owned(),
+                init_value: 0.0,
+            }],
+            ir: vec![
+                Instruction::Load(VarRef(0), SourceLocation::Data(DataRef(0))),
+                Instruction::Store(
+                    TargetLocation::FunctionOutput(FunctionOutputIndex(0)),
+                    Operand::Var(VarRef(0)),
+                ),
+                Instruction::Store(TargetLocation::Data(DataRef(0)), Operand::Arg(0)),
+            ],
+            lag_value: Some(DataRef(0)),
+        }
+    }
+
+    #[test]
+    fn test_parse_function() {
+        let mut parser = CodeFunctionParser::new(
+            r#"[lag_value: prev]
+            func lag([default: skip] value: float) -> (out: float)
+            data
+              prev: float
+            begin
+              load %temp, @prev
+              store #out, %temp
+              store @prev, $value
+            end"#,
+        );
+        assert_eq!(create_test_function_lag(), parser.parse_function().unwrap());
+    }
+
+    #[test]
+    fn test_save_function() {
+        assert_eq!(
+            r#"[lag_value: prev]
+func lag([default: skip] value: float) -> (out: float)
+data
+  prev: float
+begin
+  load %0, @prev
+  store #out, %0
+  store @prev, $value
+end
+"#,
+            create_test_function_lag().save()
+        );
     }
 }

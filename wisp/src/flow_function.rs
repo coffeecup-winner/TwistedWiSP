@@ -439,12 +439,11 @@ mod tests {
         Box::new(CodeFunction::new(
             name.into(),
             (0..num_inputs)
-                .map(|i| FunctionInput {
-                    name: format!("in{}", i),
-                    fallback: DefaultInputValue::Value(0.0),
-                })
+                .map(|i| FunctionInput::new(format!("in{}", i), DefaultInputValue::Value(0.0)))
                 .collect(),
-            (0..num_outputs).map(|_| FunctionOutput).collect(),
+            (0..num_outputs)
+                .map(|i| FunctionOutput::new(format!("out{}", i)))
+                .collect(),
             vec![],
             vec![],
             None,

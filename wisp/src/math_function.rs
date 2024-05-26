@@ -73,7 +73,7 @@ impl MathFunction {
             expr_string,
             expr,
             inputs,
-            outputs: vec![FunctionOutput],
+            outputs: vec![FunctionOutput::new("out".to_owned())],
         }
     }
 
