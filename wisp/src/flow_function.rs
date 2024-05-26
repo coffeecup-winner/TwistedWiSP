@@ -87,7 +87,7 @@ impl WispFunction for FlowFunction {
         Some(self)
     }
 
-    fn load(s: &str) -> Option<Box<dyn WispFunction>>
+    fn load(s: &str, _ctx: &WispContext) -> Option<Box<dyn WispFunction>>
     where
         Self: Sized,
     {
@@ -168,6 +168,15 @@ impl WispFunction for FlowFunction {
             ))
         }
         s
+    }
+
+    fn create_alias(&self, name: String) -> Box<dyn WispFunction> {
+        Box::new(FlowFunction {
+            name,
+            graph: self.graph.clone(),
+            ir: RefCell::new(vec![]),
+            watch_idx_map: self.watch_idx_map.clone(),
+        })
     }
 }
 

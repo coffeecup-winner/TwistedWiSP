@@ -16,21 +16,8 @@ begin
   store #out, %temp
 end
 
-func button() -> (out: float)
-data
-  value: float
-begin
-  load %temp, @value
-  store #out, %temp
-end
-
-func toggle() -> (out: float)
-data
-  value: float
-begin
-  load %temp, @value
-  store #out, %temp
-end
+alias button: control
+alias toggle: control
 
 [lag_value: 0]
 func watch(value: float) -> ()
@@ -40,10 +27,4 @@ begin
   store @prev, $value
 end
 
-[lag_value: 0]
-func graph(value: float) -> ()
-data
-  prev: float
-begin
-  store @prev, $value
-end
+alias graph: watch

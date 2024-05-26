@@ -49,7 +49,7 @@ impl WispFunction for MathFunction {
         self.compile_ir_function()
     }
 
-    fn load(_s: &str) -> Option<Box<dyn WispFunction>>
+    fn load(_s: &str, _ctx: &WispContext) -> Option<Box<dyn WispFunction>>
     where
         Self: Sized,
     {
@@ -58,6 +58,16 @@ impl WispFunction for MathFunction {
 
     fn save(&self) -> String {
         self.expr_string.clone()
+    }
+
+    fn create_alias(&self, name: String) -> Box<dyn WispFunction> {
+        Box::new(MathFunction {
+            name,
+            expr_string: self.expr_string.clone(),
+            expr: self.expr.clone(),
+            inputs: self.inputs.clone(),
+            outputs: self.outputs.clone(),
+        })
     }
 }
 

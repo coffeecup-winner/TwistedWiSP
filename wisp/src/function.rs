@@ -88,8 +88,10 @@ pub trait WispFunction: Debug {
         None
     }
 
-    fn load(s: &str) -> Option<Box<dyn WispFunction>>
+    fn load(s: &str, ctx: &WispContext) -> Option<Box<dyn WispFunction>>
     where
         Self: Sized;
     fn save(&self) -> String;
+
+    fn create_alias(&self, name: String) -> Box<dyn WispFunction>;
 }

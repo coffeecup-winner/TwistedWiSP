@@ -5,8 +5,8 @@ use std::{
 };
 
 use crate::{
-    CodeFunction, CodeFunctionParser, DataType, DefaultInputValue, FlowFunction, FlowNodeIndex,
-    FunctionInput, MathFunctionParser, WispFunction,
+    CodeFunction, CodeFunctionParseResult, CodeFunctionParser, DataType, DefaultInputValue,
+    FlowFunction, FlowNodeIndex, FunctionInput, MathFunctionParser, WispFunction,
 };
 
 use log::info;
@@ -91,9 +91,20 @@ impl WispContext {
             let text = std::fs::read_to_string(file?.path())?;
             let mut parser = CodeFunctionParser::new(&text);
             info!("Adding core functions:");
-            while let Some(func) = parser.parse_function() {
-                info!("  - {}", func.name());
-                self.add_function(Box::new(func));
+            while let Some(result) = parser.parse_function() {
+                match result {
+                    CodeFunctionParseResult::Function(func) => {
+                        info!("  - {}", func.name());
+                        self.add_function(Box::new(func));
+                    }
+                    CodeFunctionParseResult::Alias(alias, target) => {
+                        let func = self
+                            .get_function(&target)
+                            .expect("Unknown function alias target");
+                        info!("  - {} (alias of {})", alias, func.name());
+                        self.add_function(func.create_alias(alias));
+                    }
+                }
             }
         }
         Ok(())
@@ -102,7 +113,8 @@ impl WispContext {
     pub fn load_function(&mut self, file_path: &str) -> Result<LoadFunctionResult, Box<dyn Error>> {
         let text = std::fs::read_to_string(Path::new(file_path))?;
         // TODO: Load flow or code function
-        let mut func = FlowFunction::load(&text).expect("Failed to parse the flow function data");
+        let mut func =
+            FlowFunction::load(&text, self).expect("Failed to parse the flow function data");
         let flow_name = func.name().to_owned();
         info!("Loading function: {}", flow_name);
         let flow = func.as_flow_mut().unwrap();

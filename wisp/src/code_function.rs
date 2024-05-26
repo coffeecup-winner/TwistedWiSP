@@ -61,13 +61,19 @@ impl WispFunction for CodeFunction {
         self.lag_value
     }
 
-    fn load(s: &str) -> Option<Box<dyn WispFunction>>
+    fn load(s: &str, ctx: &WispContext) -> Option<Box<dyn WispFunction>>
     where
         Self: Sized,
     {
         CodeFunctionParser::new(s)
             .parse_function()
-            .map(|f| Box::new(f) as Box<dyn WispFunction>)
+            .and_then(|r| match r {
+                CodeFunctionParseResult::Function(f) => Some(Box::new(f) as Box<dyn WispFunction>),
+                CodeFunctionParseResult::Alias(alias, name) => {
+                    let func = ctx.get_function(&name)?;
+                    Some(func.create_alias(alias))
+                }
+            })
     }
 
     fn save(&self) -> String {
@@ -225,6 +231,17 @@ impl WispFunction for CodeFunction {
         s.push_str("end\n");
         s
     }
+
+    fn create_alias(&self, name: String) -> Box<dyn WispFunction> {
+        Box::new(CodeFunction {
+            name,
+            inputs: self.inputs.clone(),
+            outputs: self.outputs.clone(),
+            data: self.data.clone(),
+            ir: self.ir.clone(),
+            lag_value: self.lag_value,
+        })
+    }
 }
 
 impl CodeFunction {
@@ -247,6 +264,12 @@ impl CodeFunction {
     }
 }
 
+#[derive(Debug, PartialEq, Clone)]
+pub enum CodeFunctionParseResult {
+    Function(CodeFunction),
+    Alias(String, String),
+}
+
 #[derive(Logos, Debug, PartialEq, Clone)]
 #[logos(skip r"[ \t\r\n\f]+")]
 enum Token {
@@ -258,6 +281,8 @@ enum Token {
     Begin,
     #[token("end")]
     End,
+    #[token("alias")]
+    Alias,
     #[token("if")]
     If,
     #[token("else")]
@@ -341,7 +366,15 @@ impl<'source> CodeFunctionParser<'source> {
         }
     }
 
-    pub fn parse_function(&mut self) -> Option<CodeFunction> {
+    pub fn parse_function(&mut self) -> Option<CodeFunctionParseResult> {
+        if self.peek_token()? == Token::Alias {
+            self.next_token()?;
+            let alias_name = self.parse_identifier()?;
+            self.expect_token(Token::Colon)?;
+            let target_name = self.parse_identifier()?;
+            return Some(CodeFunctionParseResult::Alias(alias_name, target_name));
+        }
+
         let mut symbols = Symbols::new();
 
         let mut func_attrs = self.parse_attributes()?;
@@ -499,14 +532,14 @@ impl<'source> CodeFunctionParser<'source> {
 
         self.expect_token(Token::Begin)?;
 
-        Some(CodeFunction::new(
+        Some(CodeFunctionParseResult::Function(CodeFunction::new(
             name,
             inputs,
             outputs,
             data,
             self.parse_instructions(&mut symbols)?,
             lag_value,
-        ))
+        )))
     }
 
     fn parse_attributes(&mut self) -> Option<HashMap<String, Option<Token>>> {
@@ -923,7 +956,10 @@ mod tests {
               store @prev, $value
             end"#,
         );
-        assert_eq!(create_test_function_lag(), parser.parse_function().unwrap());
+        assert_eq!(
+            CodeFunctionParseResult::Function(create_test_function_lag()),
+            parser.parse_function().unwrap()
+        );
     }
 
     #[test]
