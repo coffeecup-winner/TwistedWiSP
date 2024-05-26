@@ -475,7 +475,6 @@ impl<'source> CodeFunctionParser<'source> {
                 data.push(FunctionDataItem {
                     name: data_item_name,
                     type_: data_type,
-                    init_value: 0.0,
                 });
                 token = self.peek_token()?;
             }
@@ -898,7 +897,6 @@ mod tests {
             data: vec![FunctionDataItem {
                 name: "prev".to_owned(),
                 type_: DataType::Float,
-                init_value: 0.0,
             }],
             ir: vec![
                 Instruction::Load(VarRef(0), SourceLocation::Data(DataRef(0))),

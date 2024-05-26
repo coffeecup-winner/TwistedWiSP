@@ -62,15 +62,13 @@ impl FunctionOutput {
 pub struct FunctionDataItem {
     pub name: String,
     pub type_: DataType,
-    pub init_value: f32,
 }
 
 impl FunctionDataItem {
-    pub fn new(name: String, type_: DataType, default_value: f32) -> Self {
+    pub fn new(name: String, type_: DataType) -> Self {
         FunctionDataItem {
             name,
             type_,
-            init_value: default_value,
         }
     }
 }

@@ -430,7 +430,7 @@ mod tests {
                 DefaultInputValue::Value(0.0),
             )],
             vec![],
-            vec![FunctionDataItem::new("lag".into(), DataType::Float, 0.0)],
+            vec![FunctionDataItem::new("lag".into(), DataType::Float)],
             vec![],
             Some(DataRef(0)),
         ))
