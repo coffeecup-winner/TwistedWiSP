@@ -1,4 +1,7 @@
-use std::{collections::HashMap, iter::Peekable};
+use std::{
+    collections::{HashMap, HashSet},
+    iter::Peekable,
+};
 
 use crate::{
     DefaultInputValue, FunctionDataItem, FunctionInput, FunctionOutput, WispContext, WispFunction,
@@ -311,6 +314,8 @@ impl<'source> CodeFunctionParser<'source> {
     }
 
     pub fn parse_function(&mut self) -> Option<CodeFunction> {
+        let mut symbols = Symbols::new();
+
         let mut func_attrs = self.parse_attributes()?;
         self.expect_token(Token::Func)?;
         let name = match self.next_token()? {
@@ -358,6 +363,9 @@ impl<'source> CodeFunctionParser<'source> {
                             return None;
                         }
                     }
+                    if !symbols.insert(input_name.clone(), Symbol::Arg(inputs.len() as u32)) {
+                        return None;
+                    }
                     inputs.push(FunctionInput {
                         name: input_name,
                         fallback,
@@ -393,6 +401,12 @@ impl<'source> CodeFunctionParser<'source> {
                         Token::Identifier(id) => id.to_owned(),
                         _ => return None,
                     };
+                    if !symbols.insert(
+                        id.clone(),
+                        Symbol::FunctionOutput(FunctionOutputIndex(outputs.len() as u32)),
+                    ) {
+                        return None;
+                    }
                     outputs.push(FunctionOutput);
                     match self.peek_token()? {
                         Token::Comma => {
@@ -419,6 +433,12 @@ impl<'source> CodeFunctionParser<'source> {
                     Token::Identifier(id) => id.to_owned(),
                     _ => return None,
                 };
+                if !symbols.insert(
+                    data_item_name.clone(),
+                    Symbol::Data(DataRef(data.len() as u32)),
+                ) {
+                    return None;
+                }
                 data.push(FunctionDataItem {
                     name: data_item_name,
                     init_value: 0.0,
@@ -429,11 +449,15 @@ impl<'source> CodeFunctionParser<'source> {
 
         let mut lag_value = None;
         if let Some(v) = func_attrs.remove("lag_value") {
-            let value = match v {
-                Some(Token::U32(v)) => v,
+            let dref = match v {
+                Some(Token::U32(v)) => DataRef(v),
+                Some(Token::Identifier(id)) => match symbols.get(&id) {
+                    Some(Symbol::Data(d)) => d,
+                    _ => return None,
+                },
                 _ => return None,
             };
-            lag_value = Some(DataRef(value));
+            lag_value = Some(dref);
         }
 
         if !func_attrs.is_empty() {
@@ -447,7 +471,7 @@ impl<'source> CodeFunctionParser<'source> {
             inputs,
             outputs,
             data,
-            self.parse_instructions()?,
+            self.parse_instructions(&mut symbols)?,
             lag_value,
         ))
     }
@@ -481,29 +505,31 @@ impl<'source> CodeFunctionParser<'source> {
         Some(attributes)
     }
 
-    fn parse_instructions(&mut self) -> Option<Vec<Instruction>> {
+    fn parse_instructions(&mut self, symbols: &mut Symbols) -> Option<Vec<Instruction>> {
         let mut instructions = vec![];
         loop {
             match self.next_token()? {
                 Token::End => break,
                 Token::If => {
-                    let vref = self.parse_vref()?;
-                    let then_branch = self.parse_instructions()?;
-                    let else_branch = self.parse_instructions()?;
+                    let vref = self.parse_vref(symbols, false)?;
+                    let then_branch = self.parse_instructions(symbols)?;
+                    let else_branch = self.parse_instructions(symbols)?;
                     instructions.push(Instruction::Conditional(vref, then_branch, else_branch));
                 }
                 Token::Else => break,
-                Token::Alloc => instructions.push(Instruction::AllocLocal(self.parse_lref()?)),
+                Token::Alloc => {
+                    instructions.push(Instruction::AllocLocal(self.parse_lref(symbols, true)?))
+                }
                 Token::Store => {
-                    let target_location = self.parse_tloc()?;
+                    let target_location = self.parse_tloc(symbols)?;
                     self.expect_token(Token::Comma)?;
-                    let operand = self.parse_op()?;
+                    let operand = self.parse_op(symbols)?;
                     instructions.push(Instruction::Store(target_location, operand));
                 }
                 Token::Load => {
-                    let var_ref = self.parse_vref()?;
+                    let var_ref = self.parse_vref(symbols, true)?;
                     self.expect_token(Token::Comma)?;
-                    let source_location = self.parse_sloc()?;
+                    let source_location = self.parse_sloc(symbols)?;
                     instructions.push(Instruction::Load(var_ref, source_location));
                 }
                 t @ Token::Add
@@ -511,11 +537,11 @@ impl<'source> CodeFunctionParser<'source> {
                 | t @ Token::Mul
                 | t @ Token::Div
                 | t @ Token::Rem => {
-                    let vref = self.parse_vref()?;
+                    let vref = self.parse_vref(symbols, true)?;
                     self.expect_token(Token::Comma)?;
-                    let op0 = self.parse_op()?;
+                    let op0 = self.parse_op(symbols)?;
                     self.expect_token(Token::Comma)?;
-                    let op1 = self.parse_op()?;
+                    let op1 = self.parse_op(symbols)?;
                     let type_ = match t {
                         Token::Add => BinaryOpType::Add,
                         Token::Sub => BinaryOpType::Subtract,
@@ -532,11 +558,11 @@ impl<'source> CodeFunctionParser<'source> {
                 | t @ Token::LessOrEqual
                 | t @ Token::Greater
                 | t @ Token::GreaterOrEqual => {
-                    let vref = self.parse_vref()?;
+                    let vref = self.parse_vref(symbols, true)?;
                     self.expect_token(Token::Comma)?;
-                    let op0 = self.parse_op()?;
+                    let op0 = self.parse_op(symbols)?;
                     self.expect_token(Token::Comma)?;
-                    let op1 = self.parse_op()?;
+                    let op1 = self.parse_op(symbols)?;
                     let type_ = match t {
                         Token::Equal => ComparisonOpType::Equal,
                         Token::NotEqual => ComparisonOpType::NotEqual,
@@ -561,7 +587,7 @@ impl<'source> CodeFunctionParser<'source> {
                     self.expect_token(Token::OpenParen)?;
                     let mut inputs = vec![];
                     loop {
-                        inputs.push(self.parse_op()?);
+                        inputs.push(self.parse_op(symbols)?);
                         match self.next_token()? {
                             Token::Comma => continue,
                             Token::CloseParen => break,
@@ -579,53 +605,96 @@ impl<'source> CodeFunctionParser<'source> {
                                 _ => return None,
                             }
                         },
-                        _ => outputs.push(self.parse_vref()?),
+                        _ => outputs.push(self.parse_vref(symbols, false)?),
                     }
                     instructions.push(Instruction::Call(CallId(id), name, inputs, outputs));
                 }
-                Token::Debug => instructions.push(Instruction::Debug(self.parse_vref()?)),
+                Token::Debug => {
+                    instructions.push(Instruction::Debug(self.parse_vref(symbols, false)?))
+                }
                 _ => return None,
             }
         }
         Some(instructions)
     }
 
-    fn parse_vref(&mut self) -> Option<VarRef> {
+    fn parse_vref(&mut self, symbols: &mut Symbols, allow_create: bool) -> Option<VarRef> {
         self.expect_token(Token::VarPrefix)?;
         match self.next_token()? {
             Token::U32(v) => Some(VarRef(v)),
+            Token::Identifier(id) => match symbols.get(&id) {
+                Some(Symbol::Var(v)) => Some(v),
+                Some(_) => None,
+                None => {
+                    if allow_create {
+                        let v = VarRef(symbols.known_symbols.len() as u32);
+                        symbols.insert(id, Symbol::Var(v));
+                        Some(v)
+                    } else {
+                        None
+                    }
+                }
+            },
             _ => None,
         }
     }
 
-    fn parse_lref(&mut self) -> Option<LocalRef> {
+    fn parse_lref(&mut self, symbols: &mut Symbols, allow_create: bool) -> Option<LocalRef> {
         self.expect_token(Token::LocalPrefix)?;
         match self.next_token()? {
             Token::U32(v) => Some(LocalRef(v)),
+            Token::Identifier(id) => match symbols.get(&id) {
+                Some(Symbol::Local(l)) => Some(l),
+                _ => {
+                    if allow_create {
+                        let l = LocalRef(symbols.known_symbols.len() as u32);
+                        symbols.insert(id, Symbol::Local(l));
+                        Some(l)
+                    } else {
+                        None
+                    }
+                }
+            },
             _ => None,
         }
     }
 
-    fn parse_dref(&mut self) -> Option<DataRef> {
+    fn parse_dref(&mut self, symbols: &Symbols) -> Option<DataRef> {
         self.expect_token(Token::DataPrefix)?;
         match self.next_token()? {
             Token::U32(v) => Some(DataRef(v)),
+            Token::Identifier(id) => match symbols.get(&id) {
+                Some(Symbol::Data(d)) => Some(d),
+                _ => None,
+            },
             _ => None,
         }
     }
 
-    fn parse_tloc(&mut self) -> Option<TargetLocation> {
+    fn parse_tloc(&mut self, symbols: &Symbols) -> Option<TargetLocation> {
         match self.next_token()? {
             Token::LocalPrefix => match self.next_token()? {
                 Token::U32(v) => Some(TargetLocation::Local(LocalRef(v))),
+                Token::Identifier(id) => match symbols.get(&id) {
+                    Some(Symbol::Local(l)) => Some(TargetLocation::Local(l)),
+                    _ => None,
+                },
                 _ => None,
             },
             Token::DataPrefix => match self.next_token()? {
                 Token::U32(v) => Some(TargetLocation::Data(DataRef(v))),
+                Token::Identifier(id) => match symbols.get(&id) {
+                    Some(Symbol::Data(d)) => Some(TargetLocation::Data(d)),
+                    _ => None,
+                },
                 _ => None,
             },
             Token::OutputPrefix => match self.next_token()? {
                 Token::U32(v) => Some(TargetLocation::FunctionOutput(FunctionOutputIndex(v))),
+                Token::Identifier(id) => match symbols.get(&id) {
+                    Some(Symbol::FunctionOutput(f)) => Some(TargetLocation::FunctionOutput(f)),
+                    _ => None,
+                },
                 _ => None,
             },
             Token::SignalPrefix => match self.next_token()? {
@@ -636,14 +705,22 @@ impl<'source> CodeFunctionParser<'source> {
         }
     }
 
-    fn parse_sloc(&mut self) -> Option<SourceLocation> {
+    fn parse_sloc(&mut self, symbols: &Symbols) -> Option<SourceLocation> {
         match self.next_token()? {
             Token::LocalPrefix => match self.next_token()? {
                 Token::U32(v) => Some(SourceLocation::Local(LocalRef(v))),
+                Token::Identifier(id) => match symbols.get(&id) {
+                    Some(Symbol::Local(l)) => Some(SourceLocation::Local(l)),
+                    _ => None,
+                },
                 _ => None,
             },
             Token::DataPrefix => match self.next_token()? {
                 Token::U32(v) => Some(SourceLocation::Data(DataRef(v))),
+                Token::Identifier(id) => match symbols.get(&id) {
+                    Some(Symbol::Data(d)) => Some(SourceLocation::Data(d)),
+                    _ => None,
+                },
                 _ => None,
             },
             Token::Last => {
@@ -651,7 +728,7 @@ impl<'source> CodeFunctionParser<'source> {
                 let id = self.parse_u32()?;
                 self.expect_token(Token::OpenParen)?;
                 let name = self.parse_identifier()?;
-                let dref = self.parse_dref()?;
+                let dref = self.parse_dref(symbols)?;
                 self.expect_token(Token::CloseParen)?;
                 Some(SourceLocation::LastValue(CallId(id), name, dref))
             }
@@ -659,14 +736,22 @@ impl<'source> CodeFunctionParser<'source> {
         }
     }
 
-    fn parse_op(&mut self) -> Option<Operand> {
+    fn parse_op(&mut self, symbols: &Symbols) -> Option<Operand> {
         match self.next_token()? {
             Token::VarPrefix => match self.next_token()? {
                 Token::U32(v) => Some(Operand::Var(VarRef(v))),
+                Token::Identifier(id) => match symbols.get(&id) {
+                    Some(Symbol::Var(v)) => Some(Operand::Var(v)),
+                    _ => None,
+                },
                 _ => None,
             },
             Token::ArgPrefix => match self.next_token()? {
                 Token::U32(v) => Some(Operand::Arg(v)),
+                Token::Identifier(id) => match symbols.get(&id) {
+                    Some(Symbol::Arg(a)) => Some(Operand::Arg(a)),
+                    _ => None,
+                },
                 _ => None,
             },
             Token::F32(v) => Some(Operand::Literal(v)),
@@ -713,5 +798,40 @@ impl<'source> CodeFunctionParser<'source> {
             }
         }
         None
+    }
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+enum Symbol {
+    Var(VarRef),
+    Local(LocalRef),
+    Arg(u32),
+    Data(DataRef),
+    FunctionOutput(FunctionOutputIndex),
+}
+
+struct Symbols {
+    symbols: HashMap<String, Symbol>,
+    known_symbols: HashSet<Symbol>,
+}
+
+impl Symbols {
+    pub fn new() -> Self {
+        Symbols {
+            symbols: HashMap::new(),
+            known_symbols: HashSet::new(),
+        }
+    }
+
+    pub fn insert(&mut self, name: String, symbol: Symbol) -> bool {
+        if self.known_symbols.contains(&symbol) {
+            return false;
+        }
+        self.known_symbols.insert(symbol);
+        self.symbols.insert(name, symbol).is_none()
+    }
+
+    pub fn get(&self, name: &str) -> Option<Symbol> {
+        self.symbols.get(name).copied()
     }
 }

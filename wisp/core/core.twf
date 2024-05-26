@@ -1,49 +1,49 @@
-[lag_value: 0]
+[lag_value: prev]
 func lag([default: skip] value: float) -> (out: float)
 data
   prev: float
 begin
-  load %0, @0
-  store #0, %0
-  store @0, $0
+  load %temp, @prev
+  store #out, %temp
+  store @prev, $value
 end
 
 func control() -> (out: float)
 data
   value: float
 begin
-  load %0, @0
-  store #0, %0
+  load %temp, @value
+  store #out, %temp
 end
 
 func button() -> (out: float)
 data
   value: float
 begin
-  load %0, @0
-  store #0, %0
+  load %temp, @value
+  store #out, %temp
 end
 
 func toggle() -> (out: float)
 data
   value: float
 begin
-  load %0, @0
-  store #0, %0
+  load %temp, @value
+  store #out, %temp
 end
 
 [lag_value: 0]
 func watch(value: float) -> ()
 data
-  value: float
+  prev: float
 begin
-  store @0, $0
+  store @prev, $value
 end
 
 [lag_value: 0]
 func graph(value: float) -> ()
 data
-  value: float
+  prev: float
 begin
-  store @0, $0
+  store @prev, $value
 end
