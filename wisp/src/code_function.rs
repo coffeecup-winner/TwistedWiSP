@@ -272,6 +272,8 @@ pub enum CodeFunctionParseResult {
 
 #[derive(Logos, Debug, PartialEq, Clone)]
 #[logos(skip r"[ \t\r\n\f]+")]
+#[logos(skip r"//.*\n")]
+#[logos(skip r"/\*([^*]|\*[^/])*\*/")]
 enum Token {
     #[token("func")]
     Func,

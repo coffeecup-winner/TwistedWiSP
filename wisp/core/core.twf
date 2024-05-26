@@ -1,3 +1,8 @@
+/*
+ * Core TwistedWiSP library
+ */
+
+// lag - return previous sample's value
 [lag_value: prev]
 func lag([default: skip] value: float) -> (out: float)
 data
@@ -8,6 +13,7 @@ begin
   store @prev, $value
 end
 
+// control - GUI controls (set via direct data write)
 func control() -> (out: float)
 data
   value: float
@@ -19,6 +25,7 @@ end
 alias button: control
 alias toggle: control
 
+// watch - GUI watch (set via direct data watch adding)
 [lag_value: 0]
 func watch(value: float) -> ()
 data
