@@ -66,10 +66,7 @@ pub struct FunctionDataItem {
 
 impl FunctionDataItem {
     pub fn new(name: String, type_: DataType) -> Self {
-        FunctionDataItem {
-            name,
-            type_,
-        }
+        FunctionDataItem { name, type_ }
     }
 }
 
