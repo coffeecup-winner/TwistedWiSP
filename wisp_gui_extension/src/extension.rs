@@ -152,6 +152,7 @@ impl TwistedWispSingleton {
         dict! {
             "inlets": inputs,
             "outlets": outputs,
+            "is_lag": func.lag_value().is_some(),
         }
     }
 

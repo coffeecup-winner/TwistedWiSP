@@ -29,6 +29,15 @@ func _ready():
 	connect("disconnection_request", _on_disconnection_request)
 
 
+func _is_node_hover_valid(from_node: StringName, _from_port: int, to_node: StringName, _to_port: int) -> bool:
+	if from_node != to_node:
+		return true
+	var node = get_node(NodePath(from_node))
+	var func_name = TwistedWisp.flow_get_node_name(wisp_flow_name, node.wisp_node_idx)
+	var metadata = TwistedWisp.function_get_metadata(func_name)
+	return metadata.is_lag
+
+
 func _on_connection_request(from_node, from_port, to_node, to_port):
 	connect_node(from_node, from_port, to_node, to_port)
 	TwistedWisp.flow_connect(
