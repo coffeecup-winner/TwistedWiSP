@@ -130,8 +130,9 @@ impl SignalProcessorBuilder {
             module.print_to_stderr();
         }
 
-        // TODO: Enable optimization passes
-        if false {
+        // Optimization passes
+        {
+            // TODO: Cache target machine?
             let target = Target::from_triple(&TargetMachine::get_default_triple())
                 .expect("Failed to create LLVM target");
             let target_machine = target
@@ -147,8 +148,10 @@ impl SignalProcessorBuilder {
 
             let options = PassBuilderOptions::create();
             options.set_merge_functions(true);
+
+            const PASSES: &str = "inline,mem2reg,instcombine,gvn";
             module
-                .run_passes("inline,mem2reg", &target_machine, options)
+                .run_passes(PASSES, &target_machine, options)
                 .expect("Failed to run optimization passes");
 
             if cfg!(debug_assertions) {
