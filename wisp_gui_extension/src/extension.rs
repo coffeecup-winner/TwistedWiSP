@@ -2,9 +2,12 @@ use std::path::Path;
 
 use godot::{engine::Engine, prelude::*};
 
+use log::info;
 use twisted_wisp::{FlowFunction, WispContext, WispFunction};
 use twisted_wisp_ir::CallId;
 use twisted_wisp_protocol::{DataIndex, WispRunnerClient};
+
+use crate::logger::GodotLogger;
 
 struct TwistedWispExtension;
 
@@ -54,8 +57,13 @@ struct TwistedWispSingleton {
 impl TwistedWispSingleton {
     #[func]
     fn init(&mut self, wisp_exe_path: String, wisp_core_path: String) {
-        godot::log::godot_print!("init: {}", wisp_exe_path);
+        godot::log::godot_print!("TwistedWiSP extension initializing");
 
+        GodotLogger::init().expect("Failed to init the logger");
+
+        info!("TwistedWiSP logger initialized");
+
+        info!("Initializing server: {}", wisp_exe_path);
         let mut runner = WispRunnerClient::init(Path::new(&wisp_exe_path), Some(512), Some(48000));
         let sys_info = runner.get_system_info();
 
@@ -70,6 +78,8 @@ impl TwistedWispSingleton {
 
         self.runner = Some(runner);
         self.ctx = Some(ctx);
+
+        info!("TwistedWiSP extension initialized");
     }
 
     fn runner_mut(&mut self) -> &mut WispRunnerClient {
@@ -383,6 +393,12 @@ impl TwistedWispSingleton {
         let runner = self.runner_mut();
         runner.context_add_or_update_function(ir_function);
         runner.context_update();
+    }
+
+    #[func]
+    fn flow_node_set_buffer(&mut self, flow_name: String, node_idx: u32, name: String) {
+        self.runner_mut()
+            .context_set_data_array(flow_name, CallId(node_idx), DataIndex(0), name);
     }
 
     #[func]

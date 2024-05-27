@@ -103,8 +103,20 @@ impl MathFunction {
     fn compile_ir_function(&self) -> IRFunction {
         IRFunction {
             name: self.name.clone(),
-            inputs: self.inputs.iter().map(|_| IRFunctionInput).collect(),
-            outputs: self.outputs.iter().map(|_| IRFunctionOutput).collect(),
+            inputs: self
+                .inputs
+                .iter()
+                .map(|i| IRFunctionInput {
+                    type_: i.type_.into(),
+                })
+                .collect(),
+            outputs: self
+                .outputs
+                .iter()
+                .map(|o| IRFunctionOutput {
+                    type_: o.type_.into(),
+                })
+                .collect(),
             data: vec![],
             ir: self.compile_ir(),
         }

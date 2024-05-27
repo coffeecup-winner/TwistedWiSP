@@ -10,7 +10,7 @@ use twisted_wisp_protocol::{WatchIndex, WatchedDataValues};
 
 use crate::{
     audio::device::ConfiguredAudioDevice,
-    compiler::{SignalProcessCreationError, SignalProcessor, SignalProcessorBuilder},
+    compiler::{DataArray, SignalProcessCreationError, SignalProcessor, SignalProcessorBuilder},
     context::{WispContext, WispExecutionContext},
 };
 
@@ -118,6 +118,18 @@ impl<'ectx> WispRuntime<'ectx> {
                 .set_data_value(name, id, idx, value);
         } else if let Some(paused_processor) = self.paused_processor.as_mut() {
             paused_processor.0.set_data_value(name, id, idx, value);
+        }
+    }
+
+    pub fn set_data_array(&mut self, name: String, id: CallId, idx: u32, array: *mut DataArray) {
+        let mut running_processor = self.processor_mutex.borrow_mut().lock().unwrap();
+        if running_processor.is_some() {
+            running_processor
+                .as_mut()
+                .unwrap()
+                .set_data_array(name, id, idx, array);
+        } else if let Some(paused_processor) = self.paused_processor.as_mut() {
+            paused_processor.0.set_data_array(name, id, idx, array);
         }
     }
 

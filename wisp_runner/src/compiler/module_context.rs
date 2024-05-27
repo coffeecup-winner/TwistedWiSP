@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use inkwell::{
     builder::{Builder, BuilderError},
     context::Context,
@@ -11,7 +9,7 @@ use twisted_wisp_ir::IRFunction;
 
 use crate::context::WispContext;
 
-use super::{data_layout::FunctionDataLayout, error::SignalProcessCreationError};
+use super::{data_layout::DataLayout, error::SignalProcessCreationError};
 
 #[derive(Debug)]
 pub(super) struct ModuleTypes<'ectx> {
@@ -19,6 +17,8 @@ pub(super) struct ModuleTypes<'ectx> {
     pub i32: IntType<'ectx>,
     pub f32: FloatType<'ectx>,
     pub pf32: PointerType<'ectx>,
+    // Data-wide type
+    pub data: IntType<'ectx>,
 }
 
 impl<'ectx> ModuleTypes<'ectx> {
@@ -28,6 +28,7 @@ impl<'ectx> ModuleTypes<'ectx> {
             i32: context.i32_type(),
             f32: context.f32_type(),
             pf32: context.f32_type().ptr_type(AddressSpace::default()),
+            data: context.i64_type(),
         }
     }
 }
@@ -38,7 +39,7 @@ pub(super) struct ModuleContext<'ectx, 'temp> {
     pub types: ModuleTypes<'ectx>,
     pub module: &'temp Module<'ectx>,
     pub builder: Builder<'ectx>,
-    pub data_layout: HashMap<String, FunctionDataLayout>,
+    pub data_layout: &'temp DataLayout,
 }
 
 impl<'ectx, 'temp> ModuleContext<'ectx, 'temp> {
@@ -46,7 +47,7 @@ impl<'ectx, 'temp> ModuleContext<'ectx, 'temp> {
         context: &'ectx Context,
         wctx: &'temp WispContext,
         module: &'temp Module<'ectx>,
-        data_layout: HashMap<String, FunctionDataLayout>,
+        data_layout: &'temp DataLayout,
     ) -> Self {
         ModuleContext {
             wctx,

@@ -2,7 +2,7 @@ use std::{
     fs::File,
     io::{BufRead, BufReader, Write},
     path::Path,
-    process::{Child, Command, Stdio},
+    process::{Child, ChildStdout, Command, Stdio},
 };
 
 use twisted_wisp_ir::{CallId, IRFunction};
@@ -14,6 +14,7 @@ use crate::{
 
 pub struct WispRunnerClient {
     wisp_process: Child,
+    reader: BufReader<ChildStdout>,
 }
 
 impl WispRunnerClient {
@@ -30,15 +31,17 @@ impl WispRunnerClient {
         if let Some(sample_rate) = preferred_sample_rate {
             command.args(["--audio-sample-rate", &sample_rate.to_string()]);
         }
-        let child = command
+        let mut child = command
             .arg("--server")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::from(log_file))
             .spawn()
             .expect("Failed to start the client");
+        let stdout = child.stdout.take().unwrap();
         WispRunnerClient {
             wisp_process: child,
+            reader: BufReader::new(stdout),
         }
     }
 
@@ -61,9 +64,8 @@ impl WispRunnerClient {
             .unwrap()
             .write_all(command.as_bytes())
             .expect("Failed to run a command");
-        let mut reader = BufReader::new(self.wisp_process.stdout.as_mut().unwrap());
         let mut line = String::new();
-        reader
+        self.reader
             .read_line(&mut line)
             .expect("Failed to receive the response");
         WispCommandResponse::<T>::from_json(&line).unwrap()
@@ -99,6 +101,16 @@ impl WispRunnerClient {
 
     pub fn context_set_data_value(&mut self, name: String, id: CallId, idx: DataIndex, value: f32) {
         self.execute_command(WispCommand::ContextSetDataValue(name, id, idx, value))
+    }
+
+    pub fn context_set_data_array(
+        &mut self,
+        name: String,
+        id: CallId,
+        idx: DataIndex,
+        array_name: String,
+    ) {
+        self.execute_command(WispCommand::ContextSetDataArray(name, id, idx, array_name))
     }
 
     pub fn context_watch_data_value(

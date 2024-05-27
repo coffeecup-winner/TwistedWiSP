@@ -13,6 +13,7 @@ const NODE_NAME_BUTTON = "button"
 const NODE_NAME_TOGGLE = "toggle"
 const NODE_NAME_WATCH = "watch"
 const NODE_NAME_GRAPH = "graph"
+const NODE_NAME_BUFFER = "buffer"
 
 var FlowGraphNode = preload("res://flow_graph_node.tscn")
 var FlowGraphNode_HSlider = preload("res://flow_graph_node_h_slider.tscn")
@@ -193,6 +194,9 @@ func add_flow_node(func_name, idx, pos):
 	elif func_name in [NODE_NAME_WATCH, NODE_NAME_GRAPH]:
 		TwistedWisp.flow_add_watch(wisp_flow_name, idx)
 		node.add_to_group(GROUP_WATCHES)
+	elif func_name == NODE_NAME_BUFFER:
+		# TODO
+		TwistedWisp.flow_node_set_buffer(wisp_flow_name, idx, "sine")
 	
 	node.add_to_group(GROUP_NODES)
 	

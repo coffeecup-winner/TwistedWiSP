@@ -35,3 +35,46 @@ begin
 end
 
 alias graph: watch
+
+// buffer - loadable data buffer storage
+func buffer() -> (out: array)
+data
+  buf: array
+begin
+  load %temp, @buf
+  store #out, %temp
+end
+
+// read - read from an array
+func read(buf: array, idx: float) -> (value: float)
+begin
+  alloc !result
+  len %length, $buf
+  cmp.ge %comp, $idx, %length
+  if %comp
+    store !result, 0
+  else
+    iload %temp, $buf, $idx
+    store !result, %temp
+  end
+  load %temp, !result
+  store #value, %temp
+end
+
+// write - write to an array
+func write(buf: array, idx: float, value: float) -> ()
+begin
+  len %length, $buf
+  cmp.ge %comp, $idx, %length
+  if %comp
+  else
+    istore $buf, $idx, $value
+  end
+end
+
+// len - get array length
+func length(buf: array) -> (length: float)
+begin
+  len %temp, $buf
+  store #length, %temp
+end

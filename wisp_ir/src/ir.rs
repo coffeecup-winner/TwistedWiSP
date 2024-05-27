@@ -26,6 +26,7 @@ pub enum Operand {
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub enum Constant {
     SampleRate,
+    EmptyArray,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
@@ -72,6 +73,10 @@ pub enum Instruction {
     Load(VarRef, SourceLocation),
     Store(TargetLocation, Operand),
 
+    ILoad(VarRef, Operand, Operand),
+    IStore(Operand, Operand, Operand),
+    Len(VarRef, Operand),
+
     BinaryOp(VarRef, BinaryOpType, Operand, Operand),
     ComparisonOp(VarRef, ComparisonOpType, Operand, Operand),
 
@@ -79,5 +84,5 @@ pub enum Instruction {
 
     Call(CallId, String, Vec<Operand>, Vec<VarRef>),
 
-    Debug(VarRef),
+    Debug(Operand),
 }

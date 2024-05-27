@@ -67,6 +67,17 @@ pub fn main(mut wisp: WispContext, device: ConfiguredAudioDevice) -> Result<(), 
                 // TODO: Async update
                 reply(&output, WispCommandResponse::Ok(()))
             }
+            WispCommand::ContextSetDataArray(name, id, idx, array_name) => {
+                let resp = match wisp.get_data_array(&array_name) {
+                    Some(array) => {
+                        runtime.set_data_array(name, id, idx.0, array);
+                        WispCommandResponse::Ok(())
+                    }
+                    None => WispCommandResponse::<()>::NonFatalFailure,
+                };
+                // TODO: Async update
+                reply(&output, resp)
+            }
             WispCommand::ContextWatchDataValue(name, id, idx) => {
                 let idx = runtime.watch_data_value(name, id, idx.0);
                 reply(&output, WispCommandResponse::Ok(idx))

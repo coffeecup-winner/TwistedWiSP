@@ -1211,6 +1211,7 @@ name = "twisted-wisp-gui-extension"
 version = "0.1.0"
 dependencies = [
  "godot",
+ "log",
  "twisted-wisp",
  "twisted-wisp-ir",
  "twisted-wisp-protocol",
@@ -1227,6 +1228,7 @@ dependencies = [
 name = "twisted-wisp-protocol"
 version = "0.1.0"
 dependencies = [
+ "log",
  "serde",
  "serde_json",
  "twisted-wisp-ir",

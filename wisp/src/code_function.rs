@@ -50,9 +50,27 @@ impl WispFunction for CodeFunction {
     fn get_ir_function(&self, _ctx: &WispContext) -> IRFunction {
         IRFunction {
             name: self.name.clone(),
-            inputs: self.inputs.iter().map(|_| IRFunctionInput).collect(),
-            outputs: self.outputs.iter().map(|_| IRFunctionOutput).collect(),
-            data: self.data.iter().map(|_| IRFunctionDataItem).collect(),
+            inputs: self
+                .inputs
+                .iter()
+                .map(|i| IRFunctionInput {
+                    type_: i.type_.into(),
+                })
+                .collect(),
+            outputs: self
+                .outputs
+                .iter()
+                .map(|o| IRFunctionOutput {
+                    type_: o.type_.into(),
+                })
+                .collect(),
+            data: self
+                .data
+                .iter()
+                .map(|d| IRFunctionDataItem {
+                    type_: d.type_.into(),
+                })
+                .collect(),
             ir: self.ir.clone(),
         }
     }
@@ -86,13 +104,14 @@ impl WispFunction for CodeFunction {
         }
         s.push_str(&format!("func {}(", self.name));
         for (idx, input) in self.inputs.iter().enumerate() {
-            if input.fallback != DefaultInputValue::Value(0.0) {
+            if input.type_ == DataType::Float && input.fallback != DefaultInputValue::Value(0.0) {
                 let fallback = format!(
                     "[default: {}] ",
                     match input.fallback {
                         DefaultInputValue::Value(v) => format!("{}", v),
                         DefaultInputValue::Normal => "normal".into(),
                         DefaultInputValue::Skip => "skip".into(),
+                        DefaultInputValue::EmptyArray => unreachable!(),
                     }
                 );
                 s.push_str(fallback.as_str());
@@ -127,6 +146,7 @@ impl WispFunction for CodeFunction {
                 let format_operand = |op: &Operand| match op {
                     Operand::Constant(c) => match c {
                         Constant::SampleRate => "SampleRate".to_owned(),
+                        Constant::EmptyArray => "EmptyArray".to_owned(),
                     },
                     Operand::Literal(value) => format!("{}", value),
                     Operand::Var(vref) => format!("%{}", vref.0),
@@ -157,6 +177,25 @@ impl WispFunction for CodeFunction {
                         },
                         format_operand(op)
                     )],
+                    Instruction::ILoad(vref, op_array, op_idx) => {
+                        vec![format!(
+                            "iload %{}, {}, {}",
+                            vref.0,
+                            format_operand(op_array),
+                            format_operand(op_idx)
+                        )]
+                    }
+                    Instruction::IStore(op_array, op_idx, op_value) => {
+                        vec![format!(
+                            "istore {}, {}, {}",
+                            format_operand(op_array),
+                            format_operand(op_idx),
+                            format_operand(op_value)
+                        )]
+                    }
+                    Instruction::Len(vref, op_array) => {
+                        vec![format!("len %{}, {}", vref.0, format_operand(op_array))]
+                    }
                     Instruction::BinaryOp(vref, type_, op0, op1) => vec![format!(
                         "{} %{}, {}, {}",
                         match type_ {
@@ -221,7 +260,7 @@ impl WispFunction for CodeFunction {
                             .collect::<Vec<_>>()
                             .join(", ")
                     )],
-                    Instruction::Debug(vref) => vec![format!("debug %{}", vref.0)],
+                    Instruction::Debug(op) => vec![format!("debug {}", format_operand(op))],
                 }
             }
             for line in format_insn(insn, &self.inputs, &self.outputs, &self.data) {
@@ -291,10 +330,16 @@ enum Token {
     Else,
     #[token("alloc")]
     Alloc,
-    #[token("store")]
-    Store,
     #[token("load")]
     Load,
+    #[token("store")]
+    Store,
+    #[token("istore")]
+    IStore,
+    #[token("iload")]
+    ILoad,
+    #[token("len")]
+    Len,
     #[token("add")]
     Add,
     #[token("sub")]
@@ -410,7 +455,11 @@ impl<'source> CodeFunctionParser<'source> {
                         },
                         _ => return None,
                     };
-                    let mut fallback = DefaultInputValue::Value(0.0);
+                    let mut fallback = if input_type == DataType::Float {
+                        DefaultInputValue::Value(0.0)
+                    } else {
+                        DefaultInputValue::EmptyArray
+                    };
                     if let Some(attrs) = input_attrs.as_mut() {
                         if let Some(v) = attrs.remove("default") {
                             fallback = match v {
@@ -421,7 +470,14 @@ impl<'source> CodeFunctionParser<'source> {
                                 },
                                 Some(Token::F32(v)) => DefaultInputValue::Value(v),
                                 Some(Token::U32(v)) => DefaultInputValue::Value(v as f32),
-                                None => DefaultInputValue::Value(0.0),
+                                None => {
+                                    // TODO: Remove duplication
+                                    if input_type == DataType::Float {
+                                        DefaultInputValue::Value(0.0)
+                                    } else {
+                                        DefaultInputValue::EmptyArray
+                                    }
+                                }
                                 _ => return None,
                             }
                         }
@@ -456,7 +512,6 @@ impl<'source> CodeFunctionParser<'source> {
                     break;
                 }
                 Token::Identifier(id) => {
-                    let _output_name = id.to_owned();
                     self.expect_token(Token::Colon)?;
                     let output_type = match self.next_token()? {
                         Token::Identifier(id) => match id.as_str() {
@@ -588,17 +643,39 @@ impl<'source> CodeFunctionParser<'source> {
                 Token::Alloc => {
                     instructions.push(Instruction::AllocLocal(self.parse_lref(symbols, true)?))
                 }
+                Token::Load => {
+                    let var_ref = self.parse_vref(symbols, true)?;
+                    self.expect_token(Token::Comma)?;
+                    let source_location = self.parse_sloc(symbols)?;
+                    instructions.push(Instruction::Load(var_ref, source_location));
+                }
                 Token::Store => {
                     let target_location = self.parse_tloc(symbols)?;
                     self.expect_token(Token::Comma)?;
                     let operand = self.parse_op(symbols)?;
                     instructions.push(Instruction::Store(target_location, operand));
                 }
-                Token::Load => {
-                    let var_ref = self.parse_vref(symbols, true)?;
+                Token::ILoad => {
+                    let vref = self.parse_vref(symbols, true)?;
                     self.expect_token(Token::Comma)?;
-                    let source_location = self.parse_sloc(symbols)?;
-                    instructions.push(Instruction::Load(var_ref, source_location));
+                    let op_array = self.parse_op(symbols)?;
+                    self.expect_token(Token::Comma)?;
+                    let op_idx = self.parse_op(symbols)?;
+                    instructions.push(Instruction::ILoad(vref, op_array, op_idx));
+                }
+                Token::IStore => {
+                    let op_array = self.parse_op(symbols)?;
+                    self.expect_token(Token::Comma)?;
+                    let op_idx = self.parse_op(symbols)?;
+                    self.expect_token(Token::Comma)?;
+                    let op_value = self.parse_op(symbols)?;
+                    instructions.push(Instruction::IStore(op_array, op_idx, op_value));
+                }
+                Token::Len => {
+                    let vref = self.parse_vref(symbols, true)?;
+                    self.expect_token(Token::Comma)?;
+                    let op_array = self.parse_op(symbols)?;
+                    instructions.push(Instruction::Len(vref, op_array));
                 }
                 t @ Token::Add
                 | t @ Token::Sub
@@ -677,9 +754,7 @@ impl<'source> CodeFunctionParser<'source> {
                     }
                     instructions.push(Instruction::Call(CallId(id), name, inputs, outputs));
                 }
-                Token::Debug => {
-                    instructions.push(Instruction::Debug(self.parse_vref(symbols, false)?))
-                }
+                Token::Debug => instructions.push(Instruction::Debug(self.parse_op(symbols)?)),
                 _ => return None,
             }
         }

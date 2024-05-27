@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use crate::{context::WispContext, FlowFunction};
 
-use twisted_wisp_ir::{DataRef, IRFunction};
+use twisted_wisp_ir::{DataRef, IRFunction, IRFunctionDataType};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum DataType {
@@ -15,6 +15,15 @@ impl DataType {
         match self {
             DataType::Float => "float",
             DataType::Array => "array",
+        }
+    }
+}
+
+impl From<DataType> for IRFunctionDataType {
+    fn from(data_type: DataType) -> Self {
+        match data_type {
+            DataType::Float => IRFunctionDataType::Float,
+            DataType::Array => IRFunctionDataType::Array,
         }
     }
 }
@@ -34,6 +43,8 @@ pub enum DefaultInputValue {
     Normal,
     // Don't call this function (must have a lag value to use instead)
     Skip,
+    // Empty data array
+    EmptyArray,
 }
 
 impl FunctionInput {

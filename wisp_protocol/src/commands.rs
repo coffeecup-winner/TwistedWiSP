@@ -33,6 +33,7 @@ pub enum WispCommand {
     ContextRemoveFunction(String),
     ContextSetMainFunction(String),
     ContextSetDataValue(String, CallId, DataIndex, f32),
+    ContextSetDataArray(String, CallId, DataIndex, String),
     ContextWatchDataValue(String, CallId, DataIndex), // -> Option<WatchIndex>
     ContextUnwatchDataValue(WatchIndex),
     ContextQueryWatchedDataValues, // -> WatchedDataValues

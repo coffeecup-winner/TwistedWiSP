@@ -10,7 +10,7 @@ use petgraph::{
 use crate::{context::WispContext, DefaultInputValue, FunctionInput, FunctionOutput, WispFunction};
 
 use twisted_wisp_ir::{
-    BinaryOpType, CallId, IRFunction, Instruction, Operand, SourceLocation, VarRef,
+    BinaryOpType, CallId, Constant, IRFunction, Instruction, Operand, SourceLocation, VarRef,
 };
 
 #[derive(Debug, Clone)]
@@ -381,6 +381,10 @@ impl FlowFunction {
                             );
                             // Skip this call
                             continue 'nodes;
+                        }
+                        DefaultInputValue::EmptyArray => {
+                            // Empty array
+                            inputs.push(Operand::Constant(Constant::EmptyArray));
                         }
                     }
                 }

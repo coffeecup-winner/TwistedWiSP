@@ -3,6 +3,8 @@ use std::collections::{hash_map, HashMap};
 use inkwell::context::Context;
 use twisted_wisp_ir::IRFunction;
 
+use crate::compiler::DataArray;
+
 pub struct WispExecutionContext {
     context: Context,
 }
@@ -19,12 +21,19 @@ impl WispExecutionContext {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct WispDataArray {
+    pub data: Vec<f32>,
+    pub array: *mut DataArray,
+}
+
 #[derive(Debug, Default)]
 pub struct WispContext {
     num_outputs: u32,
     sample_rate: u32,
     functions: HashMap<String, IRFunction>,
     main_function: String,
+    data_arrays: HashMap<String, WispDataArray>,
 }
 
 impl WispContext {
@@ -71,5 +80,26 @@ impl WispContext {
 
     pub fn main_function(&self) -> &str {
         &self.main_function
+    }
+
+    pub fn add_builtin_data_arrays(&mut self) {
+        const LENGTH: usize = 1024;
+        let mut data = vec![0.0; LENGTH];
+        const STEP: f32 = 2.0 * std::f32::consts::PI / (LENGTH as f32);
+        for (i, value) in data.iter_mut().enumerate() {
+            *value = (i as f32 * STEP).sin();
+        }
+        self.add_data_array("sine".into(), data);
+    }
+
+    pub fn add_data_array(&mut self, array_name: String, mut data: Vec<f32>) {
+        data.insert(0, f32::from_bits(data.len() as u32));
+        let array = data.as_mut_ptr() as *mut DataArray;
+        self.data_arrays
+            .insert(array_name, WispDataArray { data, array });
+    }
+
+    pub fn get_data_array(&mut self, array_name: &str) -> Option<*mut DataArray> {
+        self.data_arrays.get_mut(array_name).map(|a| a.array)
     }
 }

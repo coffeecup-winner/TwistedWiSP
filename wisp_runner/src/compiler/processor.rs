@@ -4,7 +4,7 @@ use ringbuffer::{AllocRingBuffer, RingBuffer};
 use twisted_wisp_ir::CallId;
 use twisted_wisp_protocol::{WatchIndex, WatchedDataValues};
 
-use super::data_layout::FunctionDataLayout;
+use super::data_layout::{DataArray, DataLayout, DataValue};
 
 pub struct SignalProcessorContext {
     pub p_output: *mut f32,
@@ -12,7 +12,7 @@ pub struct SignalProcessorContext {
 unsafe impl Send for SignalProcessorContext {}
 unsafe impl Sync for SignalProcessorContext {}
 
-type ProcessFn = unsafe extern "C" fn(*mut f32);
+type ProcessFn = unsafe extern "C" fn(*mut DataValue);
 
 struct Watch {
     data_offset: u32,
@@ -24,10 +24,10 @@ pub struct SignalProcessor {
     ctx: Box<SignalProcessorContext>,
     function: ProcessFn,
     name: String,
-    data_layout: HashMap<String, FunctionDataLayout>,
+    data_layout: DataLayout,
     num_outputs: usize,
     // Fields below are mutable and need to be copy over to the new instance
-    data: Vec<f32>,
+    data: Vec<DataValue>,
     watch_id_gen: u32,
     watches: HashMap<WatchIndex, Watch>,
     elapsed_ticks: u32,
@@ -38,17 +38,17 @@ impl SignalProcessor {
         ctx: Box<SignalProcessorContext>,
         name: &str,
         function: ProcessFn,
-        data_layout: HashMap<String, FunctionDataLayout>,
+        data_layout: DataLayout,
         num_outputs: u32,
     ) -> Self {
-        let data_length = data_layout.get(name).map_or(0, |l| l.total_size);
+        let data = data_layout.create_data(name);
         SignalProcessor {
             ctx,
             function,
             name: name.to_string(),
             data_layout,
             num_outputs: num_outputs as usize,
-            data: vec![0.0; data_length as usize],
+            data,
             watch_id_gen: 0,
             watches: HashMap::new(),
             elapsed_ticks: 0,
@@ -62,7 +62,8 @@ impl SignalProcessor {
             // Capture watch values before processing to have 0-based sample index
             for watch in &mut self.watches.values_mut() {
                 if self.elapsed_ticks % watch.rate == 0 {
-                    watch.history.push(self.data[watch.data_offset as usize]);
+                    let value = self.data[watch.data_offset as usize];
+                    watch.history.push(value.as_float());
                 }
             }
 
@@ -126,11 +127,11 @@ impl SignalProcessor {
         layout: &mut HashMap<String, u32>,
     ) {
         let data_layout = self.data_layout.get(name).unwrap();
-        for (id, offset) in &data_layout.own_data_offsets {
-            current_offset += *offset;
+        for (id, offset) in &data_layout.own_data_items {
+            current_offset += offset.offset;
             layout.insert(format!("{}{}@{}", prefix, name, id.0), current_offset);
         }
-        for (id, (child_name, offset)) in &data_layout.children_data_offsets {
+        for (id, (child_name, offset)) in &data_layout.children_data_items {
             self.build_data_layout(
                 child_name,
                 &format!("{}{}#{}.", prefix, name, id.0),
@@ -148,21 +149,31 @@ impl SignalProcessor {
         value: f32,
     ) -> Option<()> {
         let data_layout = self.data_layout.get(&name)?;
-        let (_, child_offset) = data_layout.children_data_offsets.get(&id)?;
+        let (_, child_offset) = data_layout.children_data_items.get(&id)?;
         // TODO: Add data index within child using idx
         let data = self.data.get_mut(*child_offset as usize)?;
-        *data = value;
+        *data = DataValue::new_float(value);
         Some(())
     }
 
-    #[allow(dead_code)]
-    pub fn data(&self) -> &[f32] {
-        &self.data
+    pub fn set_data_array(
+        &mut self,
+        name: String,
+        id: CallId,
+        _idx: u32,
+        array: *mut DataArray,
+    ) -> Option<()> {
+        let data_layout = self.data_layout.get(&name)?;
+        let (_, child_offset) = data_layout.children_data_items.get(&id)?;
+        // TODO: Add data index within child using idx
+        let data = self.data.get_mut(*child_offset as usize)?;
+        *data = DataValue::new_array(array);
+        Some(())
     }
 
     pub fn watch_data_value(&mut self, name: String, id: CallId, _idx: u32) -> Option<WatchIndex> {
         let data_layout = self.data_layout.get(&name)?;
-        let (_, child_offset) = data_layout.children_data_offsets.get(&id)?;
+        let (_, child_offset) = data_layout.children_data_items.get(&id)?;
         // TODO: Add data index within child using idx
         let idx = WatchIndex(self.watch_id_gen);
         self.watch_id_gen += 1;
@@ -184,7 +195,14 @@ impl SignalProcessor {
     pub fn query_watched_data_value(&mut self) -> WatchedDataValues {
         let mut values = HashMap::new();
         for (idx, watch) in &mut self.watches {
-            values.insert(*idx, watch.history.drain().collect());
+            let mut history: Vec<_> = watch.history.drain().collect();
+            // NaNs are serialized as nulls and can't be deserialized as f32, easier to zero them out
+            for v in history.iter_mut() {
+                if v.is_nan() {
+                    *v = 0.0;
+                }
+            }
+            values.insert(*idx, history);
         }
         WatchedDataValues { values }
     }

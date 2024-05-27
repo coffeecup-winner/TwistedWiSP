@@ -3,13 +3,25 @@ use serde::{Deserialize, Serialize};
 use crate::Instruction;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct IRFunctionInput;
+pub enum IRFunctionDataType {
+    Float,
+    Array,
+}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct IRFunctionOutput;
+pub struct IRFunctionInput {
+    pub type_: IRFunctionDataType,
+}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct IRFunctionDataItem;
+pub struct IRFunctionOutput {
+    pub type_: IRFunctionDataType,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct IRFunctionDataItem {
+    pub type_: IRFunctionDataType,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IRFunction {
