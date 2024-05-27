@@ -141,9 +141,17 @@ impl TwistedWispSingleton {
     #[func]
     fn function_get_metadata(&mut self, name: String) -> Dictionary {
         let func = self.ctx_mut().get_function(&name).unwrap();
+        let mut inputs = Array::new();
+        for i in 0..func.inputs_count() {
+            inputs.push(func.input(i).unwrap().type_.to_str().into_godot());
+        }
+        let mut outputs = Array::new();
+        for i in 0..func.outputs_count() {
+            outputs.push(func.output(i).unwrap().type_.to_str().into_godot());
+        }
         dict! {
-            "num_inlets": func.inputs_count(),
-            "num_outlets": func.outputs_count(),
+            "inlets": inputs,
+            "outlets": outputs,
         }
     }
 

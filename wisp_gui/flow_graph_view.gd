@@ -145,8 +145,22 @@ func create_node(func_name):
 		_: return FlowGraphNode.instantiate()
 
 
+func data_type_to_slot_type(data_type):
+	match data_type:
+		"float": return 0
+		"array": return 1
+		_: return -1
+
+
+func slot_type_to_color(slot_type) -> Color:
+	match slot_type:
+		0: return Color.WHITE
+		1: return Color.GRAY
+		_: return Color.RED
+
+
 func add_flow_node(func_name, idx, pos):
-	var node
+	var node: GraphNode
 	var display_name = func_name
 	if idx == null:
 		var result = TwistedWisp.flow_add_node(wisp_flow_name, func_name)
@@ -178,16 +192,24 @@ func add_flow_node(func_name, idx, pos):
 	node.title = display_name
 	
 	var metadata = TwistedWisp.function_get_metadata(func_name)
-	var rows_count = max(metadata.num_inlets, metadata.num_outlets)
+	var rows_count = max(len(metadata.inlets), len(metadata.outlets))
 	
 	while (node.get_child_count() < rows_count):
 		node.add_child(Label.new())
 	
-	for i in range(0, metadata.num_inlets):
+	for i in range(0, len(metadata.inlets)):
+		var inlet = metadata.inlets[i]
 		node.set_slot_enabled_left(i, true)
+		var slot_type = data_type_to_slot_type(inlet)
+		node.set_slot_type_left(i, slot_type)
+		node.set_slot_color_left(i, slot_type_to_color(slot_type))
 	
-	for i in range(0, metadata.num_outlets):
+	for i in range(0, len(metadata.outlets)):
+		var outlet = metadata.outlets[i]
 		node.set_slot_enabled_right(i, true) 
+		var slot_type = data_type_to_slot_type(outlet)
+		node.set_slot_type_right(i, slot_type)
+		node.set_slot_color_right(i, slot_type_to_color(slot_type))
 	
 	if func_name in [NODE_NAME_CONTROL, NODE_NAME_BUTTON, NODE_NAME_TOGGLE]:
 		node.connect("value_changed", _on_control_value_changed)
