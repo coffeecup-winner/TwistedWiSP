@@ -148,6 +148,8 @@ impl WispFunction for FlowFunction {
             self.graph.node_count(),
             self.graph.edge_count()
         ));
+        let mut node_idx_map = HashMap::new();
+        let mut sequential_index = 0;
         for idx in self.graph.node_indices() {
             let n = self.graph.node_weight(idx).unwrap();
             s.push_str(&format!(
@@ -155,15 +157,17 @@ impl WispFunction for FlowFunction {
                 n.name, n.data.x, n.data.y, n.data.w, n.data.h
             ));
             s.push_str(&format!("{}\n", n.display_text));
+            node_idx_map.insert(idx.index(), sequential_index);
+            sequential_index += 1;
         }
         for idx in self.graph.edge_indices() {
             let endpoints = self.graph.edge_endpoints(idx).unwrap();
             let e = self.graph.edge_weight(idx).unwrap();
             s.push_str(&format!(
                 "{} {} {} {}\n",
-                endpoints.0.index(),
+                node_idx_map[&endpoints.0.index()],
                 e.output_index,
-                endpoints.1.index(),
+                node_idx_map[&endpoints.1.index()],
                 e.input_index
             ))
         }
