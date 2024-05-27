@@ -37,6 +37,8 @@ pub enum WispCommand {
     ContextWatchDataValue(String, CallId, DataIndex), // -> Option<WatchIndex>
     ContextUnwatchDataValue(WatchIndex),
     ContextQueryWatchedDataValues, // -> WatchedDataValues
+    ContextLoadWaveFile(String, String),
+    ContextUnloadWaveFile(String),
     ContextUpdate,
 }
 

@@ -27,6 +27,8 @@ var FlowGraphNodeSelector = preload("res://flow_graph_node_selector.tscn")
 func _ready():
 	connect("connection_request", _on_connection_request)
 	connect("disconnection_request", _on_disconnection_request)
+	# TODO: Remove this and implement sample/array management
+	TwistedWisp.load_wave_file("beat", "../../data/beat.wav")
 
 
 func _is_node_hover_valid(from_node: StringName, _from_port: int, to_node: StringName, _to_port: int) -> bool:
@@ -227,7 +229,7 @@ func add_flow_node(func_name, idx, pos):
 		node.add_to_group(GROUP_WATCHES)
 	elif func_name == NODE_NAME_BUFFER:
 		# TODO
-		TwistedWisp.flow_node_set_buffer(wisp_flow_name, idx, "sine")
+		TwistedWisp.flow_node_set_buffer(wisp_flow_name, idx, "beat")
 	
 	node.add_to_group(GROUP_NODES)
 	

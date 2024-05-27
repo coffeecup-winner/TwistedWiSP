@@ -149,7 +149,9 @@ impl SignalProcessorBuilder {
             let options = PassBuilderOptions::create();
             options.set_merge_functions(true);
 
-            const PASSES: &str = "inline,mem2reg,instcombine,gvn";
+            // TODO: This crashes LLVM sometimes, investigate
+            // const PASSES: &str = "inline,mem2reg,instcombine,gvn";
+            const PASSES: &str = "mem2reg";
             module
                 .run_passes(PASSES, &target_machine, options)
                 .expect("Failed to run optimization passes");

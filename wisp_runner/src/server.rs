@@ -90,6 +90,20 @@ pub fn main(mut wisp: WispContext, device: ConfiguredAudioDevice) -> Result<(), 
                 let values = runtime.query_watched_data_values();
                 reply(&output, WispCommandResponse::Ok(values))
             }
+            WispCommand::ContextLoadWaveFile(name, filepath) => {
+                let resp = match wisp.load_wave_file(&name, &filepath) {
+                    Ok(()) => WispCommandResponse::Ok(()),
+                    Err(e) => {
+                        log::error!("Failed to load wave file: {}", e);
+                        WispCommandResponse::<()>::NonFatalFailure
+                    }
+                };
+                reply(&output, resp)
+            }
+            WispCommand::ContextUnloadWaveFile(name) => {
+                wisp.unload_wave_file(&name);
+                reply(&output, WispCommandResponse::Ok(()))
+            }
             WispCommand::ContextUpdate => {
                 runtime.switch_to_signal_processor(
                     &execution_context,

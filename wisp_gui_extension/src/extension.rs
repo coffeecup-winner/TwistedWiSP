@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use godot::{engine::Engine, prelude::*};
 
@@ -49,6 +49,7 @@ struct FlowNodeAddResult {
 #[class(init, base=Object)]
 struct TwistedWispSingleton {
     base: Base<Object>,
+    core_path: PathBuf,
     runner: Option<WispRunnerClient>,
     ctx: Option<WispContext>,
 }
@@ -76,6 +77,7 @@ impl TwistedWispSingleton {
             runner.context_add_or_update_function(f.get_ir_function(&ctx));
         }
 
+        self.core_path = PathBuf::from(wisp_core_path);
         self.runner = Some(runner);
         self.ctx = Some(ctx);
 
@@ -104,6 +106,16 @@ impl TwistedWispSingleton {
     fn dsp_stop(&mut self) {
         godot::log::godot_print!("disable_dsp");
         self.runner_mut().dsp_stop();
+    }
+
+    #[func]
+    fn load_wave_file(&mut self, name: String, filepath: String) {
+        let mut path = PathBuf::from(filepath);
+        if !path.is_absolute() {
+            path = self.core_path.join(path);
+        }
+        self.runner_mut()
+            .context_load_wave_file(name, path.to_str().unwrap().to_owned());
     }
 
     #[func]
