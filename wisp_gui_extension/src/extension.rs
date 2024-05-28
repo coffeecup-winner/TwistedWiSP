@@ -190,6 +190,7 @@ impl TwistedWispSingleton {
         for f in ir_functions {
             runner.context_add_or_update_function(f);
         }
+        runner.context_set_main_function(result.name.clone());
         if result.replaced_existing {
             runner.context_update();
         }
