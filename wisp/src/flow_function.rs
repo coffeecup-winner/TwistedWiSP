@@ -56,20 +56,12 @@ impl WispFunction for FlowFunction {
         &self.name
     }
 
-    fn inputs_count(&self) -> u32 {
-        self.inputs.len() as u32
+    fn inputs(&self) -> &[FunctionInput] {
+        &self.inputs
     }
 
-    fn input(&self, _idx: u32) -> Option<&FunctionInput> {
-        self.inputs.get(_idx as usize)
-    }
-
-    fn outputs_count(&self) -> u32 {
-        self.outputs.len() as u32
-    }
-
-    fn output(&self, _idx: u32) -> Option<&FunctionOutput> {
-        self.outputs.get(_idx as usize)
+    fn outputs(&self) -> &[FunctionOutput] {
+        &self.outputs
     }
 
     fn get_ir_function(&self, ctx: &WispContext) -> IRFunction {
@@ -352,10 +344,10 @@ impl FlowFunction {
                 .expect("Failed to find function");
 
             let mut inputs = vec![];
-            for idx in 0..func.inputs_count() {
+            for (idx, input) in func.inputs().iter().enumerate() {
                 // Add all incoming signals to the input list
                 for e in self.graph.edges_directed(n, Direction::Incoming) {
-                    if e.weight().input_index != idx {
+                    if e.weight().input_index != idx as u32 {
                         continue;
                     }
                     let source_func = ctx
@@ -386,7 +378,7 @@ impl FlowFunction {
                     }
                 }
                 // If there are several signals for this input, combine them
-                while (inputs.len() as u32) > idx + 1 {
+                while inputs.len() > idx + 1 {
                     let vref0 = inputs.pop().unwrap();
                     let vref1 = inputs.pop().unwrap();
                     let vref_result = VarRef(vref_id);
@@ -400,13 +392,13 @@ impl FlowFunction {
                     inputs.push(Operand::Var(vref_result));
                 }
                 // If there are not enough inputs, add a fallback value
-                if (inputs.len() as u32) < idx + 1 {
-                    match func.input(idx).unwrap().fallback {
+                if inputs.len() < idx + 1 {
+                    match input.fallback {
                         DefaultInputValue::Value(v) => {
                             inputs.push(Operand::Literal(v));
                         }
                         DefaultInputValue::Normal => {
-                            inputs.push(inputs[(idx - 1) as usize]);
+                            inputs.push(inputs[idx - 1]);
                         }
                         DefaultInputValue::Skip => {
                             assert!(
@@ -445,11 +437,11 @@ impl FlowFunction {
                 }
             } else {
                 let mut outputs = vec![];
-                for idx in 0..func.outputs_count() {
+                for (idx, _) in func.outputs().iter().enumerate() {
                     let vref = VarRef(vref_id);
                     outputs.push(vref);
                     vref_id += 1;
-                    output_vrefs.insert((n, idx), vref);
+                    output_vrefs.insert((n, idx as u32), vref);
                 }
                 instructions.push(Instruction::Call(
                     CallId(n.index() as u32),

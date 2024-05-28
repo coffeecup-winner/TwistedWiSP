@@ -29,20 +29,12 @@ impl WispFunction for MathFunction {
         &self.name
     }
 
-    fn inputs_count(&self) -> u32 {
-        self.inputs.len() as u32
+    fn inputs(&self) -> &[FunctionInput] {
+        &self.inputs
     }
 
-    fn input(&self, idx: u32) -> Option<&FunctionInput> {
-        self.inputs.get(idx as usize)
-    }
-
-    fn outputs_count(&self) -> u32 {
-        self.outputs.len() as u32
-    }
-
-    fn output(&self, idx: u32) -> Option<&FunctionOutput> {
-        self.outputs.get(idx as usize)
+    fn outputs(&self) -> &[FunctionOutput] {
+        &self.outputs
     }
 
     fn get_ir_function(&self, _ctx: &WispContext) -> IRFunction {
@@ -243,8 +235,8 @@ mod tests {
     fn parse_function(s: &str, expected_inputs_count: u32) -> MathFunction {
         let func = MathFunctionParser::parse_function("test", 0, s).unwrap();
         assert_eq!("$math$test$0", func.name());
-        assert_eq!(expected_inputs_count, func.inputs_count());
-        assert_eq!(1, func.outputs_count());
+        assert_eq!(expected_inputs_count, func.inputs().len() as u32);
+        assert_eq!(1, func.outputs().len());
         func
     }
 
@@ -422,8 +414,8 @@ mod tests {
         let ctx = WispContext::new(2);
         let ir_func = f.get_ir_function(&ctx);
         assert_eq!(f.name(), ir_func.name);
-        assert_eq!(f.inputs_count(), ir_func.inputs.len() as u32);
-        assert_eq!(f.outputs_count(), ir_func.outputs.len() as u32);
+        assert_eq!(f.inputs().len(), ir_func.inputs.len());
+        assert_eq!(f.outputs().len(), ir_func.outputs.len());
         ir_func
     }
 

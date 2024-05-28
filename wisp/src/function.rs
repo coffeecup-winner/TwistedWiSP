@@ -83,10 +83,8 @@ impl FunctionDataItem {
 
 pub trait WispFunction: Debug {
     fn name(&self) -> &str;
-    fn inputs_count(&self) -> u32;
-    fn input(&self, idx: u32) -> Option<&FunctionInput>;
-    fn outputs_count(&self) -> u32;
-    fn output(&self, idx: u32) -> Option<&FunctionOutput>;
+    fn inputs(&self) -> &[FunctionInput];
+    fn outputs(&self) -> &[FunctionOutput];
     fn get_ir_function(&self, ctx: &WispContext) -> IRFunction;
 
     fn lag_value(&self) -> Option<DataRef> {

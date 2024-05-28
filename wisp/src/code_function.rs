@@ -31,20 +31,12 @@ impl WispFunction for CodeFunction {
         &self.name
     }
 
-    fn inputs_count(&self) -> u32 {
-        self.inputs.len() as u32
+    fn inputs(&self) -> &[FunctionInput] {
+        &self.inputs
     }
 
-    fn input(&self, idx: u32) -> Option<&FunctionInput> {
-        self.inputs.get(idx as usize)
-    }
-
-    fn outputs_count(&self) -> u32 {
-        self.outputs.len() as u32
-    }
-
-    fn output(&self, idx: u32) -> Option<&FunctionOutput> {
-        self.outputs.get(idx as usize)
+    fn outputs(&self) -> &[FunctionOutput] {
+        &self.outputs
     }
 
     fn get_ir_function(&self, _ctx: &WispContext) -> IRFunction {
