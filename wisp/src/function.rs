@@ -83,9 +83,10 @@ impl FunctionDataItem {
 
 pub trait WispFunction: Debug {
     fn name(&self) -> &str;
+    fn name_mut(&mut self) -> &mut String;
     fn inputs(&self) -> &[FunctionInput];
     fn outputs(&self) -> &[FunctionOutput];
-    fn get_ir_function(&self, ctx: &WispContext) -> IRFunction;
+    fn get_ir_functions(&self, ctx: &WispContext) -> Vec<IRFunction>;
 
     fn lag_value(&self) -> Option<DataRef> {
         None
@@ -102,5 +103,5 @@ pub trait WispFunction: Debug {
         Self: Sized;
     fn save(&self) -> String;
 
-    fn create_alias(&self, name: String) -> Box<dyn WispFunction>;
+    fn clone(&self) -> Box<dyn WispFunction>;
 }

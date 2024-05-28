@@ -50,8 +50,10 @@ pub fn main(mut wisp: WispContext, device: ConfiguredAudioDevice) -> Result<(), 
                 wisp.reset();
                 reply(&output, WispCommandResponse::Ok(()))
             }
-            WispCommand::ContextAddOrUpdateFunction(func) => {
-                wisp.add_function(func);
+            WispCommand::ContextAddOrUpdateFunctions(functions) => {
+                for func in functions {
+                    wisp.add_function(func);
+                }
                 reply(&output, WispCommandResponse::Ok(()))
             }
             WispCommand::ContextRemoveFunction(name) => {

@@ -87,8 +87,8 @@ impl WispRunnerClient {
         self.execute_command(WispCommand::ContextReset)
     }
 
-    pub fn context_add_or_update_function(&mut self, func: IRFunction) {
-        self.execute_command(WispCommand::ContextAddOrUpdateFunction(func))
+    pub fn context_add_or_update_functions(&mut self, functions: Vec<IRFunction>) {
+        self.execute_command(WispCommand::ContextAddOrUpdateFunctions(functions))
     }
 
     pub fn context_remove_function(&mut self, name: String) {

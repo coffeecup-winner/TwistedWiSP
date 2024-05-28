@@ -31,6 +31,10 @@ impl WispFunction for CodeFunction {
         &self.name
     }
 
+    fn name_mut(&mut self) -> &mut String {
+        &mut self.name
+    }
+
     fn inputs(&self) -> &[FunctionInput] {
         &self.inputs
     }
@@ -39,8 +43,8 @@ impl WispFunction for CodeFunction {
         &self.outputs
     }
 
-    fn get_ir_function(&self, _ctx: &WispContext) -> IRFunction {
-        IRFunction {
+    fn get_ir_functions(&self, _ctx: &WispContext) -> Vec<IRFunction> {
+        vec![IRFunction {
             name: self.name.clone(),
             inputs: self
                 .inputs
@@ -64,7 +68,7 @@ impl WispFunction for CodeFunction {
                 })
                 .collect(),
             ir: self.ir.clone(),
-        }
+        }]
     }
 
     fn lag_value(&self) -> Option<DataRef> {
@@ -80,8 +84,9 @@ impl WispFunction for CodeFunction {
             .and_then(|r| match r {
                 CodeFunctionParseResult::Function(f) => Some(Box::new(f) as Box<dyn WispFunction>),
                 CodeFunctionParseResult::Alias(alias, name) => {
-                    let func = ctx.get_function(&name)?;
-                    Some(func.create_alias(alias))
+                    let mut func = ctx.get_function(&name)?.clone();
+                    *func.name_mut() = alias;
+                    Some(func)
                 }
             })
     }
@@ -263,15 +268,8 @@ impl WispFunction for CodeFunction {
         s
     }
 
-    fn create_alias(&self, name: String) -> Box<dyn WispFunction> {
-        Box::new(CodeFunction {
-            name,
-            inputs: self.inputs.clone(),
-            outputs: self.outputs.clone(),
-            data: self.data.clone(),
-            ir: self.ir.clone(),
-            lag_value: self.lag_value,
-        })
+    fn clone(&self) -> Box<dyn WispFunction> {
+        Box::new(std::clone::Clone::clone(self))
     }
 }
 

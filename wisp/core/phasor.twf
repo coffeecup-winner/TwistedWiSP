@@ -3,7 +3,7 @@ inputs 240 200 80 80
 inputs
 outputs 720 200 80 80
 outputs
-$math$phasor$0 400 200 237 103
+phasor:math$0 400 200 237 103
 = ($0 + $1 / SampleRate) % 1.0
 lag 480 320 80 80
 lag

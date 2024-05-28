@@ -29,7 +29,7 @@ pub enum WispCommand {
 
     // Context commands
     ContextReset,
-    ContextAddOrUpdateFunction(IRFunction),
+    ContextAddOrUpdateFunctions(Vec<IRFunction>),
     ContextRemoveFunction(String),
     ContextSetMainFunction(String),
     ContextSetDataValue(String, CallId, DataIndex, f32),

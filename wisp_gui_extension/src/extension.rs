@@ -74,7 +74,7 @@ impl TwistedWispSingleton {
             .expect("Failed to load core functions");
 
         for f in ctx.functions_iter() {
-            runner.context_add_or_update_function(f.get_ir_function(&ctx));
+            runner.context_add_or_update_functions(f.get_ir_functions(&ctx));
         }
 
         self.core_path = PathBuf::from(wisp_core_path);
@@ -180,16 +180,12 @@ impl TwistedWispSingleton {
             .load_function(&path)
             .expect("Failed to load the flow function");
         let ctx = self.ctx();
-        let mut ir_functions = vec![];
-        for name in result.math_function_names {
-            let math_func = ctx.get_function(&name).unwrap();
-            ir_functions.push(math_func.get_ir_function(ctx));
-        }
-        ir_functions.push(ctx.get_function(&result.name).unwrap().get_ir_function(ctx));
+        let ir_functions = ctx
+            .get_function(&result.name)
+            .unwrap()
+            .get_ir_functions(ctx);
         let runner = self.runner_mut();
-        for f in ir_functions {
-            runner.context_add_or_update_function(f);
-        }
+        runner.context_add_or_update_functions(ir_functions);
         runner.context_set_main_function(result.name.clone());
         if result.replaced_existing {
             runner.context_update();
@@ -229,9 +225,9 @@ impl TwistedWispSingleton {
         let (idx, func_name) = ctx.flow_add_node(&flow_name, &func_text);
         if func_name.starts_with("$math") {
             let func = ctx.get_function(&func_name).unwrap();
-            let ir_function = func.get_ir_function(ctx);
+            let ir_functions = func.get_ir_functions(ctx);
             self.runner_mut()
-                .context_add_or_update_function(ir_function);
+                .context_add_or_update_functions(ir_functions);
         }
         Some(Gd::from_object(FlowNodeAddResult {
             idx: idx.index() as u32,
@@ -247,11 +243,11 @@ impl TwistedWispSingleton {
             .get_function(&flow_name)
             .and_then(|f| f.as_flow())
             .unwrap();
-        let ir_function = flow.get_ir_function(ctx);
+        let ir_functions = flow.get_ir_functions(ctx);
         let runner = self.runner_mut();
         // NOTE: We do not update the watch function as we expect it to never change
         // at runtime and it's a part of the core library
-        runner.context_add_or_update_function(ir_function);
+        runner.context_add_or_update_functions(ir_functions);
         runner.context_update();
         let watch_idx = runner
             .context_watch_data_value(flow_name.clone(), CallId(idx), DataIndex(0))
@@ -273,12 +269,12 @@ impl TwistedWispSingleton {
         // Not removing watches here since they will automaticaly be removed
         // during the data layout update and will stop being sent
         let flow = ctx.get_function(&flow_name).unwrap();
-        let ir_function = flow.get_ir_function(ctx);
+        let ir_functions = flow.get_ir_functions(ctx);
         let runner = self.runner_mut();
         if node_name.starts_with("$math") {
             runner.context_remove_function(node_name);
         }
-        runner.context_add_or_update_function(ir_function);
+        runner.context_add_or_update_functions(ir_functions);
         runner.context_update();
     }
 
@@ -388,9 +384,9 @@ impl TwistedWispSingleton {
         flow.connect(node_out.into(), node_outlet, node_in.into(), node_inlet);
         let ctx = self.ctx();
         let func = ctx.get_function(&flow_name).unwrap();
-        let ir_function = func.get_ir_function(ctx);
+        let ir_functions = func.get_ir_functions(ctx);
         let runner = self.runner_mut();
-        runner.context_add_or_update_function(ir_function);
+        runner.context_add_or_update_functions(ir_functions);
         runner.context_update();
     }
 
@@ -411,9 +407,9 @@ impl TwistedWispSingleton {
         flow.disconnect(node_out.into(), node_outlet, node_in.into(), node_inlet);
         let ctx = self.ctx();
         let func = ctx.get_function(&flow_name).unwrap();
-        let ir_function = func.get_ir_function(ctx);
+        let ir_functions = func.get_ir_functions(ctx);
         let runner = self.runner_mut();
-        runner.context_add_or_update_function(ir_function);
+        runner.context_add_or_update_functions(ir_functions);
         runner.context_update();
     }
 

@@ -1,7 +1,7 @@
 flow:flow_0 3 2
 phasor 400 200 80 80
 phasor
-$math$flow_0$0 200 200 80 80
+flow_0:math$0 200 200 80 80
 = 440
 out 600 200 80 103
 out

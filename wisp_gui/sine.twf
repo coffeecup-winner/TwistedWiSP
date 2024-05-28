@@ -5,7 +5,7 @@ out 520 200 80 103
 out
 buffer 200 200 80 80
 buffer
-$math$flow_0$0 200 400 128 80
+flow_0:math$0 200 400 128 80
 = ($0 + 1) % 1024
 lag 240 480 80 80
 lag
@@ -13,7 +13,7 @@ graph 520 320 318 271
 graph
 watch 480 100 183 80
 watch
-$math$flow_0$1 400 420 91 80
+flow_0:math$1 400 420 91 80
 = $0 / 1024
 length 340 160 80 80
 length

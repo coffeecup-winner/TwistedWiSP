@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     CodeFunction, CodeFunctionParseResult, CodeFunctionParser, DataType, DefaultInputValue,
-    FlowFunction, FlowNodeIndex, FunctionInput, MathFunctionParser, WispFunction,
+    FlowFunction, FlowNodeIndex, FunctionInput, WispFunction,
 };
 
 use log::info;
@@ -15,7 +15,6 @@ use twisted_wisp_ir::{Instruction, Operand, SignalOutputIndex, TargetLocation};
 #[derive(Debug)]
 pub struct LoadFunctionResult {
     pub name: String,
-    pub math_function_names: Vec<String>,
     pub replaced_existing: bool,
 }
 
@@ -23,7 +22,6 @@ pub struct LoadFunctionResult {
 pub struct WispContext {
     num_outputs: u32,
     functions: HashMap<String, Box<dyn WispFunction>>,
-    math_function_id_gen: HashMap<String, u32>,
 }
 
 impl WispContext {
@@ -31,13 +29,11 @@ impl WispContext {
         WispContext {
             num_outputs,
             functions: HashMap::new(),
-            math_function_id_gen: HashMap::new(),
         }
     }
 
     pub fn add_builtin_functions(&mut self) {
         self.add_function(Self::build_function_out(self));
-        self.add_function(Self::build_function_stub());
     }
 
     fn build_function_out(ctx: &WispContext) -> Box<dyn WispFunction> {
@@ -75,17 +71,6 @@ impl WispContext {
         ))
     }
 
-    fn build_function_stub() -> Box<dyn WispFunction> {
-        Box::new(CodeFunction::new(
-            "$stub".into(),
-            vec![],
-            vec![],
-            vec![],
-            vec![],
-            None,
-        ))
-    }
-
     pub fn load_core_functions(&mut self, wisp_core_path: &str) -> Result<(), Box<dyn Error>> {
         for file in std::fs::read_dir(Path::new(wisp_core_path))? {
             let file = file?;
@@ -106,11 +91,13 @@ impl WispContext {
                         self.add_function(Box::new(func));
                     }
                     CodeFunctionParseResult::Alias(alias, target) => {
-                        let func = self
+                        let mut func = self
                             .get_function(&target)
-                            .expect("Unknown function alias target");
+                            .expect("Unknown function alias target")
+                            .clone();
                         info!("  - {} (alias of {})", alias, func.name());
-                        self.add_function(func.create_alias(alias));
+                        *func.name_mut() = alias;
+                        self.add_function(func);
                     }
                 }
             }
@@ -121,34 +108,12 @@ impl WispContext {
     pub fn load_function(&mut self, file_path: &str) -> Result<LoadFunctionResult, Box<dyn Error>> {
         let text = std::fs::read_to_string(Path::new(file_path))?;
         // TODO: Load flow or code function
-        let mut func =
-            FlowFunction::load(&text, self).expect("Failed to parse the flow function data");
+        let func = FlowFunction::load(&text, self).expect("Failed to parse the flow function data");
         let flow_name = func.name().to_owned();
         info!("Loading function: {}", flow_name);
-        let flow = func.as_flow_mut().unwrap();
-        let mut math_function_names = vec![];
-        for n in flow.node_indices() {
-            let node = flow.get_node(n).unwrap();
-            if node.name.starts_with("$math") {
-                let parts = node.name.split('$');
-                let id = parts.last().unwrap().parse::<u32>().unwrap();
-                let id_gen = self
-                    .math_function_id_gen
-                    .entry(flow_name.to_string())
-                    .or_insert(0);
-                *id_gen = (*id_gen).max(id + 1);
-                let math_func = Box::new(
-                    MathFunctionParser::parse_function(&flow_name, id, &node.display_text).unwrap(),
-                );
-                info!("  - {}: {}", math_func.name(), node.display_text);
-                math_function_names.push(math_func.name().into());
-                self.add_function(math_func);
-            }
-        }
         let old_function = self.add_function(func);
         Ok(LoadFunctionResult {
             name: flow_name,
-            math_function_names,
             replaced_existing: old_function.is_some(),
         })
     }
@@ -170,41 +135,33 @@ impl WispContext {
     }
 
     pub fn get_function(&self, name: &str) -> Option<&dyn WispFunction> {
-        self.functions.get(name).map(|f| &**f)
+        if let Some((flow_name, _)) = name.split_once(':') {
+            self.get_function(flow_name)
+                .and_then(|f| f.as_flow())
+                .and_then(|f| f.get_function(name))
+        } else {
+            self.functions.get(name).map(|f| &**f)
+        }
     }
 
     pub fn get_function_mut(&mut self, name: &str) -> Option<&mut Box<dyn WispFunction>> {
-        self.functions.get_mut(name)
+        if let Some((flow_name, _)) = name.split_once(':') {
+            self.get_function_mut(flow_name)
+                .and_then(|f| f.as_flow_mut())
+                .and_then(|f| f.get_function_mut(name))
+        } else {
+            self.functions.get_mut(name)
+        }
     }
 
     pub fn flow_add_node(&mut self, flow_name: &str, node_text: &str) -> (FlowNodeIndex, String) {
-        let func_name = if node_text.starts_with('=') {
-            let id_gen = self
-                .math_function_id_gen
-                .entry(flow_name.to_string())
-                .or_insert(0);
-            let id = *id_gen;
-            *id_gen += 1;
-            if let Some(func) = MathFunctionParser::parse_function(flow_name, id, node_text) {
-                let func_name = func.name().to_owned();
-                self.add_function(Box::new(func));
-                func_name
-            } else {
-                "$stub".into()
-            }
-        } else if let Some(func) = self.get_function(node_text) {
-            func.name().to_owned()
-        } else {
-            "$stub".into()
-        };
-
         let flow = self
             .get_function_mut(flow_name)
             .unwrap()
             .as_flow_mut()
             .unwrap();
-        let idx = flow.add_node(&func_name, node_text);
-        (idx, func_name)
+        let idx = flow.add_node(node_text);
+        (idx, flow.get_node(idx).unwrap().name.clone())
     }
 
     pub fn flow_remove_node(&mut self, flow_name: &str, node_idx: FlowNodeIndex) -> Option<String> {

@@ -13,7 +13,7 @@ use crate::{
     DataType, DefaultInputValue, FunctionInput, FunctionOutput, WispContext, WispFunction,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MathFunction {
     name: String,
     #[allow(dead_code)]
@@ -29,6 +29,10 @@ impl WispFunction for MathFunction {
         &self.name
     }
 
+    fn name_mut(&mut self) -> &mut String {
+        &mut self.name
+    }
+
     fn inputs(&self) -> &[FunctionInput] {
         &self.inputs
     }
@@ -37,8 +41,8 @@ impl WispFunction for MathFunction {
         &self.outputs
     }
 
-    fn get_ir_function(&self, _ctx: &WispContext) -> IRFunction {
-        self.compile_ir_function()
+    fn get_ir_functions(&self, _ctx: &WispContext) -> Vec<IRFunction> {
+        vec![self.compile_ir_function()]
     }
 
     fn load(_s: &str, _ctx: &WispContext) -> Option<Box<dyn WispFunction>>
@@ -52,19 +56,13 @@ impl WispFunction for MathFunction {
         self.expr_string.clone()
     }
 
-    fn create_alias(&self, name: String) -> Box<dyn WispFunction> {
-        Box::new(MathFunction {
-            name,
-            expr_string: self.expr_string.clone(),
-            expr: self.expr.clone(),
-            inputs: self.inputs.clone(),
-            outputs: self.outputs.clone(),
-        })
+    fn clone(&self) -> Box<dyn WispFunction> {
+        Box::new(std::clone::Clone::clone(self))
     }
 }
 
 impl MathFunction {
-    pub fn new(flow_name: &str, id: u32, expr_string: String, expr: MathExpression) -> Self {
+    pub fn new(expr_string: String, expr: MathExpression) -> Self {
         let mut inputs = vec![];
         for i in 0..Self::get_inputs_count(&expr) {
             inputs.push(FunctionInput::new(
@@ -74,7 +72,7 @@ impl MathFunction {
             ));
         }
         MathFunction {
-            name: format!("$math${}${}", flow_name, id),
+            name: "$math".to_owned(),
             expr_string,
             expr,
             inputs,
@@ -168,15 +166,10 @@ lazy_static::lazy_static! {
 }
 
 impl MathFunctionParser {
-    pub fn parse_function(flow_name: &str, id: u32, expr_string: &str) -> Option<MathFunction> {
+    pub fn parse_function(expr_string: &str) -> Option<MathFunction> {
         let mut pairs = Self::parse(Rule::math_function, expr_string).ok()?;
         let expr = Self::parse_expr(pairs.next().unwrap().into_inner())?;
-        Some(MathFunction::new(
-            flow_name,
-            id,
-            expr_string.to_owned(),
-            expr,
-        ))
+        Some(MathFunction::new(expr_string.to_owned(), expr))
     }
 
     fn parse_expr(pairs: Pairs<Rule>) -> Option<MathExpression> {
@@ -233,8 +226,8 @@ mod tests {
     // ========================================================================
 
     fn parse_function(s: &str, expected_inputs_count: u32) -> MathFunction {
-        let func = MathFunctionParser::parse_function("test", 0, s).unwrap();
-        assert_eq!("$math$test$0", func.name());
+        let func = MathFunctionParser::parse_function(s).unwrap();
+        assert_eq!("$math", func.name());
         assert_eq!(expected_inputs_count, func.inputs().len() as u32);
         assert_eq!(1, func.outputs().len());
         func
@@ -412,7 +405,7 @@ mod tests {
 
     fn get_ir_function(f: MathFunction) -> IRFunction {
         let ctx = WispContext::new(2);
-        let ir_func = f.get_ir_function(&ctx);
+        let ir_func = f.get_ir_functions(&ctx)[0].clone();
         assert_eq!(f.name(), ir_func.name);
         assert_eq!(f.inputs().len(), ir_func.inputs.len());
         assert_eq!(f.outputs().len(), ir_func.outputs.len());

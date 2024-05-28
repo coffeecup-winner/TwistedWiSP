@@ -86,7 +86,9 @@ fn run_file(
     let result = core_context.load_function(&file_path)?;
 
     for f in core_context.functions_iter() {
-        wisp.add_function(f.get_ir_function(&core_context));
+        for ir_func in f.get_ir_functions(&core_context) {
+            wisp.add_function(ir_func);
+        }
     }
 
     let execution_context = WispExecutionContext::init();

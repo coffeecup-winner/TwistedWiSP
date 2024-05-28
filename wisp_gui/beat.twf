@@ -11,7 +11,7 @@ graph 540 320 318 271
 graph
 watch 480 100 183 80
 watch
-$math$flow_0$2 340 380 117 103
+flow_0:math$0 340 380 117 103
 = ($0 + 1) % $1
 length 340 160 80 80
 length
