@@ -88,7 +88,15 @@ impl WispContext {
 
     pub fn load_core_functions(&mut self, wisp_core_path: &str) -> Result<(), Box<dyn Error>> {
         for file in std::fs::read_dir(Path::new(wisp_core_path))? {
-            let text = std::fs::read_to_string(file?.path())?;
+            let file = file?;
+            let text = std::fs::read_to_string(file.path())?;
+
+            if text.starts_with("flow:") {
+                // TODO: Stop reading this file twice
+                self.load_function(file.path().to_str().unwrap())?;
+                continue;
+            }
+
             let mut parser = CodeFunctionParser::new(&text);
             info!("Adding core functions:");
             while let Some(result) = parser.parse_function() {
@@ -132,7 +140,7 @@ impl WispContext {
                 let math_func = Box::new(
                     MathFunctionParser::parse_function(&flow_name, id, &node.display_text).unwrap(),
                 );
-                info!("  - {}: {}", math_func.name(), text);
+                info!("  - {}: {}", math_func.name(), node.display_text);
                 math_function_names.push(math_func.name().into());
                 self.add_function(math_func);
             }

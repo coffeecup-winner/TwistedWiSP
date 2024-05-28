@@ -7,10 +7,13 @@ use petgraph::{
     Directed, Direction,
 };
 
-use crate::{context::WispContext, DefaultInputValue, FunctionInput, FunctionOutput, WispFunction};
+use crate::{
+    context::WispContext, DataType, DefaultInputValue, FunctionInput, FunctionOutput, WispFunction,
+};
 
 use twisted_wisp_ir::{
-    BinaryOpType, CallId, Constant, IRFunction, Instruction, Operand, SourceLocation, VarRef,
+    BinaryOpType, CallId, Constant, FunctionOutputIndex, IRFunction, IRFunctionInput,
+    IRFunctionOutput, Instruction, Operand, SourceLocation, TargetLocation, VarRef,
 };
 
 #[derive(Debug, Clone)]
@@ -41,8 +44,10 @@ type FlowGraph = StableGraph<FlowNode, FlowConnection, Directed>;
 #[derive(Debug)]
 pub struct FlowFunction {
     name: String,
+    inputs: Vec<FunctionInput>,
+    outputs: Vec<FunctionOutput>,
     graph: FlowGraph,
-    ir: RefCell<Vec<Instruction>>,
+    ir_function: RefCell<Option<IRFunction>>,
     watch_idx_map: HashMap<u32, FlowNodeIndex>,
 }
 
@@ -52,31 +57,25 @@ impl WispFunction for FlowFunction {
     }
 
     fn inputs_count(&self) -> u32 {
-        0
+        self.inputs.len() as u32
     }
 
     fn input(&self, _idx: u32) -> Option<&FunctionInput> {
-        None
+        self.inputs.get(_idx as usize)
     }
 
     fn outputs_count(&self) -> u32 {
-        0
+        self.outputs.len() as u32
     }
 
     fn output(&self, _idx: u32) -> Option<&FunctionOutput> {
-        None
+        self.outputs.get(_idx as usize)
     }
 
     fn get_ir_function(&self, ctx: &WispContext) -> IRFunction {
         // TODO: Only do this if the flow has changed
-        *self.ir.borrow_mut() = self.compile_to_ir(ctx);
-        IRFunction {
-            name: self.name.clone(),
-            inputs: vec![],
-            outputs: vec![],
-            data: vec![],
-            ir: self.ir.borrow().clone(),
-        }
+        *self.ir_function.borrow_mut() = Some(self.compile_to_ir(ctx));
+        self.ir_function.borrow().clone().unwrap()
     }
 
     fn as_flow(&self) -> Option<&FlowFunction> {
@@ -99,6 +98,8 @@ impl WispFunction for FlowFunction {
         let node_count = parts.next()?.parse::<u32>().ok()?;
         let edge_count = parts.next()?.parse::<u32>().ok()?;
         let mut graph = FlowGraph::new();
+        let mut has_inputs = false;
+        let mut has_outputs = false;
         for idx in 0..node_count {
             let line = lines.next()?;
             let mut parts = line.split(' ');
@@ -114,6 +115,13 @@ impl WispFunction for FlowFunction {
                 display_text,
             });
             assert_eq!(node_idx.index().id() as u32, idx);
+
+            // TODO: Instead, store the inputs and outputs in the flow function text
+            if name == "inputs" {
+                has_inputs = true;
+            } else if name == "outputs" {
+                has_outputs = true;
+            }
         }
         for idx in 0..edge_count {
             let line = lines.next()?;
@@ -134,8 +142,22 @@ impl WispFunction for FlowFunction {
         }
         Some(Box::new(FlowFunction {
             name: name.into(),
+            inputs: if has_inputs {
+                vec![FunctionInput::new(
+                    "in".into(),
+                    DataType::Float,
+                    DefaultInputValue::Value(0.0),
+                )]
+            } else {
+                vec![]
+            },
+            outputs: if has_outputs {
+                vec![FunctionOutput::new("out".into(), DataType::Float)]
+            } else {
+                vec![]
+            },
             graph,
-            ir: RefCell::new(vec![]),
+            ir_function: RefCell::new(None),
             watch_idx_map: Default::default(),
         }))
     }
@@ -175,8 +197,10 @@ impl WispFunction for FlowFunction {
     fn create_alias(&self, name: String) -> Box<dyn WispFunction> {
         Box::new(FlowFunction {
             name,
+            inputs: self.inputs.clone(),
+            outputs: self.outputs.clone(),
             graph: self.graph.clone(),
-            ir: RefCell::new(vec![]),
+            ir_function: RefCell::new(None),
             watch_idx_map: self.watch_idx_map.clone(),
         })
     }
@@ -186,8 +210,10 @@ impl FlowFunction {
     pub fn new(name: String) -> Self {
         FlowFunction {
             name,
+            inputs: Default::default(),
+            outputs: Default::default(),
             graph: Default::default(),
-            ir: Default::default(),
+            ir_function: Default::default(),
             watch_idx_map: Default::default(),
         }
     }
@@ -298,7 +324,8 @@ impl FlowFunction {
         None
     }
 
-    pub fn compile_to_ir(&self, ctx: &WispContext) -> Vec<Instruction> {
+    // TODO: Return Option/Result
+    pub fn compile_to_ir(&self, ctx: &WispContext) -> IRFunction {
         // This function walks the graph in topological order, so all producing nodes
         // are visited before all consuming nodes. To break graph cycles, lag outputs
         // are ignored and lagged values are used instead. Since topological sort
@@ -334,6 +361,11 @@ impl FlowFunction {
                     let source_func = ctx
                         .get_function(&self.graph.node_weight(e.source()).unwrap().name)
                         .unwrap();
+                    // Custom flow input processing
+                    if source_func.name() == "inputs" {
+                        inputs.push(Operand::Arg(e.weight().output_index));
+                        continue;
+                    }
                     if let Some(dref) = source_func.lag_value() {
                         let vref = VarRef(vref_id);
                         instructions.push(Instruction::Load(
@@ -391,14 +423,26 @@ impl FlowFunction {
                     }
                 }
             }
-            // For lag calls we don't need any outputs
+
             if func.lag_value().is_some() {
+                // For lag calls we don't need any outputs
                 lag_calls.push(Instruction::Call(
                     CallId(n.index() as u32),
                     self.graph.node_weight(n).unwrap().name.clone(),
                     inputs,
                     vec![],
                 ))
+            } else if func.name() == "inputs" {
+                // Custom flow input processing
+                // Do nothing - inputs are already handled above
+            } else if func.name() == "outputs" {
+                // Custom flow output processing
+                for (idx, input) in inputs.into_iter().enumerate() {
+                    instructions.push(Instruction::Store(
+                        TargetLocation::FunctionOutput(FunctionOutputIndex(idx as u32)),
+                        input,
+                    ));
+                }
             } else {
                 let mut outputs = vec![];
                 for idx in 0..func.outputs_count() {
@@ -418,7 +462,25 @@ impl FlowFunction {
 
         instructions.append(&mut lag_calls);
 
-        instructions
+        IRFunction {
+            name: self.name.clone(),
+            inputs: self
+                .inputs
+                .iter()
+                .map(|i| IRFunctionInput {
+                    type_: i.type_.into(),
+                })
+                .collect(),
+            outputs: self
+                .outputs
+                .iter()
+                .map(|o| IRFunctionOutput {
+                    type_: o.type_.into(),
+                })
+                .collect(),
+            data: vec![],
+            ir: instructions,
+        }
     }
 }
 
@@ -481,7 +543,7 @@ mod tests {
         let ctx = test_ctx();
         let f = FlowFunction::new("test".into());
 
-        let ir = f.compile_to_ir(&ctx);
+        let ir = f.compile_to_ir(&ctx).ir;
         assert_eq!(Vec::<Instruction>::new(), ir,);
     }
 
@@ -491,7 +553,7 @@ mod tests {
         let mut f = FlowFunction::new("test".into());
         add_node(&mut f, "out");
 
-        let ir = f.compile_to_ir(&ctx);
+        let ir = f.compile_to_ir(&ctx).ir;
         assert_eq!(
             vec![Instruction::Call(
                 CallId(0),
@@ -513,7 +575,7 @@ mod tests {
         let idx_out = add_node(&mut f, "out");
         f.connect(idx_test, 0, idx_out, 0);
 
-        let ir = f.compile_to_ir(&ctx);
+        let ir = f.compile_to_ir(&ctx).ir;
         assert_eq!(
             vec![
                 Instruction::Call(CallId(0), "test".into(), vec![], vec![VarRef(0)]),
@@ -538,7 +600,7 @@ mod tests {
         let idx_out = add_node(&mut f, "out");
         f.connect(idx_test, 0, idx_out, 1);
 
-        let ir = f.compile_to_ir(&ctx);
+        let ir = f.compile_to_ir(&ctx).ir;
         assert_eq!(
             vec![
                 Instruction::Call(CallId(0), "test".into(), vec![], vec![VarRef(0)]),
@@ -565,7 +627,7 @@ mod tests {
         f.connect(idx_test0, 0, idx_out, 0);
         f.connect(idx_test1, 0, idx_out, 0);
 
-        let ir = f.compile_to_ir(&ctx);
+        let ir = f.compile_to_ir(&ctx).ir;
         assert_eq!(
             vec![
                 Instruction::Call(CallId(1), "test".into(), vec![], vec![VarRef(0)]),
@@ -610,7 +672,7 @@ mod tests {
         //   \-1to1-/      /
         //    \-----------/
 
-        let ir = f.compile_to_ir(&ctx);
+        let ir = f.compile_to_ir(&ctx).ir;
         assert_eq!(
             vec![
                 Instruction::Call(CallId(0), "src".into(), vec![], vec![VarRef(0)]),
@@ -660,7 +722,7 @@ mod tests {
         //  /   \
         //  test -> out
 
-        let ir = f.compile_to_ir(&ctx);
+        let ir = f.compile_to_ir(&ctx).ir;
         assert_eq!(
             vec![
                 Instruction::Load(
@@ -712,7 +774,7 @@ mod tests {
         //  \   /
         //   lag1
 
-        let ir = f.compile_to_ir(&ctx);
+        let ir = f.compile_to_ir(&ctx).ir;
         assert_eq!(
             vec![
                 Instruction::Load(
@@ -779,7 +841,7 @@ mod tests {
         //    \\  //
         //     test -> out
 
-        let ir = f.compile_to_ir(&ctx);
+        let ir = f.compile_to_ir(&ctx).ir;
         assert_eq!(
             vec![
                 Instruction::Load(
@@ -857,7 +919,7 @@ mod tests {
         //    \\  //
         //     test -> out
 
-        let ir = f.compile_to_ir(&ctx);
+        let ir = f.compile_to_ir(&ctx).ir;
         assert_eq!(
             vec![
                 Instruction::Load(

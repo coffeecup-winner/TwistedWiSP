@@ -13,6 +13,7 @@ begin
   store @prev, $value
 end
 
+// switch - return left (middle) signal if test is 0, otherwise return right
 func switch(test: float, left: float, right: float) -> (out: float)
 begin
   alloc !result
@@ -24,6 +25,19 @@ begin
   end
   load %temp, !result
   store #out, %temp
+end
+
+// inputs - flow function inputs, treated specially by the flow compiler
+func inputs() -> (out: float)
+begin
+  // NOTE: This function is not implemented since it's never called,
+  // no point in conforming to the "write to all outs" rule.
+end
+
+// inputs - flow function outputs, treated specially by the flow compiler
+func outputs(in: float) -> ()
+begin
+  // NOTE: This function is not implemented since it's never called
 end
 
 // control - GUI controls (set via direct data write)
