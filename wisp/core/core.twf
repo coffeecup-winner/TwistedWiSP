@@ -13,6 +13,19 @@ begin
   store @prev, $value
 end
 
+func switch(test: float, left: float, right: float) -> (out: float)
+begin
+  alloc !result
+  cmp.eq %cond, $test, 0
+  if %cond
+    store !result, $left
+  else
+    store !result, $right
+  end
+  load %temp, !result
+  store #out, %temp
+end
+
 // control - GUI controls (set via direct data write)
 func control() -> (out: float)
 data
