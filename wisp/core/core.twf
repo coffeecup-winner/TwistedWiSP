@@ -105,3 +105,28 @@ begin
   len %temp, $buf
   store #length, %temp
 end
+
+func sample(buf: array, pos: float) -> (value: float)
+begin
+  alloc !result
+  len %length, $buf
+  cmp.eq %is_zero, %length, 0
+  if %is_zero
+    store !result, 0
+  else
+    mul %idx, $pos, %length
+    trunc %curr_idx, %idx
+    add %next_idx, %idx, 1
+    rem %next_idx, %next_idx, %length
+    iload %sample_left, $buf, %idx
+    iload %sample_right, $buf, %next_idx
+    sub %scale_left, %curr_idx, %idx
+    sub %scale_right, 1, %scale_left
+    mul %scaled_left, %sample_left, %scale_left
+    mul %scaled_right, %sample_right, %scale_right
+    add %res, %scaled_left, %scaled_right
+    store !result, %res
+  end
+  load %res, !result
+  store #value, %res
+end
