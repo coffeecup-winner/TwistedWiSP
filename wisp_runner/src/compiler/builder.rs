@@ -1,6 +1,7 @@
 use inkwell::{
     basic_block::BasicBlock,
     execution_engine::ExecutionEngine,
+    intrinsics::Intrinsic,
     passes::PassBuilderOptions,
     targets::{CodeModel, RelocMode, Target, TargetMachine},
     types::{BasicMetadataTypeEnum, BasicType},
@@ -419,6 +420,31 @@ impl SignalProcessorBuilder {
                         b.build_unsigned_int_to_float(len_i32, mctx.types.f32, n)
                     })?;
                     fctx.vars.insert(*vref, len.as_basic_value_enum());
+                }
+                UnaryOp(vref, type_, op) => {
+                    let operand = Self::resolve_operand(mctx, fctx, op)?.into_float_value();
+                    use twisted_wisp_ir::UnaryOpType::*;
+                    let res = match type_ {
+                        Truncate => mctx.build("unop_trunc", |b, n| {
+                            let trunc = Intrinsic::find("llvm.trunc").unwrap();
+                            b.build_call(
+                                trunc
+                                    .get_declaration(
+                                        mctx.module,
+                                        &[mctx.types.f32.as_basic_type_enum()],
+                                    )
+                                    .unwrap(),
+                                &[BasicMetadataValueEnum::FloatValue(operand)],
+                                n,
+                            )
+                        }),
+                    }?;
+                    fctx.vars.insert(
+                        *vref,
+                        res.as_any_value_enum()
+                            .into_float_value()
+                            .as_basic_value_enum(),
+                    );
                 }
                 BinaryOp(vref, type_, op1, op2) => {
                     let left = Self::resolve_operand(mctx, fctx, op1)?.into_float_value();

@@ -13,7 +13,7 @@ use logos::{Lexer, Logos};
 use twisted_wisp_ir::{
     BinaryOpType, CallId, ComparisonOpType, Constant, DataRef, FunctionOutputIndex, IRFunction,
     IRFunctionDataItem, IRFunctionInput, IRFunctionOutput, Instruction, LocalRef, Operand,
-    SignalOutputIndex, SourceLocation, TargetLocation, VarRef,
+    SignalOutputIndex, SourceLocation, TargetLocation, UnaryOpType, VarRef,
 };
 
 #[derive(Debug, PartialEq, Clone)]
@@ -193,6 +193,14 @@ impl WispFunction for CodeFunction {
                     Instruction::Len(vref, op_array) => {
                         vec![format!("len %{}, {}", vref.0, format_operand(op_array))]
                     }
+                    Instruction::UnaryOp(vref, type_, op) => vec![format!(
+                        "{} %{}, {}",
+                        match type_ {
+                            UnaryOpType::Truncate => "trunc",
+                        },
+                        vref.0,
+                        format_operand(op)
+                    )],
                     Instruction::BinaryOp(vref, type_, op0, op1) => vec![format!(
                         "{} %{}, {}, {}",
                         match type_ {
@@ -340,6 +348,8 @@ enum Token {
     Div,
     #[token("rem")]
     Rem,
+    #[token("trunc")]
+    Trunc,
     #[token("cmp.eq")]
     Equal,
     #[token("cmp.ne")]
@@ -687,6 +697,12 @@ impl<'source> CodeFunctionParser<'source> {
                     };
                     instructions.push(Instruction::BinaryOp(vref, type_, op0, op1))
                 }
+                Token::Trunc => {
+                    let vref = self.parse_vref(symbols, true)?;
+                    self.expect_token(Token::Comma)?;
+                    let op = self.parse_op(symbols)?;
+                    instructions.push(Instruction::UnaryOp(vref, UnaryOpType::Truncate, op))
+                }
                 t @ Token::Equal
                 | t @ Token::NotEqual
                 | t @ Token::Less
@@ -710,11 +726,10 @@ impl<'source> CodeFunctionParser<'source> {
                     instructions.push(Instruction::ComparisonOp(vref, type_, op0, op1))
                 }
                 Token::Identifier(name) => {
-                    let id = match self.next_token()? {
+                    let id = match self.peek_token()? {
                         Token::OutputPrefix => {
-                            let id = self.parse_u32()?;
-                            self.expect_token(Token::OpenParen)?;
-                            id
+                            self.next_token()?;
+                            self.parse_u32()?
                         }
                         Token::OpenParen => 0,
                         _ => return None,
@@ -733,10 +748,16 @@ impl<'source> CodeFunctionParser<'source> {
                     self.expect_token(Token::Arrow)?;
                     match self.next_token()? {
                         Token::OpenParen => loop {
-                            match self.next_token()? {
-                                Token::VarPrefix => outputs.push(VarRef(self.parse_u32()?)),
-                                Token::Comma => continue,
-                                Token::CloseParen => break,
+                            match self.peek_token()? {
+                                Token::VarPrefix => outputs.push(self.parse_vref(symbols, true)?),
+                                Token::Comma => {
+                                    self.next_token()?;
+                                    continue;
+                                }
+                                Token::CloseParen => {
+                                    self.next_token()?;
+                                    break;
+                                }
                                 _ => return None,
                             }
                         },

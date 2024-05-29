@@ -30,6 +30,11 @@ pub enum Constant {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+pub enum UnaryOpType {
+    Truncate,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub enum BinaryOpType {
     Add,
     Subtract,
@@ -77,6 +82,7 @@ pub enum Instruction {
     IStore(Operand, Operand, Operand),
     Len(VarRef, Operand),
 
+    UnaryOp(VarRef, UnaryOpType, Operand),
     BinaryOp(VarRef, BinaryOpType, Operand, Operand),
     ComparisonOp(VarRef, ComparisonOpType, Operand, Operand),
 
