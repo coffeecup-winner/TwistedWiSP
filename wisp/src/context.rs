@@ -5,8 +5,8 @@ use std::{
 };
 
 use crate::{
-    CodeFunction, CodeFunctionParseResult, CodeFunctionParser, DataType, DefaultInputValue,
-    FlowFunction, FlowNodeIndex, FunctionInput, WispFunction,
+    BuiltinFunction, CodeFunction, CodeFunctionParseResult, CodeFunctionParser, DataType,
+    DefaultInputValue, FlowFunction, FlowNodeIndex, FunctionInput, FunctionOutput, WispFunction,
 };
 
 use log::info;
@@ -34,8 +34,10 @@ impl WispContext {
 
     pub fn add_builtin_functions(&mut self) {
         self.add_function(Self::build_function_out(self));
+        self.add_function(Self::build_function_noise());
     }
 
+    // TODO: Make a BuiltinFunction instead?
     fn build_function_out(ctx: &WispContext) -> Box<dyn WispFunction> {
         assert!(ctx.num_outputs > 0, "Invalid number of output channels");
         let mut out_inputs = vec![FunctionInput::new(
@@ -68,6 +70,14 @@ impl WispContext {
             vec![],
             instructions,
             None,
+        ))
+    }
+
+    fn build_function_noise() -> Box<dyn WispFunction> {
+        Box::new(BuiltinFunction::new(
+            "noise".into(),
+            vec![],
+            vec![FunctionOutput::new("out".into(), DataType::Float)],
         ))
     }
 

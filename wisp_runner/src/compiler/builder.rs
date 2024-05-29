@@ -9,6 +9,7 @@ use inkwell::{
     OptimizationLevel,
 };
 use log::debug;
+use rand::Rng;
 
 use crate::{
     compiler::data_layout::DataLayout,
@@ -56,6 +57,7 @@ impl SignalProcessorBuilder {
             mctx.types.void.fn_type(&[mctx.types.f32.into(); 1], false),
             None,
         );
+        let g_noise = module.add_function("noise", mctx.types.f32.fn_type(&[], false), None);
         let mut spctx = Box::new(SignalProcessorContext {
             p_output: std::ptr::null_mut(),
         });
@@ -65,6 +67,10 @@ impl SignalProcessorBuilder {
             debug!("Debug: {}", v);
         }
         execution_engine.add_global_mapping(&g_wisp_debug, wisp_debug as usize);
+        extern "C" fn noise() -> f32 {
+            rand::thread_rng().gen_range(-1.0..=1.0)
+        }
+        execution_engine.add_global_mapping(&g_noise, noise as usize);
 
         for (name, func) in wctx.functions_iter() {
             if !data_layout.was_called(name) {
@@ -102,7 +108,10 @@ impl SignalProcessorBuilder {
                 continue;
             }
 
-            self.build_function(ectx, &mut mctx, func)?;
+            // TODO: Instead, check explicitly for builtin functions using a function attribute
+            if !func.ir.is_empty() {
+                self.build_function(ectx, &mut mctx, func)?;
+            }
         }
 
         let entry = mctx.module.add_function(

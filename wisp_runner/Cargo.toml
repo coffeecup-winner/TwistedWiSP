@@ -13,6 +13,7 @@ hound = "3.5"
 clap = { version = "4", features = ["derive"] }
 # Core
 inkwell = { version = "0.4.0", features = ["llvm17-0-prefer-dynamic"] }
+rand = "0.8"
 # Utilities
 log = "0.4"
 ringbuffer = "0.15.0"
