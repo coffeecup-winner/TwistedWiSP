@@ -63,6 +63,53 @@ end
 
 alias graph: watch
 
+// delta - calculate the difference between the current sample and the previous sample
+func delta(value: float) -> (out: float)
+data
+  prev: float
+begin
+  load %prev_value, @prev
+  sub %diff, $value, %prev_value
+  store @prev, $value
+  store #out, %diff
+end
+
+// floor - round down to the nearest integer
+func floor(value: float) -> (out: float)
+begin
+  trunc %temp, $value
+  store #out, %temp
+end
+
+// abs - return the absolute value of a number
+func abs(value: float) -> (out: float)
+begin
+  alloc !result
+  cmp.lt %is_negative, $value, 0
+  if %is_negative
+    sub %abs_value, 0, $value
+    store !result, %abs_value
+  else
+    store !result, $value
+  end
+    load %temp, !result
+    store #out, %temp
+end
+
+// latch - update the returned value only when the second argument is non-zero
+func latch(value: float, update: float) -> (out: float)
+data
+  prev: float
+begin
+  cmp.ne %should_update, $update, 0
+  if %should_update
+    store @prev, $value
+  else
+  end
+  load %temp, @prev
+  store #out, %temp
+end
+
 // buffer - loadable data buffer storage
 func buffer() -> (out: array)
 data
