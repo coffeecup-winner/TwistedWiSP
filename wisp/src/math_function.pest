@@ -8,12 +8,19 @@ id = @{ ("_" | ASCII_ALPHA) ~ ("_" | "." | ASCII_ALPHANUMERIC)+ }
 unary_minus = { "-" }
 atom = _{ f32 | unary_minus? ~ (arg | id | "(" ~ expr ~ ")") }
 
-bin_op = _{ add | subtract | multiply | divide | remainder }
+bin_op = _{ add | subtract | multiply | divide | remainder | less_or_equal | less_than | greater_or_equal | greater_than | equal | not_equal }
     add = { "+" }
     subtract = { "-" }
     multiply = { "*" }
     divide = { "/" }
     remainder = { "%" }
+
+    less_or_equal = { "<=" }
+    less_than = { "<" }
+    greater_or_equal = { ">=" }
+    greater_than = { ">" }
+    equal = { "==" }
+    not_equal = { "!=" }
 
 expr = { atom ~ (bin_op ~ atom)* }
 

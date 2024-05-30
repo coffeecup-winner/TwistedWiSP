@@ -265,6 +265,9 @@ impl WispFunction for CodeFunction {
                             .collect::<Vec<_>>()
                             .join(", ")
                     )],
+                    Instruction::BoolToFloat(vref, op) => {
+                        vec![format!("b2f %{}, {}", vref.0, format_operand(op))]
+                    }
                     Instruction::Debug(op) => vec![format!("debug {}", format_operand(op))],
                 }
             }
@@ -362,6 +365,8 @@ enum Token {
     Greater,
     #[token("cmp.ge")]
     GreaterOrEqual,
+    #[token("b2f")]
+    BoolToFloat,
     #[token("debug")]
     Debug,
 
@@ -764,6 +769,12 @@ impl<'source> CodeFunctionParser<'source> {
                         _ => outputs.push(self.parse_vref(symbols, false)?),
                     }
                     instructions.push(Instruction::Call(CallId(id), name, inputs, outputs));
+                }
+                Token::BoolToFloat => {
+                    let vref = self.parse_vref(symbols, true)?;
+                    self.expect_token(Token::Comma)?;
+                    let op = self.parse_op(symbols)?;
+                    instructions.push(Instruction::BoolToFloat(vref, op))
                 }
                 Token::Debug => instructions.push(Instruction::Debug(self.parse_op(symbols)?)),
                 _ => return None,

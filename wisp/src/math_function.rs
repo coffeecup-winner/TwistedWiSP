@@ -5,8 +5,8 @@ use pest::{
 };
 use pest_derive::Parser;
 use twisted_wisp_ir::{
-    BinaryOpType, Constant, FunctionOutputIndex, IRFunction, IRFunctionInput, IRFunctionOutput,
-    Instruction, Operand, TargetLocation, VarRef,
+    BinaryOpType, ComparisonOpType, Constant, FunctionOutputIndex, IRFunction, IRFunctionInput,
+    IRFunctionOutput, Instruction, Operand, TargetLocation, VarRef,
 };
 
 use crate::{
@@ -86,6 +86,9 @@ impl MathFunction {
             MathExpression::BinaryOp(_, lhs, rhs) => {
                 Self::get_inputs_count(lhs).max(Self::get_inputs_count(rhs))
             }
+            MathExpression::ComparisonOp(_, lhs, rhs) => {
+                Self::get_inputs_count(lhs).max(Self::get_inputs_count(rhs))
+            }
             _ => 0,
         }
     }
@@ -140,6 +143,16 @@ impl MathFunction {
                 result.push(Instruction::BinaryOp(vref, *type_, op0, op1));
                 Operand::Var(vref)
             }
+            MathExpression::ComparisonOp(type_, lhs, rhs) => {
+                let op0 = Self::compile(lhs, result, vref_id_gen);
+                let op1 = Self::compile(rhs, result, vref_id_gen);
+                let vref = VarRef(*vref_id_gen);
+                *vref_id_gen += 1;
+                result.push(Instruction::ComparisonOp(vref, *type_, op0, op1));
+                *vref_id_gen += 1;
+                result.push(Instruction::BoolToFloat(vref, Operand::Var(vref)));
+                Operand::Var(vref)
+            }
         }
     }
 }
@@ -154,11 +167,13 @@ pub enum MathExpression {
     Argument(u32),
     Constant(Constant),
     BinaryOp(BinaryOpType, Box<MathExpression>, Box<MathExpression>),
+    ComparisonOp(ComparisonOpType, Box<MathExpression>, Box<MathExpression>),
 }
 
 lazy_static::lazy_static! {
     static ref PARSER: PrattParser<Rule> = {
         PrattParser::new()
+        .op(Op::infix(Rule::less_than, Assoc::Left) | Op::infix(Rule::less_or_equal, Assoc::Left) | Op::infix(Rule::greater_than, Assoc::Left) | Op::infix(Rule::greater_or_equal, Assoc::Left) | Op::infix(Rule::equal, Assoc::Left) | Op::infix(Rule::not_equal, Assoc::Left))
         .op(Op::infix(Rule::add, Assoc::Left) | Op::infix(Rule::subtract, Assoc::Left))
         .op(Op::infix(Rule::multiply, Assoc::Left) | Op::infix(Rule::divide, Assoc::Left) | Op::infix(Rule::remainder, Assoc::Left))
         .op(Op::prefix(Rule::unary_minus))
@@ -167,7 +182,7 @@ lazy_static::lazy_static! {
 
 impl MathFunctionParser {
     pub fn parse_function(expr_string: &str) -> Option<MathFunction> {
-        let mut pairs = Self::parse(Rule::math_function, expr_string).ok()?;
+        let mut pairs = Self::parse(Rule::math_function, expr_string).expect("X"); //.ok()?;
         let expr = Self::parse_expr(pairs.next().unwrap().into_inner())?;
         Some(MathFunction::new(expr_string.to_owned(), expr))
     }
@@ -191,19 +206,38 @@ impl MathFunctionParser {
                 _ => None,
             })
             .map_infix(|lhs, op, rhs| {
-                let type_ = match op.as_rule() {
-                    Rule::add => BinaryOpType::Add,
-                    Rule::subtract => BinaryOpType::Subtract,
-                    Rule::multiply => BinaryOpType::Multiply,
-                    Rule::divide => BinaryOpType::Divide,
-                    Rule::remainder => BinaryOpType::Remainder,
+                enum Result {
+                    BinaryOp(BinaryOpType),
+                    ComparisonOp(ComparisonOpType),
+                }
+                let result = match op.as_rule() {
+                    Rule::add => Result::BinaryOp(BinaryOpType::Add),
+                    Rule::subtract => Result::BinaryOp(BinaryOpType::Subtract),
+                    Rule::multiply => Result::BinaryOp(BinaryOpType::Multiply),
+                    Rule::divide => Result::BinaryOp(BinaryOpType::Divide),
+                    Rule::remainder => Result::BinaryOp(BinaryOpType::Remainder),
+                    Rule::less_than => Result::ComparisonOp(ComparisonOpType::Less),
+                    Rule::less_or_equal => Result::ComparisonOp(ComparisonOpType::LessOrEqual),
+                    Rule::greater_than => Result::ComparisonOp(ComparisonOpType::Greater),
+                    Rule::greater_or_equal => {
+                        Result::ComparisonOp(ComparisonOpType::GreaterOrEqual)
+                    }
+                    Rule::equal => Result::ComparisonOp(ComparisonOpType::Equal),
+                    Rule::not_equal => Result::ComparisonOp(ComparisonOpType::NotEqual),
                     _ => unreachable!(),
                 };
-                Some(MathExpression::BinaryOp(
-                    type_,
-                    Box::new(lhs?),
-                    Box::new(rhs?),
-                ))
+                match result {
+                    Result::BinaryOp(type_) => Some(MathExpression::BinaryOp(
+                        type_,
+                        Box::new(lhs?),
+                        Box::new(rhs?),
+                    )),
+                    Result::ComparisonOp(type_) => Some(MathExpression::ComparisonOp(
+                        type_,
+                        Box::new(lhs?),
+                        Box::new(rhs?),
+                    )),
+                }
             })
             .map_prefix(|op, rhs| match op.as_rule() {
                 Rule::unary_minus => Some(MathExpression::BinaryOp(
@@ -669,6 +703,132 @@ mod tests {
                     TargetLocation::FunctionOutput(FunctionOutputIndex(0)),
                     Operand::Var(VarRef(4))
                 )
+            ],
+            func.ir
+        );
+    }
+
+    #[test]
+    fn test_ir_less_than() {
+        let func = get_ir_function(parse_function("= $0 < 1.0", 1));
+        assert_eq!(
+            vec![
+                Instruction::ComparisonOp(
+                    VarRef(0),
+                    ComparisonOpType::Less,
+                    Operand::Arg(0),
+                    Operand::Literal(1.0)
+                ),
+                Instruction::BoolToFloat(VarRef(0), Operand::Var(VarRef(0))),
+                Instruction::Store(
+                    TargetLocation::FunctionOutput(FunctionOutputIndex(0)),
+                    Operand::Var(VarRef(0))
+                ),
+            ],
+            func.ir
+        );
+    }
+
+    #[test]
+    fn test_ir_less_or_equal() {
+        let func = get_ir_function(parse_function("= 1.0 <= $0", 1));
+        assert_eq!(
+            vec![
+                Instruction::ComparisonOp(
+                    VarRef(0),
+                    ComparisonOpType::LessOrEqual,
+                    Operand::Literal(1.0),
+                    Operand::Arg(0)
+                ),
+                Instruction::BoolToFloat(VarRef(0), Operand::Var(VarRef(0))),
+                Instruction::Store(
+                    TargetLocation::FunctionOutput(FunctionOutputIndex(0)),
+                    Operand::Var(VarRef(0))
+                ),
+            ],
+            func.ir
+        );
+    }
+
+    #[test]
+    fn test_ir_greater_than() {
+        let func = get_ir_function(parse_function("= $0 > $1", 2));
+        assert_eq!(
+            vec![
+                Instruction::ComparisonOp(
+                    VarRef(0),
+                    ComparisonOpType::Greater,
+                    Operand::Arg(0),
+                    Operand::Arg(1)
+                ),
+                Instruction::BoolToFloat(VarRef(0), Operand::Var(VarRef(0))),
+                Instruction::Store(
+                    TargetLocation::FunctionOutput(FunctionOutputIndex(0)),
+                    Operand::Var(VarRef(0))
+                ),
+            ],
+            func.ir
+        );
+    }
+
+    #[test]
+    fn test_ir_greater_or_equal() {
+        let func = get_ir_function(parse_function("= $0 >= $0", 1));
+        assert_eq!(
+            vec![
+                Instruction::ComparisonOp(
+                    VarRef(0),
+                    ComparisonOpType::GreaterOrEqual,
+                    Operand::Arg(0),
+                    Operand::Arg(0)
+                ),
+                Instruction::BoolToFloat(VarRef(0), Operand::Var(VarRef(0))),
+                Instruction::Store(
+                    TargetLocation::FunctionOutput(FunctionOutputIndex(0)),
+                    Operand::Var(VarRef(0))
+                ),
+            ],
+            func.ir
+        );
+    }
+
+    #[test]
+    fn test_ir_equal() {
+        let func = get_ir_function(parse_function("= $0 == -1.0", 1));
+        assert_eq!(
+            vec![
+                Instruction::ComparisonOp(
+                    VarRef(0),
+                    ComparisonOpType::Equal,
+                    Operand::Arg(0),
+                    Operand::Literal(-1.0)
+                ),
+                Instruction::BoolToFloat(VarRef(0), Operand::Var(VarRef(0))),
+                Instruction::Store(
+                    TargetLocation::FunctionOutput(FunctionOutputIndex(0)),
+                    Operand::Var(VarRef(0))
+                ),
+            ],
+            func.ir
+        );
+    }
+
+    #[test]
+    fn test_ir_not_equal() {
+        let func = get_ir_function(parse_function("= 1.0 != $0", 1));
+        assert_eq!(
+            vec![
+                Instruction::ComparisonOp(
+                    VarRef(0),
+                    ComparisonOpType::NotEqual,
+                    Operand::Literal(1.0),
+                    Operand::Arg(0)
+                ),
+                Instruction::BoolToFloat(VarRef(0), Operand::Var(VarRef(0))),
+                Instruction::Store(
+                    TargetLocation::FunctionOutput(FunctionOutputIndex(0)),
+                    Operand::Var(VarRef(0))
+                ),
             ],
             func.ir
         );

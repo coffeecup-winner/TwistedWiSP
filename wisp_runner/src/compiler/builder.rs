@@ -609,6 +609,13 @@ impl SignalProcessorBuilder {
 
                     mctx.build("call", |b, n| b.build_call(func_value, &args, n))?;
                 }
+                BoolToFloat(vref, op) => {
+                    let value = Self::resolve_operand(mctx, fctx, op)?.into_int_value();
+                    let res = mctx.build("cast", |b, n| {
+                        b.build_unsigned_int_to_float(value, mctx.types.f32, n)
+                    })?;
+                    fctx.vars.insert(*vref, res.as_basic_value_enum());
+                }
             }
         }
         Ok((start_block, current_block))

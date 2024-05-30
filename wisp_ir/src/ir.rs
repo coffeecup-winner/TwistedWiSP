@@ -90,5 +90,7 @@ pub enum Instruction {
 
     Call(CallId, String, Vec<Operand>, Vec<VarRef>),
 
+    BoolToFloat(VarRef, Operand),
+
     Debug(Operand),
 }
