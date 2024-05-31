@@ -96,7 +96,7 @@ impl TwistedWisp {
         }
         let func = Box::new(FlowFunction::new(name.clone()));
         ctx.add_function(func);
-        TwistedWispFlow::create(name)
+        TwistedWispFlow::create(self.to_gd(), name)
     }
 
     #[func]
@@ -116,7 +116,7 @@ impl TwistedWisp {
         if result.replaced_existing {
             runner.context_update();
         }
-        TwistedWispFlow::create(result.name)
+        TwistedWispFlow::create(self.to_gd(), result.name)
     }
 
     #[func]
