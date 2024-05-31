@@ -49,7 +49,6 @@ pub struct FlowFunction {
     outputs: Vec<FunctionOutput>,
     graph: FlowGraph,
     ir_function: RefCell<Option<IRFunction>>,
-    watch_idx_map: HashMap<u32, FlowNodeIndex>,
     math_function_id_gen: u32,
     math_functions: HashMap<String, Box<dyn WispFunction>>,
 }
@@ -106,7 +105,6 @@ impl WispFunction for FlowFunction {
             outputs: vec![],
             graph: Default::default(),
             ir_function: RefCell::new(None),
-            watch_idx_map: Default::default(),
             math_function_id_gen: 0,
             math_functions: Default::default(),
         };
@@ -191,7 +189,6 @@ impl WispFunction for FlowFunction {
             outputs: self.outputs.clone(),
             graph: self.graph.clone(),
             ir_function: RefCell::new(None),
-            watch_idx_map: self.watch_idx_map.clone(),
             math_function_id_gen: self.math_function_id_gen,
             math_functions,
         })
@@ -206,7 +203,6 @@ impl FlowFunction {
             outputs: Default::default(),
             graph: Default::default(),
             ir_function: Default::default(),
-            watch_idx_map: Default::default(),
             math_function_id_gen: 0,
             math_functions: Default::default(),
         }
@@ -256,14 +252,6 @@ impl FlowFunction {
     }
 
     pub fn remove_node(&mut self, idx: FlowNodeIndex) -> Option<FlowNode> {
-        let watch_idx = self
-            .watch_idx_map
-            .iter()
-            .find(|(_k, v)| **v == idx)
-            .map(|(k, _)| *k);
-        if let Some(idx) = watch_idx {
-            self.watch_idx_map.remove(&idx);
-        }
         self.graph.remove_node(idx)
     }
 
@@ -289,15 +277,6 @@ impl FlowFunction {
 
     pub fn get_function_mut(&mut self, name: &str) -> Option<&mut Box<dyn WispFunction>> {
         self.math_functions.get_mut(name)
-    }
-
-    // TODO: Should it be stored here at all?
-    pub fn add_watch_idx(&mut self, node_idx: FlowNodeIndex, idx: u32) {
-        self.watch_idx_map.insert(idx, node_idx);
-    }
-
-    pub fn watch_idx_to_node_idx(&self, idx: u32) -> FlowNodeIndex {
-        self.watch_idx_map[&idx]
     }
 
     pub fn get_connection(

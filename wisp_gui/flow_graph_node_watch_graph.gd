@@ -5,7 +5,15 @@ var graph_size = Vector2(140, 50)
 var data = []
 
 
-func process_watch_updates(values):
+func _ready():
+	flow_node.add_watch()
+
+
+func _process(_delta):
+	var values = flow_node.get_watch_updates()
+	if len(values) == 0:
+		return
+	
 	data.append_array(values)
 	var length = int(graph_size.x)
 	if len(data) > length:
