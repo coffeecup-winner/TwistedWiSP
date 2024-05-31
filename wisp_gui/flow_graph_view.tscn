@@ -10,7 +10,6 @@ grow_horizontal = 2
 grow_vertical = 2
 right_disconnects = true
 script = ExtResource("1_sacfu")
-wisp_flow_name = "example"
 
 [node name="chkbtnDSP" type="CheckButton" parent="."]
 layout_mode = 1

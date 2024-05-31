@@ -1,9 +1,5 @@
 extends GraphEdit
 
-@export
-var wisp_flow_name = ""
-var wisp_file_path = ""
-
 const GROUP_NODES = "nodes"
 const GROUP_WATCHES = "watches"
 
@@ -15,35 +11,42 @@ const NODE_NAME_WATCH = "watch"
 const NODE_NAME_GRAPH = "graph"
 const NODE_NAME_BUFFER = "buffer"
 
-var FlowGraphNode = preload("res://flow_graph_node.tscn")
-var FlowGraphNode_HSlider = preload("res://flow_graph_node_h_slider.tscn")
-var FlowGraphNode_Button = preload("res://flow_graph_node_button.tscn")
-var FlowGraphNode_Toggle = preload("res://flow_graph_node_input_toggle.tscn")
-var FlowGraphNodeWatch = preload("res://flow_graph_node_watch.tscn")
-var FlowGraphNodeWatch_Graph = preload("res://flow_graph_node_watch_graph.tscn")
+const FlowGraphNode = preload("res://flow_graph_node.tscn")
+const FlowGraphNode_HSlider = preload("res://flow_graph_node_h_slider.tscn")
+const FlowGraphNode_Button = preload("res://flow_graph_node_button.tscn")
+const FlowGraphNode_Toggle = preload("res://flow_graph_node_input_toggle.tscn")
+const FlowGraphNodeWatch = preload("res://flow_graph_node_watch.tscn")
+const FlowGraphNodeWatch_Graph = preload("res://flow_graph_node_watch_graph.tscn")
 
-var FlowGraphNodeSelector = preload("res://flow_graph_node_selector.tscn")
+const FlowGraphNodeSelector = preload("res://flow_graph_node_selector.tscn")
+
+var wisp: TwistedWisp
+var flow: TwistedWispFlow
+var flow_file_path = ""
+
 
 func _ready():
 	connect("connection_request", _on_connection_request)
 	connect("disconnection_request", _on_disconnection_request)
+	flow = wisp.create_flow()
+	flow.set_as_main(wisp)
 	# TODO: Remove this and implement sample/array management
-	TwistedWisp.load_wave_file("beat", "../../data/beat.wav")
+	wisp.load_wave_file("beat", "../../data/beat.wav")
 
 
 func _is_node_hover_valid(from_node: StringName, _from_port: int, to_node: StringName, _to_port: int) -> bool:
 	if from_node != to_node:
 		return true
 	var node = get_node(NodePath(from_node))
-	var func_name = TwistedWisp.flow_get_node_name(wisp_flow_name, node.wisp_node_idx)
-	var metadata = TwistedWisp.function_get_metadata(func_name)
+	var func_name = flow.get_node_name(wisp, node.wisp_node_idx)
+	var metadata = wisp.get_function_metadata(func_name)
 	return metadata.is_lag
 
 
 func _on_connection_request(from_node, from_port, to_node, to_port):
 	connect_node(from_node, from_port, to_node, to_port)
-	TwistedWisp.flow_connect(
-		wisp_flow_name,
+	flow.connect_nodes(
+		wisp,
 		get_node(NodePath(from_node)).wisp_node_idx,
 		from_port,
 		get_node(NodePath(to_node)).wisp_node_idx,
@@ -52,8 +55,8 @@ func _on_connection_request(from_node, from_port, to_node, to_port):
 
 func _on_disconnection_request(from_node, from_port, to_node, to_port):
 	disconnect_node(from_node, from_port, to_node, to_port)
-	TwistedWisp.flow_disconnect(
-		wisp_flow_name,
+	flow.disconnect_nodes(
+		wisp,
 		get_node(NodePath(from_node)).wisp_node_idx,
 		from_port,
 		get_node(NodePath(to_node)).wisp_node_idx,
@@ -64,7 +67,7 @@ func _on_delete_nodes_request(node_names):
 	for node_name in node_names:
 		var node = get_node(NodePath(node_name))
 		if node.is_in_group(GROUP_NODES):
-			TwistedWisp.flow_remove_node(wisp_flow_name, node.wisp_node_idx)
+			flow.remove_node(wisp, node.wisp_node_idx)
 			# TODO: Have the extension return the connection list?
 			var connections_to_delete = []
 			for conn in get_connection_list():
@@ -78,9 +81,9 @@ func _on_delete_nodes_request(node_names):
 
 func _on_chkbtn_dsp_toggled(toggled_on):
 	if toggled_on:
-		TwistedWisp.dsp_start()
+		wisp.start_dsp()
 	else:
-		TwistedWisp.dsp_stop()
+		wisp.stop_dsp()
 
 
 func _on_open_file_selected(f):
@@ -89,14 +92,15 @@ func _on_open_file_selected(f):
 		if node.is_in_group(GROUP_NODES):
 			remove_child(node)
 			node.queue_free()
-	wisp_file_path = f
-	wisp_flow_name = TwistedWisp.function_open(wisp_file_path)
+	flow_file_path = f
+	flow = wisp.load_flow_from_file(flow_file_path)
+	flow.set_as_main(wisp)
 	var node_map = {}
-	for idx in TwistedWisp.flow_list_nodes(wisp_flow_name):
-		var node = add_flow_node(TwistedWisp.flow_get_node_name(wisp_flow_name, idx), idx, null)
+	for idx in flow.list_nodes(wisp):
+		var node = add_flow_node(flow.get_node_name(wisp, idx), idx, null)
 		node_map[idx] = node
-	for idx in TwistedWisp.flow_list_connections(wisp_flow_name):
-		var conn = TwistedWisp.flow_get_connection(wisp_flow_name, idx)
+	for idx in flow.list_connections(wisp):
+		var conn = flow.get_connection(wisp, idx)
 		connect_node(
 			node_map[conn.from].name,
 			conn.output_index,
@@ -105,8 +109,8 @@ func _on_open_file_selected(f):
 
 
 func _on_save_file_selected(f):
-	wisp_file_path = f
-	TwistedWisp.function_save(wisp_flow_name, wisp_file_path)
+	flow_file_path = f
+	flow.save_to_file(wisp, flow_file_path)
 
 
 func _on_gui_input(event):
@@ -125,8 +129,8 @@ func _on_gui_input(event):
 			and event.is_pressed()
 			and not event.is_echo()):
 		accept_event()
-		if wisp_file_path and not event.is_action("ui_flow_graph_view_save_as"):
-			TwistedWisp.function_save(wisp_flow_name, wisp_file_path)
+		if flow_file_path and not event.is_action("ui_flow_graph_view_save_as"):
+			flow.save_to_file(wisp, flow_file_path)
 		else:
 			var fd = FileDialog.new()
 			fd.access = FileDialog.ACCESS_FILESYSTEM
@@ -174,7 +178,7 @@ func add_flow_node(func_name, idx, pos):
 	var node: GraphNode
 	var display_name = func_name
 	if idx == null:
-		var result = TwistedWisp.flow_add_node(wisp_flow_name, func_name)
+		var result = flow.add_node(wisp, func_name)
 		idx = result.idx
 		func_name = result.name
 		node = create_node(func_name)
@@ -184,8 +188,8 @@ func add_flow_node(func_name, idx, pos):
 		elif func_name != NODE_NAME_GRAPH:
 			node.size = Vector2(80, 80)
 		print(node.size)
-		TwistedWisp.flow_set_node_coordinates(
-			wisp_flow_name,
+		flow.set_node_coordinates(
+			wisp,
 			node.wisp_node_idx,
 			int(node.position_offset.x),
 			int(node.position_offset.y),
@@ -193,16 +197,16 @@ func add_flow_node(func_name, idx, pos):
 			int(node.size.y))
 	else:
 		node = create_node(func_name)
-		var coords = TwistedWisp.flow_get_node_coordinates(wisp_flow_name, idx)
+		var coords = flow.get_node_coordinates(wisp, idx)
 		node.position_offset.x = coords.x
 		node.position_offset.y = coords.y
 		node.size.x = coords.w
 		node.size.y = coords.h
-		display_name = TwistedWisp.flow_get_node_display_name(wisp_flow_name, idx)
+		display_name = flow.get_node_display_name(wisp, idx)
 	
 	node.title = display_name
 	
-	var metadata = TwistedWisp.function_get_metadata(func_name)
+	var metadata = wisp.get_function_metadata(func_name)
 	var rows_count = max(len(metadata.inlets), len(metadata.outlets))
 	
 	while (node.get_child_count() < rows_count):
@@ -225,11 +229,11 @@ func add_flow_node(func_name, idx, pos):
 	if func_name in [NODE_NAME_CONTROL, NODE_NAME_BUTTON, NODE_NAME_TOGGLE]:
 		node.connect("value_changed", _on_control_value_changed)
 	elif func_name in [NODE_NAME_WATCH, NODE_NAME_GRAPH]:
-		TwistedWisp.flow_add_watch(wisp_flow_name, idx)
+		flow.add_watch(wisp, idx)
 		node.add_to_group(GROUP_WATCHES)
 	elif func_name == NODE_NAME_BUFFER:
 		# TODO
-		TwistedWisp.flow_node_set_buffer(wisp_flow_name, idx, "beat")
+		flow.set_node_buffer(wisp, idx, "beat")
 	
 	node.add_to_group(GROUP_NODES)
 	
@@ -240,14 +244,14 @@ func add_flow_node(func_name, idx, pos):
 
 
 func _on_control_value_changed(idx, value):
-	TwistedWisp.flow_node_on_value_changed(wisp_flow_name, idx, value)
+	flow.set_node_value(wisp, idx, value)
 
 
 func _on_end_node_move():
 	for node in get_children():
 		if node.is_in_group(GROUP_NODES) and node.selected:
-			TwistedWisp.flow_set_node_coordinates(
-				wisp_flow_name,
+			flow.set_node_coordinates(
+				wisp,
 				node.wisp_node_idx,
 				int(node.position_offset.x),
 				int(node.position_offset.y),
@@ -256,7 +260,7 @@ func _on_end_node_move():
 
 
 func _process(_delta):
-	var updates = TwistedWisp.flow_get_watch_updates(wisp_flow_name)
+	var updates = flow.get_watch_updates(wisp)
 	for node in get_children():
 		if node.is_in_group(GROUP_WATCHES) and node.wisp_node_idx in updates:
 			node.process_watch_updates(updates[node.wisp_node_idx])
