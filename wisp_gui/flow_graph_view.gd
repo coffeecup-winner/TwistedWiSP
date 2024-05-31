@@ -10,12 +10,12 @@ const NODE_NAME_WATCH = "watch"
 const NODE_NAME_GRAPH = "graph"
 const NODE_NAME_BUFFER = "buffer"
 
-const FlowGraphNode = preload("res://flow_graph_node.tscn")
+const FlowGraphNode_Generic = preload("res://flow_graph_node.tscn")
 const FlowGraphNode_HSlider = preload("res://flow_graph_node_h_slider.tscn")
 const FlowGraphNode_Button = preload("res://flow_graph_node_button.tscn")
 const FlowGraphNode_Toggle = preload("res://flow_graph_node_input_toggle.tscn")
-const FlowGraphNodeWatch = preload("res://flow_graph_node_watch.tscn")
-const FlowGraphNodeWatch_Graph = preload("res://flow_graph_node_watch_graph.tscn")
+const FlowGraphNode_Watch = preload("res://flow_graph_node_watch.tscn")
+const FlowGraphNode_Watch_Graph = preload("res://flow_graph_node_watch_graph.tscn")
 
 const FlowGraphNodeSelector = preload("res://flow_graph_node_selector.tscn")
 
@@ -150,9 +150,9 @@ func create_node(func_name):
 		NODE_NAME_CONTROL: return FlowGraphNode_HSlider.instantiate()
 		NODE_NAME_BUTTON: return FlowGraphNode_Button.instantiate()
 		NODE_NAME_TOGGLE: return FlowGraphNode_Toggle.instantiate()
-		NODE_NAME_WATCH: return FlowGraphNodeWatch.instantiate()
-		NODE_NAME_GRAPH: return FlowGraphNodeWatch_Graph.instantiate()
-		_: return FlowGraphNode.instantiate()
+		NODE_NAME_WATCH: return FlowGraphNode_Watch.instantiate()
+		NODE_NAME_GRAPH: return FlowGraphNode_Watch_Graph.instantiate()
+		_: return FlowGraphNode_Generic.instantiate()
 
 
 func data_type_to_slot_type(data_type):
@@ -170,7 +170,7 @@ func slot_type_to_color(slot_type) -> Color:
 
 
 func add_flow_node(flow_node: TwistedWispFlowNode, is_new: bool, pos):
-	var node: GraphNode
+	var node: FlowGraphNode
 	var func_name = flow_node.function_name()
 	var display_name = func_name
 	if is_new:

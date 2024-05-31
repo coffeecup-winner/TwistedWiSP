@@ -1,4 +1,4 @@
-extends "res://flow_graph_node.gd"
+extends FlowGraphNode
 
 
 var graph_size = Vector2(140, 50)

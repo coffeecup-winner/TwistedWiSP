@@ -1,4 +1,4 @@
-extends "res://flow_graph_node.gd"
+extends FlowGraphNode
 
 
 func _on_check_button_toggled(toggled_on):
