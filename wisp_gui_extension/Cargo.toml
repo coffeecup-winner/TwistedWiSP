@@ -11,7 +11,7 @@ crate-type = ["cdylib"]
 [dependencies]
 # NOTE: Newer commits make the extension fail to load, maybe because of Godot 4.2.1?
 log = "0.4"
-godot = { git = "https://github.com/godot-rust/gdext", rev = "3cab21e486c25a2e3f3e4b1de3d9977f10f94c37" }
+godot = { git = "https://github.com/godot-rust/gdext" }
 twisted-wisp = { path = "../wisp" }
 twisted-wisp-ir = { path = "../wisp_ir" }
 twisted-wisp-protocol = { path = "../wisp_protocol" }
