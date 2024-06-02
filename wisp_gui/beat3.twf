@@ -1,75 +1,326 @@
-flow:flow_0 24 26
-out 701 412 80 80
-out
-buffer 220 200 80 80
-buffer
-graph 520 320 318 271
-graph
-watch 460 100 183 80
-watch
-length 340 160 80 80
-length
-sample 340 260 80 103
-sample
-phasor 220 320 80 80
-phasor
-flow_0:math$0 -20 320 80 80
-= 1/8
-flow_0:math$1 100 320 80 103
-= $0 * $1
-control -60 420 119 71
-control
-flow_0:math$2 20 520 80 103
-= $0 * $1
-flow_0:math$3 20 660 80 103
-= $0 * $1
-flow_0:math$4 -160 520 79 80
-= 16
-flow_0:math$5 -160 620 79 80
-= 1.235
-noise 280 480 80 80
-noise
-flow_0:math$6 280 620 80 80
-= $0 * 0.2
-floor 220 720 80 80
-floor
-flow_0:math$7 140 520 80 80
-= $0 % 1
-delta 20 820 79 80
-delta
-abs 120 820 80 80
-abs
-flow_0:math$8 220 820 80 80
-= $0 > 0.5
-latch 340 800 80 103
-latch
-flow_0:math$9 480 740 80 103
-= $0 / $1
-flow_0:math$10 460 620 80 80
-= $0 % 1
-7 0 8 0
-1 0 4 0
-4 0 3 0
-23 0 5 1
-5 0 0 0
-1 0 5 0
-5 0 2 0
-8 0 6 0
-9 0 8 1
-12 0 10 1
-13 0 11 1
-10 0 11 0
-6 0 10 0
-14 0 15 0
-16 0 21 0
-15 0 16 0
-11 0 16 0
-10 0 17 0
-17 0 18 0
-18 0 19 0
-19 0 20 0
-20 0 21 1
-12 0 22 1
-21 0 22 0
-17 0 22 0
-22 0 23 0
+[flow]
+name = "flow_0"
+
+[[flow.nodes]]
+text = "out"
+x = 701
+y = 412
+w = 80
+h = 80
+
+[[flow.nodes]]
+text = "buffer"
+x = 220
+y = 200
+w = 80
+h = 80
+
+[[flow.nodes]]
+text = "graph"
+x = 520
+y = 320
+w = 318
+h = 271
+
+[[flow.nodes]]
+text = "watch"
+x = 460
+y = 100
+w = 183
+h = 80
+
+[[flow.nodes]]
+text = "length"
+x = 340
+y = 160
+w = 80
+h = 80
+
+[[flow.nodes]]
+text = "sample"
+x = 340
+y = 260
+w = 80
+h = 103
+
+[[flow.nodes]]
+text = "phasor"
+x = 220
+y = 320
+w = 80
+h = 80
+
+[[flow.nodes]]
+text = "= 1/8"
+x = -20
+y = 320
+w = 80
+h = 80
+
+[[flow.nodes]]
+text = "= $0 * $1"
+x = 100
+y = 320
+w = 80
+h = 103
+
+[[flow.nodes]]
+text = "control"
+x = -60
+y = 420
+w = 119
+h = 71
+
+[[flow.nodes]]
+text = "= $0 * $1"
+x = 20
+y = 520
+w = 80
+h = 103
+
+[[flow.nodes]]
+text = "= $0 * $1"
+x = 20
+y = 660
+w = 80
+h = 103
+
+[[flow.nodes]]
+text = "= 16"
+x = -160
+y = 520
+w = 79
+h = 80
+
+[[flow.nodes]]
+text = "= 1.235"
+x = -160
+y = 620
+w = 79
+h = 80
+
+[[flow.nodes]]
+text = "noise"
+x = 280
+y = 480
+w = 80
+h = 80
+
+[[flow.nodes]]
+text = "= $0 * 0.2"
+x = 280
+y = 620
+w = 80
+h = 80
+
+[[flow.nodes]]
+text = "floor"
+x = 220
+y = 720
+w = 80
+h = 80
+
+[[flow.nodes]]
+text = "= $0 % 1"
+x = 140
+y = 520
+w = 80
+h = 80
+
+[[flow.nodes]]
+text = "delta"
+x = 20
+y = 820
+w = 79
+h = 80
+
+[[flow.nodes]]
+text = "abs"
+x = 120
+y = 820
+w = 80
+h = 80
+
+[[flow.nodes]]
+text = "= $0 > 0.5"
+x = 220
+y = 820
+w = 80
+h = 80
+
+[[flow.nodes]]
+text = "latch"
+x = 340
+y = 800
+w = 80
+h = 103
+
+[[flow.nodes]]
+text = "= $0 / $1"
+x = 480
+y = 740
+w = 80
+h = 103
+
+[[flow.nodes]]
+text = "= $0 % 1"
+x = 460
+y = 620
+w = 80
+h = 80
+
+[[flow.edges]]
+from = 7
+output_index = 0
+to = 8
+input_index = 0
+
+[[flow.edges]]
+from = 1
+output_index = 0
+to = 4
+input_index = 0
+
+[[flow.edges]]
+from = 4
+output_index = 0
+to = 3
+input_index = 0
+
+[[flow.edges]]
+from = 23
+output_index = 0
+to = 5
+input_index = 1
+
+[[flow.edges]]
+from = 5
+output_index = 0
+to = 0
+input_index = 0
+
+[[flow.edges]]
+from = 1
+output_index = 0
+to = 5
+input_index = 0
+
+[[flow.edges]]
+from = 5
+output_index = 0
+to = 2
+input_index = 0
+
+[[flow.edges]]
+from = 8
+output_index = 0
+to = 6
+input_index = 0
+
+[[flow.edges]]
+from = 9
+output_index = 0
+to = 8
+input_index = 1
+
+[[flow.edges]]
+from = 12
+output_index = 0
+to = 10
+input_index = 1
+
+[[flow.edges]]
+from = 13
+output_index = 0
+to = 11
+input_index = 1
+
+[[flow.edges]]
+from = 10
+output_index = 0
+to = 11
+input_index = 0
+
+[[flow.edges]]
+from = 6
+output_index = 0
+to = 10
+input_index = 0
+
+[[flow.edges]]
+from = 14
+output_index = 0
+to = 15
+input_index = 0
+
+[[flow.edges]]
+from = 16
+output_index = 0
+to = 21
+input_index = 0
+
+[[flow.edges]]
+from = 15
+output_index = 0
+to = 16
+input_index = 0
+
+[[flow.edges]]
+from = 11
+output_index = 0
+to = 16
+input_index = 0
+
+[[flow.edges]]
+from = 10
+output_index = 0
+to = 17
+input_index = 0
+
+[[flow.edges]]
+from = 17
+output_index = 0
+to = 18
+input_index = 0
+
+[[flow.edges]]
+from = 18
+output_index = 0
+to = 19
+input_index = 0
+
+[[flow.edges]]
+from = 19
+output_index = 0
+to = 20
+input_index = 0
+
+[[flow.edges]]
+from = 20
+output_index = 0
+to = 21
+input_index = 1
+
+[[flow.edges]]
+from = 12
+output_index = 0
+to = 22
+input_index = 1
+
+[[flow.edges]]
+from = 21
+output_index = 0
+to = 22
+input_index = 0
+
+[[flow.edges]]
+from = 17
+output_index = 0
+to = 22
+input_index = 0
+
+[[flow.edges]]
+from = 22
+output_index = 0
+to = 23
+input_index = 0

@@ -86,7 +86,7 @@ impl WispContext {
             let file = file?;
             let text = std::fs::read_to_string(file.path())?;
 
-            if text.starts_with("flow:") {
+            if text.starts_with("[flow]") {
                 // TODO: Stop reading this file twice
                 self.load_function(file.path().to_str().unwrap())?;
                 continue;

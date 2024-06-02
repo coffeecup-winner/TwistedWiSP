@@ -3,9 +3,10 @@ use std::{cell::RefCell, collections::HashMap, vec};
 use petgraph::{
     graph::{EdgeIndex, NodeIndex},
     stable_graph::{EdgeIndices, NodeIndices, StableGraph},
-    visit::{EdgeFiltered, EdgeRef, NodeRef, Topo, Walker},
+    visit::{EdgeFiltered, EdgeRef, Topo, Walker},
     Directed, Direction,
 };
+use serde::{Deserialize, Serialize};
 
 use crate::{
     context::WispContext, CodeFunction, DataType, DefaultInputValue, FunctionInput, FunctionOutput,
@@ -53,6 +54,35 @@ pub struct FlowFunction {
     math_functions: HashMap<String, Box<dyn WispFunction>>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct FileFormat {
+    flow: FileFormatFlow,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct FileFormatFlow {
+    name: String,
+    nodes: Vec<FileFormatNode>,
+    edges: Vec<FileFormatEdge>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct FileFormatNode {
+    text: String,
+    x: i32,
+    y: i32,
+    w: u32,
+    h: u32,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct FileFormatEdge {
+    from: u32,
+    output_index: u32,
+    to: u32,
+    input_index: u32,
+}
+
 impl WispFunction for FlowFunction {
     fn name(&self) -> &str {
         &self.name
@@ -92,15 +122,9 @@ impl WispFunction for FlowFunction {
     where
         Self: Sized,
     {
-        let mut lines = s.lines();
-        let mut first_line = lines.next()?;
-        first_line = first_line.strip_prefix("flow:")?;
-        let mut parts = first_line.split(' ');
-        let flow_name = parts.next()?;
-        let node_count = parts.next()?.parse::<u32>().ok()?;
-        let edge_count = parts.next()?.parse::<u32>().ok()?;
+        let format = toml::from_str::<FileFormat>(s).ok()?;
         let mut flow = FlowFunction {
-            name: flow_name.into(),
+            name: format.flow.name.into(),
             inputs: vec![],
             outputs: vec![],
             graph: Default::default(),
@@ -108,72 +132,62 @@ impl WispFunction for FlowFunction {
             math_function_id_gen: 0,
             math_functions: Default::default(),
         };
-        for idx in 0..node_count {
-            let line = lines.next()?;
-            let mut parts = line.split(' ');
-            // TODO: Better file format
-            let _name = parts.next()?;
-            let x = parts.next()?.parse::<i32>().ok()?;
-            let y = parts.next()?.parse::<i32>().ok()?;
-            let w = parts.next()?.parse::<u32>().ok()?;
-            let h = parts.next()?.parse::<u32>().ok()?;
-            let display_text = lines.next()?.to_owned();
-
-            let node_idx = flow.add_node(display_text.as_str());
+        for n in format.flow.nodes {
+            let node_idx = flow.add_node(&n.text);
             let node = flow.get_node_mut(node_idx).unwrap();
-            node.data = FlowNodeData { x, y, w, h };
-            assert_eq!(node_idx.index().id() as u32, idx);
+            node.data = FlowNodeData {
+                x: n.x,
+                y: n.y,
+                w: n.w,
+                h: n.h,
+            };
         }
-        for idx in 0..edge_count {
-            let line = lines.next()?;
-            let mut parts = line.split(' ');
-            let from = parts.next()?.parse::<u32>().ok()?;
-            let output_index = parts.next()?.parse::<u32>().ok()?;
-            let to = parts.next()?.parse::<u32>().ok()?;
-            let input_index = parts.next()?.parse::<u32>().ok()?;
-            let edge_idx = flow.graph.add_edge(
-                from.into(),
-                to.into(),
+        for e in format.flow.edges {
+            flow.graph.add_edge(
+                e.from.into(),
+                e.to.into(),
                 FlowConnection {
-                    input_index,
-                    output_index,
+                    output_index: e.output_index,
+                    input_index: e.input_index,
                 },
             );
-            assert_eq!(edge_idx.index().id() as u32, idx);
         }
         Some(Box::new(flow))
     }
 
     fn save(&self) -> String {
-        let mut s = String::new();
-        s.push_str(&format!(
-            "flow:{} {} {}\n",
-            self.name,
-            self.graph.node_count(),
-            self.graph.edge_count()
-        ));
+        let mut nodes = vec![];
         let mut node_idx_map = HashMap::new();
         for (sequential_idx, idx) in self.graph.node_indices().enumerate() {
             let n = self.graph.node_weight(idx).unwrap();
-            s.push_str(&format!(
-                "{} {} {} {} {}\n",
-                n.name, n.data.x, n.data.y, n.data.w, n.data.h
-            ));
-            s.push_str(&format!("{}\n", n.display_text));
+            nodes.push(FileFormatNode {
+                text: n.display_text.clone(),
+                x: n.data.x,
+                y: n.data.y,
+                w: n.data.w,
+                h: n.data.h,
+            });
             node_idx_map.insert(idx.index(), sequential_idx);
         }
+        let mut edges = vec![];
         for idx in self.graph.edge_indices() {
             let endpoints = self.graph.edge_endpoints(idx).unwrap();
             let e = self.graph.edge_weight(idx).unwrap();
-            s.push_str(&format!(
-                "{} {} {} {}\n",
-                node_idx_map[&endpoints.0.index()],
-                e.output_index,
-                node_idx_map[&endpoints.1.index()],
-                e.input_index
-            ))
+            edges.push(FileFormatEdge {
+                from: node_idx_map[&endpoints.0.index()] as u32,
+                output_index: e.output_index,
+                to: node_idx_map[&endpoints.1.index()] as u32,
+                input_index: e.input_index,
+            });
         }
-        s
+        toml::to_string_pretty(&FileFormat {
+            flow: FileFormatFlow {
+                name: self.name.clone(),
+                nodes,
+                edges,
+            },
+        })
+        .expect("Failed to serialize the flow function")
     }
 
     fn clone(&self) -> Box<dyn WispFunction> {

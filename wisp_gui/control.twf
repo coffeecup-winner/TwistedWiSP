@@ -1,22 +1,93 @@
-flow:flow_0 7 7
-flow_0:math$0 400 200 237 103
-= ($0 + $1 / SampleRate) % 1.0
-control 240 380 120 71
-control
-lag 480 320 80 80
-lag
-flow_0:math$1 260 280 103 80
-= $0 * 20000
-control 580 60 120 71
-control
-flow_0:math$2 720 200 80 103
-= $0 * $1
-out 860 200 80 103
-out
-1 0 3 0
-3 0 0 1
-2 0 0 0
-0 0 2 0
-5 0 6 0
-4 0 5 0
-0 0 5 1
+[flow]
+name = "flow_0"
+
+[[flow.nodes]]
+text = "= ($0 + $1 / SampleRate) % 1.0"
+x = 400
+y = 200
+w = 237
+h = 103
+
+[[flow.nodes]]
+text = "control"
+x = 240
+y = 380
+w = 120
+h = 71
+
+[[flow.nodes]]
+text = "lag"
+x = 480
+y = 320
+w = 80
+h = 80
+
+[[flow.nodes]]
+text = "= $0 * 20000"
+x = 260
+y = 280
+w = 103
+h = 80
+
+[[flow.nodes]]
+text = "control"
+x = 580
+y = 60
+w = 120
+h = 71
+
+[[flow.nodes]]
+text = "= $0 * $1"
+x = 720
+y = 200
+w = 80
+h = 103
+
+[[flow.nodes]]
+text = "out"
+x = 860
+y = 200
+w = 80
+h = 103
+
+[[flow.edges]]
+from = 1
+output_index = 0
+to = 3
+input_index = 0
+
+[[flow.edges]]
+from = 3
+output_index = 0
+to = 0
+input_index = 1
+
+[[flow.edges]]
+from = 2
+output_index = 0
+to = 0
+input_index = 0
+
+[[flow.edges]]
+from = 0
+output_index = 0
+to = 2
+input_index = 0
+
+[[flow.edges]]
+from = 5
+output_index = 0
+to = 6
+input_index = 0
+
+[[flow.edges]]
+from = 4
+output_index = 0
+to = 5
+input_index = 0
+
+[[flow.edges]]
+from = 0
+output_index = 0
+to = 5
+input_index = 1

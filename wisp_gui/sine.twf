@@ -1,28 +1,119 @@
-flow:flow_0 9 9
-read 205 98 80 80
-read
-out 520 200 80 103
-out
-buffer 200 200 80 80
-buffer
-flow_0:math$0 200 400 128 80
-= ($0 + 1) % 1024
-lag 240 480 80 80
-lag
-graph 520 320 318 271
-graph
-watch 480 100 183 80
-watch
-flow_0:math$1 400 420 91 80
-= $0 / 1024
-length 340 160 80 80
-length
-0 0 1 0
-4 0 3 0
-3 0 4 0
-3 0 0 1
-2 0 0 0
-3 0 7 0
-0 0 5 0
-2 0 8 0
-8 0 6 0
+[flow]
+name = "flow_0"
+
+[[flow.nodes]]
+text = "read"
+x = 205
+y = 98
+w = 80
+h = 80
+
+[[flow.nodes]]
+text = "out"
+x = 520
+y = 200
+w = 80
+h = 103
+
+[[flow.nodes]]
+text = "buffer"
+x = 200
+y = 200
+w = 80
+h = 80
+
+[[flow.nodes]]
+text = "= ($0 + 1) % 1024"
+x = 200
+y = 400
+w = 128
+h = 80
+
+[[flow.nodes]]
+text = "lag"
+x = 240
+y = 480
+w = 80
+h = 80
+
+[[flow.nodes]]
+text = "graph"
+x = 520
+y = 320
+w = 318
+h = 271
+
+[[flow.nodes]]
+text = "watch"
+x = 480
+y = 100
+w = 183
+h = 80
+
+[[flow.nodes]]
+text = "= $0 / 1024"
+x = 400
+y = 420
+w = 91
+h = 80
+
+[[flow.nodes]]
+text = "length"
+x = 340
+y = 160
+w = 80
+h = 80
+
+[[flow.edges]]
+from = 0
+output_index = 0
+to = 1
+input_index = 0
+
+[[flow.edges]]
+from = 4
+output_index = 0
+to = 3
+input_index = 0
+
+[[flow.edges]]
+from = 3
+output_index = 0
+to = 4
+input_index = 0
+
+[[flow.edges]]
+from = 3
+output_index = 0
+to = 0
+input_index = 1
+
+[[flow.edges]]
+from = 2
+output_index = 0
+to = 0
+input_index = 0
+
+[[flow.edges]]
+from = 3
+output_index = 0
+to = 7
+input_index = 0
+
+[[flow.edges]]
+from = 0
+output_index = 0
+to = 5
+input_index = 0
+
+[[flow.edges]]
+from = 2
+output_index = 0
+to = 8
+input_index = 0
+
+[[flow.edges]]
+from = 8
+output_index = 0
+to = 6
+input_index = 0
