@@ -1,5 +1,5 @@
 [flow]
-name = "flow_0"
+name = "beat"
 
 [[flow.nodes]]
 text = "read"
@@ -21,6 +21,7 @@ x = 200
 y = 200
 w = 80
 h = 80
+buffer = "beat"
 
 [[flow.nodes]]
 text = "lag"
@@ -136,3 +137,7 @@ from = 9
 output_index = 0
 to = 8
 input_index = 0
+
+[[buffers]]
+name = "beat"
+path = "beat.wav"

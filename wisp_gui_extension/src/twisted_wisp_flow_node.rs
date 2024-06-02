@@ -41,6 +41,11 @@ impl TwistedWispFlowNode {
     }
 
     #[func]
+    fn flow(&self) -> Gd<TwistedWispFlow> {
+        self.flow.clone()
+    }
+
+    #[func]
     fn function_name(&self) -> String {
         let wisp = self.wisp.bind();
         let flow = wisp
@@ -72,7 +77,7 @@ impl TwistedWispFlowNode {
             .get_function(self.flow.bind().name())
             .and_then(|f| f.as_flow())
             .unwrap();
-        let data = &flow.get_node(self.idx).unwrap().data;
+        let data = &flow.get_node(self.idx).unwrap().coords;
         dict! {
             "x": data.x,
             "y": data.y,
@@ -89,7 +94,7 @@ impl TwistedWispFlowNode {
             .get_function_mut(self.flow.bind().name())
             .and_then(|f| f.as_flow_mut())
             .unwrap();
-        let data = &mut flow.get_node_mut(self.idx).unwrap().data;
+        let data = &mut flow.get_node_mut(self.idx).unwrap().coords;
         data.x = x;
         data.y = y;
         data.w = w;
@@ -148,6 +153,12 @@ impl TwistedWispFlowNode {
     #[func]
     fn set_data_buffer(&mut self, name: String) {
         let mut wisp = self.wisp.bind_mut();
+        let flow = wisp
+            .ctx_mut()
+            .get_function_mut(self.flow.bind().name())
+            .and_then(|f| f.as_flow_mut())
+            .unwrap();
+        flow.get_node_mut(self.idx).unwrap().buffer = Some(name.clone());
         wisp.runner_mut().context_set_data_array(
             self.flow.bind().name().to_owned(),
             CallId(self.idx.index() as u32),

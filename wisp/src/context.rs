@@ -13,12 +13,6 @@ use log::info;
 use twisted_wisp_ir::{Instruction, Operand, SignalOutputIndex, TargetLocation};
 
 #[derive(Debug)]
-pub struct LoadFunctionResult {
-    pub name: String,
-    pub replaced_existing: bool,
-}
-
-#[derive(Debug)]
 pub struct WispContext {
     num_outputs: u32,
     functions: HashMap<String, Box<dyn WispFunction>>,
@@ -115,20 +109,14 @@ impl WispContext {
         Ok(())
     }
 
-    pub fn load_function(
-        &mut self,
-        file_path: &Path,
-    ) -> Result<LoadFunctionResult, Box<dyn Error>> {
+    pub fn load_function(&mut self, file_path: &Path) -> Result<String, Box<dyn Error>> {
         let text = std::fs::read_to_string(file_path)?;
         // TODO: Load flow or code function
         let func = FlowFunction::load(&text, self).expect("Failed to parse the flow function data");
         let flow_name = func.name().to_owned();
         info!("Loading function: {}", flow_name);
-        let old_function = self.add_function(func);
-        Ok(LoadFunctionResult {
-            name: flow_name,
-            replaced_existing: old_function.is_some(),
-        })
+        self.add_function(func);
+        Ok(flow_name)
     }
 
     pub fn num_outputs(&self) -> u32 {

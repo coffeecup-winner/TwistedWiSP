@@ -1,4 +1,7 @@
-use std::{collections::HashMap, path::Path};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use godot::prelude::*;
 use twisted_wisp_protocol::WatchIndex;
@@ -184,5 +187,28 @@ impl TwistedWispFlow {
         let mut wisp = self.wisp.bind_mut();
         wisp.runner_mut()
             .context_set_main_function(self.name.clone());
+    }
+
+    #[func]
+    fn load_wave_file(&mut self, filepath: String) -> GString {
+        let mut wisp = self.wisp.bind_mut();
+        let path = wisp
+            .config()
+            .resolve_data_path(&PathBuf::from(filepath))
+            .expect("Failed to resolve a data path");
+        // TODO: Handle duplicate file names
+        let name = path.file_stem().unwrap().to_str().unwrap().to_owned();
+
+        let flow = wisp
+            .ctx_mut()
+            .get_function_mut(&self.name)
+            .and_then(|f| f.as_flow_mut())
+            .unwrap();
+
+        flow.add_buffer(&name, path.clone());
+
+        wisp.runner_mut()
+            .context_load_wave_file(name.clone(), path.to_str().unwrap().to_owned());
+        name.into()
     }
 }

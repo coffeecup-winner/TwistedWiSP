@@ -1,5 +1,5 @@
 [flow]
-name = "flow_0"
+name = "sine"
 
 [[flow.nodes]]
 text = "read"

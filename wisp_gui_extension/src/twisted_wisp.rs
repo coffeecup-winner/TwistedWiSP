@@ -1,11 +1,12 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use godot::prelude::*;
 
 use log::info;
 use serde::{Deserialize, Serialize};
-use twisted_wisp::{FlowFunction, WispContext};
-use twisted_wisp_protocol::WispRunnerClient;
+use twisted_wisp::{FlowFunction, WispContext, WispFunction};
+use twisted_wisp_ir::CallId;
+use twisted_wisp_protocol::{DataIndex, WispRunnerClient};
 
 use crate::{logger::GodotLogger, TwistedWispFlow};
 
@@ -28,6 +29,21 @@ pub struct TwistedWispConfig {
     pub executable_path: PathBuf,
     pub core_path: PathBuf,
     pub data_paths: Vec<PathBuf>,
+}
+
+impl TwistedWispConfig {
+    pub fn resolve_data_path(&self, path: &Path) -> Option<PathBuf> {
+        if path.is_absolute() {
+            return Some(path.to_owned());
+        }
+        for data_path in &self.data_paths {
+            let full_path = data_path.join(path);
+            if full_path.exists() {
+                return Some(full_path);
+            }
+        }
+        None
+    }
 }
 
 #[godot_api]
@@ -68,6 +84,10 @@ impl TwistedWisp {
         })
     }
 
+    pub fn config(&self) -> &TwistedWispConfig {
+        &self.config
+    }
+
     pub fn runner_mut(&mut self) -> &mut WispRunnerClient {
         self.runner.as_mut().unwrap()
     }
@@ -91,16 +111,6 @@ impl TwistedWisp {
     }
 
     #[func]
-    fn load_wave_file(&mut self, name: String, filepath: String) {
-        let mut path = PathBuf::from(filepath);
-        if !path.is_absolute() {
-            path = self.config.core_path.join(path);
-        }
-        self.runner_mut()
-            .context_load_wave_file(name, path.to_str().unwrap().to_owned());
-    }
-
-    #[func]
     fn create_flow(&mut self) -> Gd<TwistedWispFlow> {
         let ctx = self.ctx_mut();
         let mut name;
@@ -114,27 +124,51 @@ impl TwistedWisp {
         }
         let func = Box::new(FlowFunction::new(name.clone()));
         ctx.add_function(func);
+        let runner = self.runner_mut();
+        runner.context_set_main_function(name.clone());
         TwistedWispFlow::create(self.to_gd(), name)
     }
 
     #[func]
     fn load_flow_from_file(&mut self, path: String) -> Gd<TwistedWispFlow> {
-        let result = self
+        let flow_name = self
             .ctx_mut()
             .load_function(&PathBuf::from(path))
             .expect("Failed to load the flow function");
         let ctx = self.ctx();
-        let ir_functions = ctx
-            .get_function(&result.name)
-            .unwrap()
-            .get_ir_functions(ctx);
+        let flow = ctx.get_function(&flow_name).unwrap().as_flow().unwrap();
+        let ir_functions = flow.get_ir_functions(ctx);
+        let mut buffers = vec![];
+        for (name, path) in flow.buffers() {
+            let full_path = self
+                .config
+                .resolve_data_path(path)
+                .expect("Failed to resolve a data path");
+            buffers.push((name.clone(), full_path.to_str().unwrap().to_owned()));
+        }
+        let mut buffer_nodes = vec![];
+        for idx in flow.node_indices() {
+            let node = flow.get_node(idx).unwrap();
+            if let Some(buffer_name) = node.buffer.as_ref() {
+                buffer_nodes.push((idx, buffer_name.clone()));
+            }
+        }
         let runner = self.runner_mut();
         runner.context_add_or_update_functions(ir_functions);
-        runner.context_set_main_function(result.name.clone());
-        if result.replaced_existing {
-            runner.context_update();
+        for (name, path) in buffers {
+            runner.context_load_wave_file(name, path);
         }
-        TwistedWispFlow::create(self.to_gd(), result.name)
+        runner.context_set_main_function(flow_name.clone());
+        runner.context_update();
+        for (idx, buffer_name) in buffer_nodes {
+            runner.context_set_data_array(
+                flow_name.clone(),
+                CallId(idx.index() as u32),
+                DataIndex(0),
+                buffer_name,
+            );
+        }
+        TwistedWispFlow::create(self.to_gd(), flow_name)
     }
 
     #[func]

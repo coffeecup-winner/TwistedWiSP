@@ -1,5 +1,5 @@
 [flow]
-name = "flow_0"
+name = "test"
 
 [[flow.nodes]]
 text = "= ($0 + 0.01) % 1.0"

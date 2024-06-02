@@ -88,7 +88,7 @@ fn run_file(
     let mut core_context = twisted_wisp::WispContext::new(wisp.num_outputs());
     core_context.add_builtin_functions();
     core_context.load_core_functions(core_lib_path)?;
-    let result = core_context.load_function(file_path)?;
+    let flow_name = core_context.load_function(file_path)?;
 
     for f in core_context.functions_iter() {
         for ir_func in f.get_ir_functions(&core_context) {
@@ -99,7 +99,7 @@ fn run_file(
     let execution_context = WispExecutionContext::init();
     let mut runtime = WispRuntime::init(device);
 
-    runtime.switch_to_signal_processor(&execution_context, &wisp, &result.name)?;
+    runtime.switch_to_signal_processor(&execution_context, &wisp, &flow_name)?;
     runtime.start_dsp();
 
     loop {

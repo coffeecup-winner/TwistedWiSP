@@ -16,6 +16,7 @@ const FlowGraphNode_Button = preload("res://flow_graph_node_button.tscn")
 const FlowGraphNode_Toggle = preload("res://flow_graph_node_input_toggle.tscn")
 const FlowGraphNode_Watch = preload("res://flow_graph_node_watch.tscn")
 const FlowGraphNode_Watch_Graph = preload("res://flow_graph_node_watch_graph.tscn")
+const FlowGraphNode_Buffer = preload("res://flow_graph_node_buffer.tscn")
 
 const FlowGraphNodeSelector = preload("res://flow_graph_node_selector.tscn")
 
@@ -28,9 +29,6 @@ func _ready():
 	connect("connection_request", _on_connection_request)
 	connect("disconnection_request", _on_disconnection_request)
 	flow = wisp.create_flow()
-	flow.set_as_main()
-	# TODO: Remove this and implement sample/array management
-	wisp.load_wave_file("beat", "../../data/beat.wav")
 
 
 func _is_node_hover_valid(from_node: StringName, _from_port: int, to_node: StringName, _to_port: int) -> bool:
@@ -90,7 +88,6 @@ func _on_open_file_selected(f):
 			node.queue_free()
 	flow_file_path = f
 	flow = wisp.load_flow_from_file(flow_file_path)
-	flow.set_as_main()
 	var node_map = {}
 	for flow_node in flow.list_nodes():
 		var node = add_flow_node(flow_node, false, null)
@@ -152,6 +149,7 @@ func create_node(func_name):
 		NODE_NAME_TOGGLE: return FlowGraphNode_Toggle.instantiate()
 		NODE_NAME_WATCH: return FlowGraphNode_Watch.instantiate()
 		NODE_NAME_GRAPH: return FlowGraphNode_Watch_Graph.instantiate()
+		NODE_NAME_BUFFER: return FlowGraphNode_Buffer.instantiate()
 		_: return FlowGraphNode_Generic.instantiate()
 
 
@@ -215,10 +213,6 @@ func add_flow_node(flow_node: TwistedWispFlowNode, is_new: bool, pos):
 		var slot_type = data_type_to_slot_type(outlet)
 		node.set_slot_type_right(i, slot_type)
 		node.set_slot_color_right(i, slot_type_to_color(slot_type))
-	
-	if func_name == NODE_NAME_BUFFER:
-		# TODO
-		flow_node.set_data_buffer("beat")
 	
 	node.add_to_group(GROUP_NODES)
 	

@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::HashMap, vec};
+use std::{cell::RefCell, collections::HashMap, path::PathBuf, vec};
 
 use petgraph::{
     graph::{EdgeIndex, NodeIndex},
@@ -22,11 +22,12 @@ use twisted_wisp_ir::{
 pub struct FlowNode {
     pub name: String,
     pub display_text: String,
-    pub data: FlowNodeData,
+    pub coords: FlowNodeCoords,
+    pub buffer: Option<String>,
 }
 
 #[derive(Debug, Default, Clone)]
-pub struct FlowNodeData {
+pub struct FlowNodeCoords {
     pub x: i32,
     pub y: i32,
     pub w: u32,
@@ -52,11 +53,13 @@ pub struct FlowFunction {
     ir_function: RefCell<Option<IRFunction>>,
     math_function_id_gen: u32,
     math_functions: HashMap<String, Box<dyn WispFunction>>,
+    buffers: HashMap<String, PathBuf>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct FileFormat {
     flow: FileFormatFlow,
+    buffers: Option<Vec<FileFormatBuffer>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -73,6 +76,7 @@ struct FileFormatNode {
     y: i32,
     w: u32,
     h: u32,
+    buffer: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -81,6 +85,12 @@ struct FileFormatEdge {
     output_index: u32,
     to: u32,
     input_index: u32,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct FileFormatBuffer {
+    name: String,
+    path: PathBuf,
 }
 
 impl WispFunction for FlowFunction {
@@ -123,24 +133,17 @@ impl WispFunction for FlowFunction {
         Self: Sized,
     {
         let format = toml::from_str::<FileFormat>(s).ok()?;
-        let mut flow = FlowFunction {
-            name: format.flow.name,
-            inputs: vec![],
-            outputs: vec![],
-            graph: Default::default(),
-            ir_function: RefCell::new(None),
-            math_function_id_gen: 0,
-            math_functions: Default::default(),
-        };
+        let mut flow = FlowFunction::new(format.flow.name);
         for n in format.flow.nodes {
             let node_idx = flow.add_node(&n.text);
             let node = flow.get_node_mut(node_idx).unwrap();
-            node.data = FlowNodeData {
+            node.coords = FlowNodeCoords {
                 x: n.x,
                 y: n.y,
                 w: n.w,
                 h: n.h,
             };
+            node.buffer = n.buffer;
         }
         for e in format.flow.edges {
             flow.graph.add_edge(
@@ -152,6 +155,11 @@ impl WispFunction for FlowFunction {
                 },
             );
         }
+        if let Some(buffers) = format.buffers {
+            for b in buffers {
+                flow.buffers.insert(b.name, b.path);
+            }
+        }
         Some(Box::new(flow))
     }
 
@@ -162,10 +170,11 @@ impl WispFunction for FlowFunction {
             let n = self.graph.node_weight(idx).unwrap();
             nodes.push(FileFormatNode {
                 text: n.display_text.clone(),
-                x: n.data.x,
-                y: n.data.y,
-                w: n.data.w,
-                h: n.data.h,
+                x: n.coords.x,
+                y: n.coords.y,
+                w: n.coords.w,
+                h: n.coords.h,
+                buffer: n.buffer.clone(),
             });
             node_idx_map.insert(idx.index(), sequential_idx);
         }
@@ -180,12 +189,26 @@ impl WispFunction for FlowFunction {
                 input_index: e.input_index,
             });
         }
+        let buffers = self
+            .buffers
+            .iter()
+            .map(|(name, path)| FileFormatBuffer {
+                name: name.clone(),
+                path: path.clone(),
+            })
+            .collect::<Vec<_>>();
+        let buffers = if buffers.is_empty() {
+            None
+        } else {
+            Some(buffers)
+        };
         toml::to_string_pretty(&FileFormat {
             flow: FileFormatFlow {
                 name: self.name.clone(),
                 nodes,
                 edges,
             },
+            buffers,
         })
         .expect("Failed to serialize the flow function")
     }
@@ -205,6 +228,7 @@ impl WispFunction for FlowFunction {
             ir_function: RefCell::new(None),
             math_function_id_gen: self.math_function_id_gen,
             math_functions,
+            buffers: self.buffers.clone(),
         })
     }
 }
@@ -219,7 +243,16 @@ impl FlowFunction {
             ir_function: Default::default(),
             math_function_id_gen: 0,
             math_functions: Default::default(),
+            buffers: Default::default(),
         }
+    }
+
+    pub fn add_buffer(&mut self, name: &str, path: PathBuf) {
+        self.buffers.insert(name.into(), path);
+    }
+
+    pub fn buffers(&self) -> &HashMap<String, PathBuf> {
+        &self.buffers
     }
 
     pub fn add_node(&mut self, display_text: &str) -> FlowNodeIndex {
@@ -260,8 +293,9 @@ impl FlowFunction {
 
         self.graph.add_node(FlowNode {
             name,
-            data: Default::default(),
             display_text: display_text.to_owned(),
+            coords: Default::default(),
+            buffer: None,
         })
     }
 
