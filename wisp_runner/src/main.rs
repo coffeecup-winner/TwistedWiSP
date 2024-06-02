@@ -4,7 +4,10 @@ mod context;
 mod runtime;
 mod server;
 
-use std::error::Error;
+use std::{
+    error::Error,
+    path::{Path, PathBuf},
+};
 
 use clap::Parser;
 use context::{WispContext, WispExecutionContext};
@@ -33,9 +36,9 @@ struct Args {
 
     // Non-server mode
     #[arg(short, long)]
-    core_lib_path: Option<String>,
+    core_lib_path: Option<PathBuf>,
     #[arg()]
-    file_name: Option<String>,
+    file_name: Option<PathBuf>,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -66,8 +69,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         crate::server::main(wisp, device)
     } else {
         run_file(
-            args.core_lib_path.expect("No core library path provided"),
-            args.file_name.expect("No file name provided"),
+            args.core_lib_path
+                .as_ref()
+                .expect("No core library path provided"),
+            args.file_name.as_ref().expect("No file name provided"),
             wisp,
             device,
         )
@@ -75,15 +80,15 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn run_file(
-    core_lib_path: String,
-    file_path: String,
+    core_lib_path: &Path,
+    file_path: &Path,
     mut wisp: WispContext,
     device: ConfiguredAudioDevice,
 ) -> Result<(), Box<dyn Error>> {
     let mut core_context = twisted_wisp::WispContext::new(wisp.num_outputs());
     core_context.add_builtin_functions();
-    core_context.load_core_functions(&core_lib_path)?;
-    let result = core_context.load_function(&file_path)?;
+    core_context.load_core_functions(core_lib_path)?;
+    let result = core_context.load_function(file_path)?;
 
     for f in core_context.functions_iter() {
         for ir_func in f.get_ir_functions(&core_context) {

@@ -5,11 +5,9 @@ const FlowGraphView = preload("res://flow_graph_view.tscn")
 var wisp: TwistedWisp = null
 
 func _ready():
-	var config = ConfigFile.new()
-	config.load("res://wisp.ini")
-	var wisp_exe_path = config.get_value("wisp", "executable_path")
-	var wisp_core_path = config.get_value("wisp", "core_path")
-	wisp = TwistedWisp.create(wisp_exe_path, wisp_core_path)
+	var config = FileAccess.open("res://wisp.toml", FileAccess.READ)
+	var config_text = config.get_as_text()
+	wisp = TwistedWisp.create(config_text)
 	var graph = FlowGraphView.instantiate()
 	graph.wisp = wisp
 	add_child(graph)

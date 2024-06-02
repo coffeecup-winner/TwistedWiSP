@@ -1,7 +1,0 @@
-[wisp]
-# This path needs to be set to point to the TwistedWiSP executable
-# in order for the GUI to find and spawn it
-executable_path="/home/user/projects/TwistedWiSP/target/release/twisted-wisp-runner"
-# This path needs to be set to point to the TwistedWiSP core
-# in order for the core functions to be found and load
-core_path="/home/user/projects/TwistedWiSP/wisp/core"

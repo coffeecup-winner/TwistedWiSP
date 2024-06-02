@@ -81,14 +81,14 @@ impl WispContext {
         ))
     }
 
-    pub fn load_core_functions(&mut self, wisp_core_path: &str) -> Result<(), Box<dyn Error>> {
-        for file in std::fs::read_dir(Path::new(wisp_core_path))? {
+    pub fn load_core_functions(&mut self, wisp_core_path: &Path) -> Result<(), Box<dyn Error>> {
+        for file in std::fs::read_dir(wisp_core_path)? {
             let file = file?;
             let text = std::fs::read_to_string(file.path())?;
 
             if text.starts_with("[flow]") {
                 // TODO: Stop reading this file twice
-                self.load_function(file.path().to_str().unwrap())?;
+                self.load_function(&file.path())?;
                 continue;
             }
 
@@ -115,8 +115,11 @@ impl WispContext {
         Ok(())
     }
 
-    pub fn load_function(&mut self, file_path: &str) -> Result<LoadFunctionResult, Box<dyn Error>> {
-        let text = std::fs::read_to_string(Path::new(file_path))?;
+    pub fn load_function(
+        &mut self,
+        file_path: &Path,
+    ) -> Result<LoadFunctionResult, Box<dyn Error>> {
+        let text = std::fs::read_to_string(file_path)?;
         // TODO: Load flow or code function
         let func = FlowFunction::load(&text, self).expect("Failed to parse the flow function data");
         let flow_name = func.name().to_owned();

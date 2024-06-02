@@ -1284,6 +1284,8 @@ version = "0.1.0"
 dependencies = [
  "godot",
  "log",
+ "serde",
+ "toml",
  "twisted-wisp",
  "twisted-wisp-ir",
  "twisted-wisp-protocol",

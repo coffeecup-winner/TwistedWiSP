@@ -1,8 +1,9 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use godot::prelude::*;
 
 use log::info;
+use serde::{Deserialize, Serialize};
 use twisted_wisp::{FlowFunction, WispContext};
 use twisted_wisp_protocol::WispRunnerClient;
 
@@ -12,28 +13,45 @@ use crate::{logger::GodotLogger, TwistedWispFlow};
 #[class(no_init, base=RefCounted)]
 pub struct TwistedWisp {
     base: Base<RefCounted>,
-    core_path: PathBuf,
+    config: TwistedWispConfig,
     runner: Option<WispRunnerClient>,
     ctx: Option<WispContext>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct TwistedWispConfigFormat {
+    wisp: TwistedWispConfig,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TwistedWispConfig {
+    pub executable_path: PathBuf,
+    pub core_path: PathBuf,
+    pub data_paths: Vec<PathBuf>,
 }
 
 #[godot_api]
 impl TwistedWisp {
     #[func]
-    fn create(wisp_exe_path: String, wisp_core_path: String) -> Gd<Self> {
+    fn create(config: String) -> Gd<Self> {
         godot::log::godot_print!("TwistedWiSP extension initializing");
 
         GodotLogger::init().expect("Failed to init the logger");
 
-        info!("TwistedWiSP logger initialized");
+        info!("Initialized the logger");
 
-        info!("Initializing server: {}", wisp_exe_path);
-        let mut runner = WispRunnerClient::init(Path::new(&wisp_exe_path), Some(512), Some(48000));
+        let config = toml::from_str::<TwistedWispConfigFormat>(&config)
+            .expect("Failed to parse the config")
+            .wisp;
+        info!("Loaded the config");
+
+        info!("Initializing server: {:?}", config.executable_path);
+        let mut runner = WispRunnerClient::init(&config.executable_path, Some(512), Some(48000));
         let sys_info = runner.get_system_info();
 
         let mut ctx = WispContext::new(sys_info.num_channels);
         ctx.add_builtin_functions();
-        ctx.load_core_functions(&wisp_core_path)
+        ctx.load_core_functions(&config.core_path)
             .expect("Failed to load core functions");
 
         for f in ctx.functions_iter() {
@@ -44,7 +62,7 @@ impl TwistedWisp {
 
         Gd::from_init_fn(|base| Self {
             base,
-            core_path: PathBuf::from(wisp_core_path),
+            config,
             runner: Some(runner),
             ctx: Some(ctx),
         })
@@ -76,7 +94,7 @@ impl TwistedWisp {
     fn load_wave_file(&mut self, name: String, filepath: String) {
         let mut path = PathBuf::from(filepath);
         if !path.is_absolute() {
-            path = self.core_path.join(path);
+            path = self.config.core_path.join(path);
         }
         self.runner_mut()
             .context_load_wave_file(name, path.to_str().unwrap().to_owned());
@@ -103,7 +121,7 @@ impl TwistedWisp {
     fn load_flow_from_file(&mut self, path: String) -> Gd<TwistedWispFlow> {
         let result = self
             .ctx_mut()
-            .load_function(&path)
+            .load_function(&PathBuf::from(path))
             .expect("Failed to load the flow function");
         let ctx = self.ctx();
         let ir_functions = ctx
@@ -150,5 +168,35 @@ impl TwistedWisp {
             "outlets": outputs,
             "is_lag": func.lag_value().is_some(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deserialize_config() {
+        let config = r#"
+            [wisp]
+            executable_path = "path/to/executable"
+            core_path = "path/to/core"
+            data_paths = [
+                "path/to/data1",
+                "path/to/data2",
+            ]
+        "#;
+        let config = toml::from_str::<TwistedWispConfigFormat>(config)
+            .unwrap()
+            .wisp;
+        assert_eq!(PathBuf::from("path/to/executable"), config.executable_path);
+        assert_eq!(PathBuf::from("path/to/core"), config.core_path);
+        assert_eq!(
+            vec![
+                PathBuf::from("path/to/data1"),
+                PathBuf::from("path/to/data2")
+            ],
+            config.data_paths
+        );
     }
 }

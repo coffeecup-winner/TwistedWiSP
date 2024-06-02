@@ -2,5 +2,5 @@
 .godot/
 
 # Project-specific ignores
-wisp.ini
+wisp.toml
 wisp.log
