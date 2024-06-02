@@ -124,7 +124,7 @@ impl WispFunction for FlowFunction {
     {
         let format = toml::from_str::<FileFormat>(s).ok()?;
         let mut flow = FlowFunction {
-            name: format.flow.name.into(),
+            name: format.flow.name,
             inputs: vec![],
             outputs: vec![],
             graph: Default::default(),
