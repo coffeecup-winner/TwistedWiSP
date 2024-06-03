@@ -1,5 +1,5 @@
 [flow]
-name = "control"
+name = "control_test"
 
 [[flow.nodes]]
 text = "= ($0 + $1 / SampleRate) % 1.0"
@@ -14,6 +14,7 @@ x = 240
 y = 380
 w = 120
 h = 71
+value = 0.10300000011920929
 
 [[flow.nodes]]
 text = "lag"
@@ -35,6 +36,7 @@ x = 580
 y = 60
 w = 120
 h = 71
+value = 0.45500001311302185
 
 [[flow.nodes]]
 text = "= $0 * $1"

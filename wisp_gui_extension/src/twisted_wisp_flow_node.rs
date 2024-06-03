@@ -140,8 +140,26 @@ impl TwistedWispFlowNode {
     }
 
     #[func]
+    fn get_data_value(&self) -> f32 {
+        let wisp = self.wisp.bind();
+        let flow = wisp
+            .ctx()
+            .get_function(self.flow.bind().name())
+            .and_then(|f| f.as_flow())
+            .unwrap();
+        let node = flow.get_node(self.idx).unwrap();
+        node.value.unwrap_or(0.0)
+    }
+
+    #[func]
     fn set_data_value(&mut self, value: f32) {
         let mut wisp = self.wisp.bind_mut();
+        let flow = wisp
+            .ctx_mut()
+            .get_function_mut(self.flow.bind().name())
+            .and_then(|f| f.as_flow_mut())
+            .unwrap();
+        flow.get_node_mut(self.idx).unwrap().value = Some(value);
         wisp.runner_mut().context_set_data_value(
             self.flow.bind().name().to_owned(),
             CallId(self.idx.index() as u32),

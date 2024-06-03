@@ -24,6 +24,7 @@ pub struct FlowNode {
     pub display_text: String,
     pub coords: FlowNodeCoords,
     pub buffer: Option<String>,
+    pub value: Option<f32>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -77,6 +78,7 @@ struct FileFormatNode {
     w: u32,
     h: u32,
     buffer: Option<String>,
+    value: Option<f32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -144,6 +146,7 @@ impl WispFunction for FlowFunction {
                 h: n.h,
             };
             node.buffer = n.buffer;
+            node.value = n.value;
         }
         for e in format.flow.edges {
             flow.graph.add_edge(
@@ -175,6 +178,7 @@ impl WispFunction for FlowFunction {
                 w: n.coords.w,
                 h: n.coords.h,
                 buffer: n.buffer.clone(),
+                value: n.value,
             });
             node_idx_map.insert(idx.index(), sequential_idx);
         }
@@ -296,6 +300,7 @@ impl FlowFunction {
             display_text: display_text.to_owned(),
             coords: Default::default(),
             buffer: None,
+            value: None,
         })
     }
 

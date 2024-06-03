@@ -153,6 +153,13 @@ impl TwistedWisp {
                 buffer_nodes.push((idx, buffer_name.clone()));
             }
         }
+        let mut value_nodes = vec![];
+        for idx in flow.node_indices() {
+            let node = flow.get_node(idx).unwrap();
+            if let Some(value) = node.value {
+                value_nodes.push((idx, value));
+            }
+        }
         let runner = self.runner_mut();
         runner.context_add_or_update_functions(ir_functions);
         for (name, path) in buffers {
@@ -166,6 +173,14 @@ impl TwistedWisp {
                 CallId(idx.index() as u32),
                 DataIndex(0),
                 buffer_name,
+            );
+        }
+        for (idx, value) in value_nodes {
+            runner.context_set_data_value(
+                flow_name.clone(),
+                CallId(idx.index() as u32),
+                DataIndex(0),
+                value,
             );
         }
         TwistedWispFlow::create(self.to_gd(), flow_name)
