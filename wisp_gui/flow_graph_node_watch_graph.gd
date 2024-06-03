@@ -7,6 +7,7 @@ var data = []
 
 func _ready():
 	flow_node.add_watch()
+	self._on_resized()
 
 
 func _process(_delta):
