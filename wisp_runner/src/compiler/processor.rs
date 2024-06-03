@@ -55,6 +55,10 @@ impl SignalProcessor {
         }
     }
 
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
     pub fn process(&mut self, output: &mut [f32]) {
         // TODO: Return error instead?
         assert_eq!(0, output.len() % self.num_outputs);

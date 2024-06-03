@@ -5,6 +5,7 @@ use std::{
 
 use cpal::Stream;
 use inkwell::execution_engine::ExecutionEngine;
+use log::info;
 use twisted_wisp_ir::CallId;
 use twisted_wisp_protocol::{WatchIndex, WatchedDataValues};
 
@@ -97,12 +98,32 @@ impl<'ectx> WispRuntime<'ectx> {
             // Before we can switch to the new processor, we need to copy the data from the old one.
             // If this becomes a performance issue, we could do this in phases to avoid holding
             // the mutex and blocking the audio thread for too long.
-            sp.copy_from(running_processor.take().unwrap());
+            // Only do this if the new processor is the same fucntion as the old one.
+            let current_sp = running_processor.take().unwrap();
+            if sp.name() == current_sp.name() {
+                info!("Copying data from the running signal processor");
+                sp.copy_from(current_sp);
+            } else {
+                info!(
+                    "Not copying data from the running signal processor ({} != {})",
+                    sp.name(),
+                    current_sp.name()
+                );
+            }
             *running_processor = Some(sp);
             self.ee_ref = Some(ee);
         } else {
-            if let Some(paused_processor) = self.paused_processor.take() {
-                sp.copy_from(paused_processor.0);
+            if let Some(paused_sp) = self.paused_processor.take() {
+                if sp.name() == paused_sp.0.name() {
+                    info!("Copying data from the paused signal processor");
+                    sp.copy_from(paused_sp.0);
+                } else {
+                    info!(
+                        "Not copying data from the running signal processor ({} != {})",
+                        sp.name(),
+                        paused_sp.0.name()
+                    );
+                }
             }
             self.paused_processor = Some((sp, ee));
         }
