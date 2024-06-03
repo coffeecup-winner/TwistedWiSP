@@ -140,11 +140,18 @@ impl TwistedWisp {
         let ir_functions = flow.get_ir_functions(ctx);
         let mut buffers = vec![];
         for (name, path) in flow.buffers() {
-            let full_path = self
-                .config
-                .resolve_data_path(path)
-                .expect("Failed to resolve a data path");
-            buffers.push((name.clone(), full_path.to_str().unwrap().to_owned()));
+            let full_path = if let Some(path) = path {
+                self.config
+                    .resolve_data_path(path)
+                    .expect("Failed to resolve a data path")
+                    .to_str()
+                    .unwrap()
+                    .to_owned()
+            } else {
+                // For built-in buffers
+                "".to_owned()
+            };
+            buffers.push((name.clone(), full_path));
         }
         let mut buffer_nodes = vec![];
         for idx in flow.node_indices() {

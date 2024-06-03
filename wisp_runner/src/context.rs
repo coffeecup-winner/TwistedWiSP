@@ -6,6 +6,7 @@ use std::{
 
 use inkwell::context::Context;
 use log::info;
+use string_error::into_err;
 use twisted_wisp_ir::IRFunction;
 
 use crate::compiler::DataArray;
@@ -87,16 +88,6 @@ impl WispContext {
         &self.main_function
     }
 
-    pub fn add_builtin_data_arrays(&mut self) {
-        const LENGTH: usize = 1024;
-        let mut data = vec![0.0; LENGTH];
-        const STEP: f32 = 2.0 * std::f32::consts::PI / (LENGTH as f32);
-        for (i, value) in data.iter_mut().enumerate() {
-            *value = (i as f32 * STEP).sin();
-        }
-        // self.add_data_array("sine".into(), data);
-    }
-
     pub fn add_data_array(&mut self, name: &str, array_name: String, mut data: Vec<f32>) {
         data.insert(0, f32::from_bits(data.len() as u32));
         let array = data.as_mut_ptr() as *mut DataArray;
@@ -118,12 +109,32 @@ impl WispContext {
         buffer_name: &str,
         filepath: &str,
     ) -> Result<(), Box<dyn Error>> {
-        let wav = hound::WavReader::open(filepath)?;
-        info!("Loaded wave file {}:\n{:?}", buffer_name, wav.spec());
-        let data = Self::convert_wav_samples(wav);
-        let data = Self::mix_to_mono(&data);
+        let data = if filepath.is_empty() {
+            Self::get_builtin_data_array(buffer_name)
+                .ok_or(into_err(format!("Unknown buffer: {}", buffer_name)))?
+        } else {
+            let wav = hound::WavReader::open(filepath)?;
+            info!("Loaded wave file {}:\n{:?}", buffer_name, wav.spec());
+            let data = Self::convert_wav_samples(wav);
+            Self::mix_to_mono(&data)
+        };
         self.add_data_array(name, buffer_name.into(), data);
         Ok(())
+    }
+
+    fn get_builtin_data_array(name: &str) -> Option<Vec<f32>> {
+        match name {
+            "sine" => {
+                const LENGTH: usize = 1024;
+                let mut data = vec![0.0; LENGTH];
+                const STEP: f32 = 2.0 * std::f32::consts::PI / (LENGTH as f32);
+                for (i, value) in data.iter_mut().enumerate() {
+                    *value = (i as f32 * STEP).sin();
+                }
+                Some(data)
+            }
+            _ => None,
+        }
     }
 
     fn convert_wav_samples(wav: hound::WavReader<BufReader<std::fs::File>>) -> Vec<f32> {

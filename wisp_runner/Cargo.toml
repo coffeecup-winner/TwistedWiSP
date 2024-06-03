@@ -18,6 +18,7 @@ rand = "0.8"
 log = "0.4"
 ringbuffer = "0.15.0"
 stderrlog = "0.6"
+string-error = "0.1.0"
 thiserror = "1"
 # WiSP
 twisted-wisp = { path = "../wisp" }

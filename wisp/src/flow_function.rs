@@ -54,7 +54,7 @@ pub struct FlowFunction {
     ir_function: RefCell<Option<IRFunction>>,
     math_function_id_gen: u32,
     math_functions: HashMap<String, Box<dyn WispFunction>>,
-    buffers: HashMap<String, PathBuf>,
+    buffers: HashMap<String, Option<PathBuf>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -92,7 +92,7 @@ struct FileFormatEdge {
 #[derive(Debug, Serialize, Deserialize)]
 struct FileFormatBuffer {
     name: String,
-    path: PathBuf,
+    path: Option<PathBuf>,
 }
 
 impl WispFunction for FlowFunction {
@@ -252,10 +252,10 @@ impl FlowFunction {
     }
 
     pub fn add_buffer(&mut self, name: &str, path: PathBuf) {
-        self.buffers.insert(name.into(), path);
+        self.buffers.insert(name.into(), Some(path));
     }
 
-    pub fn buffers(&self) -> &HashMap<String, PathBuf> {
+    pub fn buffers(&self) -> &HashMap<String, Option<PathBuf>> {
         &self.buffers
     }
 

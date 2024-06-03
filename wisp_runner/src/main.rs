@@ -62,8 +62,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         args.audio_buffer_size,
         args.audio_sample_rate,
     )?;
-    let mut wisp = WispContext::new(device.num_output_channels(), device.sample_rate());
-    wisp.add_builtin_data_arrays();
+    let wisp = WispContext::new(device.num_output_channels(), device.sample_rate());
 
     if args.server {
         crate::server::main(wisp, device)
