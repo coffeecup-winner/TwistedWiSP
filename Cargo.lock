@@ -436,7 +436,7 @@ checksum = "d2fabcfbdc87f4758337ca535fb41a6d701b65693ce38287d856d1674551ec9b"
 [[package]]
 name = "godot"
 version = "0.1.0"
-source = "git+https://github.com/godot-rust/gdext#e4603ced53be5fd90902928ae17ff64f22d30b96"
+source = "git+https://github.com/godot-rust/gdext#e1f1ce3a23db3b445be4adc504d63611a663b9a9"
 dependencies = [
  "godot-core",
  "godot-macros",
@@ -445,7 +445,7 @@ dependencies = [
 [[package]]
 name = "godot-bindings"
 version = "0.1.0"
-source = "git+https://github.com/godot-rust/gdext#e4603ced53be5fd90902928ae17ff64f22d30b96"
+source = "git+https://github.com/godot-rust/gdext#e1f1ce3a23db3b445be4adc504d63611a663b9a9"
 dependencies = [
  "godot4-prebuilt",
 ]
@@ -453,12 +453,12 @@ dependencies = [
 [[package]]
 name = "godot-cell"
 version = "0.1.0"
-source = "git+https://github.com/godot-rust/gdext#e4603ced53be5fd90902928ae17ff64f22d30b96"
+source = "git+https://github.com/godot-rust/gdext#e1f1ce3a23db3b445be4adc504d63611a663b9a9"
 
 [[package]]
 name = "godot-codegen"
 version = "0.1.0"
-source = "git+https://github.com/godot-rust/gdext#e4603ced53be5fd90902928ae17ff64f22d30b96"
+source = "git+https://github.com/godot-rust/gdext#e1f1ce3a23db3b445be4adc504d63611a663b9a9"
 dependencies = [
  "godot-bindings",
  "heck 0.4.1",
@@ -471,7 +471,7 @@ dependencies = [
 [[package]]
 name = "godot-core"
 version = "0.1.0"
-source = "git+https://github.com/godot-rust/gdext#e4603ced53be5fd90902928ae17ff64f22d30b96"
+source = "git+https://github.com/godot-rust/gdext#e1f1ce3a23db3b445be4adc504d63611a663b9a9"
 dependencies = [
  "glam",
  "godot-bindings",
@@ -483,7 +483,7 @@ dependencies = [
 [[package]]
 name = "godot-ffi"
 version = "0.1.0"
-source = "git+https://github.com/godot-rust/gdext#e4603ced53be5fd90902928ae17ff64f22d30b96"
+source = "git+https://github.com/godot-rust/gdext#e1f1ce3a23db3b445be4adc504d63611a663b9a9"
 dependencies = [
  "gensym",
  "godot-bindings",
@@ -495,7 +495,7 @@ dependencies = [
 [[package]]
 name = "godot-macros"
 version = "0.1.0"
-source = "git+https://github.com/godot-rust/gdext#e4603ced53be5fd90902928ae17ff64f22d30b96"
+source = "git+https://github.com/godot-rust/gdext#e1f1ce3a23db3b445be4adc504d63611a663b9a9"
 dependencies = [
  "godot-bindings",
  "proc-macro2",
@@ -506,7 +506,7 @@ dependencies = [
 [[package]]
 name = "godot4-prebuilt"
 version = "0.0.0"
-source = "git+https://github.com/godot-rust/godot4-prebuilt?branch=4.2.2#5e6130a47f3dd31bfd02548cf8d90f47cb741916"
+source = "git+https://github.com/godot-rust/godot4-prebuilt?branch=4.2#3328a4cded2da9c9a3e2c4f7e42f649f677648ce"
 
 [[package]]
 name = "hashbrown"
@@ -1226,14 +1226,14 @@ dependencies = [
 
 [[package]]
 name = "toml"
-version = "0.8.13"
+version = "0.8.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a4e43f8cc456c9704c851ae29c67e17ef65d2c30017c17a9765b89c382dc8bba"
+checksum = "6f49eb2ab21d2f26bd6db7bf383edc527a7ebaee412d17af4d40fdccd442f335"
 dependencies = [
  "serde",
  "serde_spanned",
  "toml_datetime",
- "toml_edit 0.22.13",
+ "toml_edit 0.22.14",
 ]
 
 [[package]]
@@ -1258,15 +1258,15 @@ dependencies = [
 
 [[package]]
 name = "toml_edit"
-version = "0.22.13"
+version = "0.22.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c127785850e8c20836d49732ae6abfa47616e60bf9d9f57c43c250361a9db96c"
+checksum = "f21c7aaf97f1bd9ca9d4f9e73b0a6c74bd5afef56f2bc931943a6e1c37e04e38"
 dependencies = [
  "indexmap",
  "serde",
  "serde_spanned",
  "toml_datetime",
- "winnow 0.6.9",
+ "winnow 0.6.10",
 ]
 
 [[package]]
@@ -1671,9 +1671,9 @@ dependencies = [
 
 [[package]]
 name = "winnow"
-version = "0.6.9"
+version = "0.6.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86c949fede1d13936a99f14fafd3e76fd642b556dd2ce96287fbe2e0151bfac6"
+checksum = "f217b6745021054125ef5741032a021a9c65f82bee2a8017cca928f1e3179991"
 dependencies = [
  "memchr",
 ]
