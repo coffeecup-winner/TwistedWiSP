@@ -21,7 +21,12 @@ pub struct WispRuntime<'ectx> {
     ee_ref: Option<ExecutionEngine<'ectx>>,
     builder: SignalProcessorBuilder,
     processor_mutex: Arc<Mutex<Option<SignalProcessor>>>,
-    paused_processor: Option<(SignalProcessor, ExecutionEngine<'ectx>)>,
+    state: RuntimeState<'ectx>,
+}
+
+enum RuntimeState<'ectx> {
+    Running,
+    Stopped(Option<Box<(SignalProcessor, ExecutionEngine<'ectx>)>>),
 }
 
 impl<'ectx> WispRuntime<'ectx> {
@@ -60,29 +65,79 @@ impl<'ectx> WispRuntime<'ectx> {
             ee_ref: None,
             builder: SignalProcessorBuilder::new(),
             processor_mutex,
-            paused_processor: None,
+            state: RuntimeState::Stopped(None),
         }
     }
 
     pub fn start_dsp(&mut self) {
-        let mut running_processor = self.processor_mutex.borrow_mut().lock().unwrap();
-        if running_processor.is_none() {
-            let mut temp = None;
-            std::mem::swap(&mut self.paused_processor, &mut temp);
-            if let Some((sp, ee)) = temp {
-                *running_processor = Some(sp);
-                self.ee_ref = Some(ee);
+        match self.state {
+            RuntimeState::Running => (),
+            RuntimeState::Stopped(ref mut stopped_sp) => {
+                if let Some(pair) = stopped_sp.take() {
+                    *self.processor_mutex.borrow_mut().lock().unwrap() = Some(pair.0);
+                    self.ee_ref = Some(pair.1);
+                }
+                self.state = RuntimeState::Running;
             }
         }
     }
 
     pub fn stop_dsp(&mut self) {
-        let mut running_processor = self.processor_mutex.borrow_mut().lock().unwrap();
-        if running_processor.is_some() {
-            self.paused_processor = None;
-            let mut temp = None;
-            std::mem::swap(&mut *running_processor, &mut temp);
-            self.paused_processor = Some((temp.unwrap(), self.ee_ref.take().unwrap()));
+        match self.state {
+            RuntimeState::Running => {
+                let mut running_processor = self.processor_mutex.borrow_mut().lock().unwrap();
+                let stopped_processor = running_processor
+                    .take()
+                    .map(|sp| Box::new((sp, self.ee_ref.take().unwrap())));
+                self.state = RuntimeState::Stopped(stopped_processor);
+            }
+            RuntimeState::Stopped(_) => (),
+        }
+    }
+
+    fn with_processor_take_do<T>(&mut self, f: impl FnOnce(SignalProcessor) -> T) -> T
+    where
+        T: Default,
+    {
+        match self.state {
+            RuntimeState::Running => {
+                let mut running_processor = self.processor_mutex.borrow_mut().lock().unwrap();
+                if let Some(current_sp) = running_processor.take() {
+                    f(current_sp)
+                } else {
+                    T::default()
+                }
+            }
+            RuntimeState::Stopped(ref mut stopped_sp) => {
+                if let Some(stopped_sp) = stopped_sp.take() {
+                    f(stopped_sp.0)
+                } else {
+                    T::default()
+                }
+            }
+        }
+    }
+
+    fn with_processor_mut_do<T>(&mut self, f: impl FnOnce(&mut SignalProcessor) -> T) -> T
+    where
+        T: Default,
+    {
+        match self.state {
+            RuntimeState::Running => {
+                let mut running_processor = self.processor_mutex.borrow_mut().lock().unwrap();
+                if let Some(current_sp) = running_processor.as_mut() {
+                    f(current_sp)
+                } else {
+                    T::default()
+                }
+            }
+            RuntimeState::Stopped(ref mut stopped_sp) => {
+                if let Some(stopped_sp) = stopped_sp.as_mut() {
+                    f(&mut stopped_sp.0)
+                } else {
+                    T::default()
+                }
+            }
         }
     }
 
@@ -93,101 +148,47 @@ impl<'ectx> WispRuntime<'ectx> {
         top_level: &str,
     ) -> Result<(), SignalProcessCreationError> {
         let (mut sp, ee) = self.builder.create_signal_processor(ectx, ctx, top_level)?;
-        let mut running_processor = self.processor_mutex.borrow_mut().lock().unwrap();
-        if running_processor.is_some() {
-            // Before we can switch to the new processor, we need to copy the data from the old one.
-            // If this becomes a performance issue, we could do this in phases to avoid holding
-            // the mutex and blocking the audio thread for too long.
-            // Only do this if the new processor is the same fucntion as the old one.
-            let current_sp = running_processor.take().unwrap();
+        self.with_processor_take_do(|current_sp| {
             if sp.name() == current_sp.name() {
-                info!("Copying data from the running signal processor");
+                info!("Copying data from the current signal processor");
                 sp.copy_from(current_sp);
             } else {
                 info!(
-                    "Not copying data from the running signal processor ({} != {})",
+                    "Not copying data from the current signal processor ({} != {})",
                     sp.name(),
                     current_sp.name()
                 );
             }
-            *running_processor = Some(sp);
-            self.ee_ref = Some(ee);
-        } else {
-            if let Some(paused_sp) = self.paused_processor.take() {
-                if sp.name() == paused_sp.0.name() {
-                    info!("Copying data from the paused signal processor");
-                    sp.copy_from(paused_sp.0);
-                } else {
-                    info!(
-                        "Not copying data from the running signal processor ({} != {})",
-                        sp.name(),
-                        paused_sp.0.name()
-                    );
-                }
+        });
+        match self.state {
+            RuntimeState::Running => {
+                *self.processor_mutex.borrow_mut().lock().unwrap() = Some(sp);
+                self.ee_ref = Some(ee);
             }
-            self.paused_processor = Some((sp, ee));
+            RuntimeState::Stopped(ref mut stopped_sp) => {
+                *stopped_sp = Some(Box::new((sp, ee)));
+            }
         }
         Ok(())
     }
 
     pub fn set_data_value(&mut self, name: String, id: CallId, idx: u32, value: f32) {
-        let mut running_processor = self.processor_mutex.borrow_mut().lock().unwrap();
-        if running_processor.is_some() {
-            running_processor
-                .as_mut()
-                .unwrap()
-                .set_data_value(name, id, idx, value);
-        } else if let Some(paused_processor) = self.paused_processor.as_mut() {
-            paused_processor.0.set_data_value(name, id, idx, value);
-        }
+        self.with_processor_mut_do(|sp| sp.set_data_value(name, id, idx, value));
     }
 
     pub fn set_data_array(&mut self, name: String, id: CallId, idx: u32, array: *mut DataArray) {
-        let mut running_processor = self.processor_mutex.borrow_mut().lock().unwrap();
-        if running_processor.is_some() {
-            running_processor
-                .as_mut()
-                .unwrap()
-                .set_data_array(name, id, idx, array);
-        } else if let Some(paused_processor) = self.paused_processor.as_mut() {
-            paused_processor.0.set_data_array(name, id, idx, array);
-        }
+        self.with_processor_mut_do(|sp| sp.set_data_array(name, id, idx, array));
     }
 
     pub fn watch_data_value(&mut self, name: String, id: CallId, idx: u32) -> Option<WatchIndex> {
-        let mut running_processor = self.processor_mutex.borrow_mut().lock().unwrap();
-        if running_processor.is_some() {
-            running_processor
-                .as_mut()
-                .unwrap()
-                .watch_data_value(name, id, idx)
-        } else if let Some(paused_processor) = self.paused_processor.as_mut() {
-            paused_processor.0.watch_data_value(name, id, idx)
-        } else {
-            None
-        }
+        self.with_processor_mut_do(|sp| sp.watch_data_value(name, id, idx))
     }
 
     pub fn unwatch_data_value(&mut self, idx: WatchIndex) {
-        let mut running_processor = self.processor_mutex.borrow_mut().lock().unwrap();
-        if running_processor.is_some() {
-            running_processor.as_mut().unwrap().unwatch_data_value(idx);
-        } else if let Some(paused_processor) = self.paused_processor.as_mut() {
-            paused_processor.0.unwatch_data_value(idx);
-        }
+        self.with_processor_mut_do(|sp| sp.unwatch_data_value(idx));
     }
 
     pub fn query_watched_data_values(&mut self) -> WatchedDataValues {
-        let mut running_processor = self.processor_mutex.borrow_mut().lock().unwrap();
-        if running_processor.is_some() {
-            running_processor
-                .as_mut()
-                .unwrap()
-                .query_watched_data_value()
-        } else if let Some(paused_processor) = self.paused_processor.as_mut() {
-            paused_processor.0.query_watched_data_value()
-        } else {
-            WatchedDataValues::default()
-        }
+        self.with_processor_mut_do(|sp| sp.query_watched_data_value())
     }
 }
