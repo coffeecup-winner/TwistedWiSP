@@ -163,7 +163,7 @@ impl TwistedWisp {
         let runner = self.runner_mut();
         runner.context_add_or_update_functions(ir_functions);
         for (name, path) in buffers {
-            runner.context_load_wave_file(name, path);
+            runner.context_load_wave_file(flow_name.clone(), name, path);
         }
         runner.context_set_main_function(flow_name.clone());
         runner.context_update();

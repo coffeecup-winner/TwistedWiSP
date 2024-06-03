@@ -38,7 +38,7 @@ pub struct WispContext {
     sample_rate: u32,
     functions: HashMap<String, IRFunction>,
     main_function: String,
-    data_arrays: HashMap<String, WispDataArray>,
+    data_arrays: HashMap<String, HashMap<String, WispDataArray>>,
 }
 
 impl WispContext {
@@ -94,26 +94,35 @@ impl WispContext {
         for (i, value) in data.iter_mut().enumerate() {
             *value = (i as f32 * STEP).sin();
         }
-        self.add_data_array("sine".into(), data);
+        // self.add_data_array("sine".into(), data);
     }
 
-    pub fn add_data_array(&mut self, array_name: String, mut data: Vec<f32>) {
+    pub fn add_data_array(&mut self, name: &str, array_name: String, mut data: Vec<f32>) {
         data.insert(0, f32::from_bits(data.len() as u32));
         let array = data.as_mut_ptr() as *mut DataArray;
         self.data_arrays
+            .entry(name.into())
+            .or_default()
             .insert(array_name, WispDataArray { data, array });
     }
 
-    pub fn get_data_array(&mut self, array_name: &str) -> Option<*mut DataArray> {
-        self.data_arrays.get_mut(array_name).map(|a| a.array)
+    pub fn get_data_array(&mut self, name: &str, array_name: &str) -> Option<*mut DataArray> {
+        self.data_arrays
+            .get(name)
+            .and_then(|m| m.get(array_name).map(|a| a.array))
     }
 
-    pub fn load_wave_file(&mut self, name: &str, filepath: &str) -> Result<(), Box<dyn Error>> {
+    pub fn load_wave_file(
+        &mut self,
+        name: &str,
+        buffer_name: &str,
+        filepath: &str,
+    ) -> Result<(), Box<dyn Error>> {
         let wav = hound::WavReader::open(filepath)?;
-        info!("Loaded wave file {}:\n{:?}", name, wav.spec());
+        info!("Loaded wave file {}:\n{:?}", buffer_name, wav.spec());
         let data = Self::convert_wav_samples(wav);
         let data = Self::mix_to_mono(&data);
-        self.add_data_array(name.into(), data);
+        self.add_data_array(name, buffer_name.into(), data);
         Ok(())
     }
 
@@ -156,7 +165,9 @@ impl WispContext {
         result
     }
 
-    pub fn unload_wave_file(&mut self, name: &str) {
-        self.data_arrays.remove(name);
+    pub fn unload_wave_file(&mut self, name: &str, buffer_name: &str) {
+        self.data_arrays
+            .get_mut(name)
+            .and_then(|m| m.remove(buffer_name));
     }
 }

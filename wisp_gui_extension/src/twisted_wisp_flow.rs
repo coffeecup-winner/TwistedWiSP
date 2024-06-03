@@ -207,8 +207,11 @@ impl TwistedWispFlow {
 
         flow.add_buffer(&name, path.clone());
 
-        wisp.runner_mut()
-            .context_load_wave_file(name.clone(), path.to_str().unwrap().to_owned());
+        wisp.runner_mut().context_load_wave_file(
+            self.name.clone(),
+            name.clone(),
+            path.to_str().unwrap().to_owned(),
+        );
         name.into()
     }
 }

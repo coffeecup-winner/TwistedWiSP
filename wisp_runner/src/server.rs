@@ -70,7 +70,7 @@ pub fn main(mut wisp: WispContext, device: ConfiguredAudioDevice) -> Result<(), 
                 reply(&output, WispCommandResponse::Ok(()))
             }
             WispCommand::ContextSetDataArray(name, id, idx, array_name) => {
-                let resp = match wisp.get_data_array(&array_name) {
+                let resp = match wisp.get_data_array(&name, &array_name) {
                     Some(array) => {
                         runtime.set_data_array(name, id, idx.0, array);
                         WispCommandResponse::Ok(())
@@ -92,8 +92,8 @@ pub fn main(mut wisp: WispContext, device: ConfiguredAudioDevice) -> Result<(), 
                 let values = runtime.query_watched_data_values();
                 reply(&output, WispCommandResponse::Ok(values))
             }
-            WispCommand::ContextLoadWaveFile(name, filepath) => {
-                let resp = match wisp.load_wave_file(&name, &filepath) {
+            WispCommand::ContextLoadWaveFile(name, buffer_name, filepath) => {
+                let resp = match wisp.load_wave_file(&name, &buffer_name, &filepath) {
                     Ok(()) => WispCommandResponse::Ok(()),
                     Err(e) => {
                         log::error!("Failed to load wave file: {}", e);
@@ -102,8 +102,8 @@ pub fn main(mut wisp: WispContext, device: ConfiguredAudioDevice) -> Result<(), 
                 };
                 reply(&output, resp)
             }
-            WispCommand::ContextUnloadWaveFile(name) => {
-                wisp.unload_wave_file(&name);
+            WispCommand::ContextUnloadWaveFile(name, buffer_name) => {
+                wisp.unload_wave_file(&name, &buffer_name);
                 reply(&output, WispCommandResponse::Ok(()))
             }
             WispCommand::ContextUpdate => {

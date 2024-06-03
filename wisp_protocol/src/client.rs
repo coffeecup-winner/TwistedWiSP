@@ -130,12 +130,12 @@ impl WispRunnerClient {
         self.execute_command(WispCommand::ContextQueryWatchedDataValues)
     }
 
-    pub fn context_load_wave_file(&mut self, name: String, path: String) {
-        self.execute_command(WispCommand::ContextLoadWaveFile(name, path))
+    pub fn context_load_wave_file(&mut self, name: String, buffer_name: String, path: String) {
+        self.execute_command(WispCommand::ContextLoadWaveFile(name, buffer_name, path))
     }
 
-    pub fn context_unload_wave_file(&mut self, name: String) {
-        self.execute_command(WispCommand::ContextUnloadWaveFile(name))
+    pub fn context_unload_wave_file(&mut self, name: String, buffer_name: String) {
+        self.execute_command(WispCommand::ContextUnloadWaveFile(name, buffer_name))
     }
 
     pub fn context_update(&mut self) {
