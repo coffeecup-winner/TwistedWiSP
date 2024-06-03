@@ -21,6 +21,7 @@ offset_top = 4.0
 offset_right = -12.0
 offset_bottom = 35.0
 grow_horizontal = 0
+focus_mode = 0
 text = "DSP"
 
 [connection signal="delete_nodes_request" from="." to="." method="_on_delete_nodes_request"]
