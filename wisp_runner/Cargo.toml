@@ -9,6 +9,9 @@ edition = "2021"
 # Audio
 cpal = "0.15.3"
 hound = "3.5"
+# MIDI
+midly = "0.5"
+midir = "0.10"
 # CLI
 clap = { version = "4", features = ["derive"] }
 # Core

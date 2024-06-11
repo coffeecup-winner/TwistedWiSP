@@ -102,6 +102,16 @@ impl TwistedWispFlowNode {
     }
 
     #[func]
+    fn learn_midi_cc(&mut self) {
+        let mut wisp = self.wisp.bind_mut();
+        wisp.runner_mut().context_learn_midi_cc(
+            self.flow.bind().name().to_owned(),
+            CallId(self.idx.index() as u32),
+            DataIndex(0),
+        );
+    }
+
+    #[func]
     fn add_watch(&mut self) {
         let mut wisp = self.wisp.bind_mut();
         // TODO: Maybe remove this and do flow borrow checking at runtime?

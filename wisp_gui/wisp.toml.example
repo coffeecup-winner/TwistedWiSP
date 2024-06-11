@@ -10,3 +10,5 @@ core_path = "/home/user/projects/TwistedWiSP/wisp/core"
 data_paths = [
     "/home/user/projects/TwistedWiSP/data"
 ]
+# [optional] MIDI input port name (match by substring, case insensitive)
+midi_in_port = "faderfox"

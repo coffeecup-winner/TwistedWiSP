@@ -29,6 +29,7 @@ pub struct TwistedWispConfig {
     pub executable_path: PathBuf,
     pub core_path: PathBuf,
     pub data_paths: Vec<PathBuf>,
+    pub midi_in_port: Option<String>,
 }
 
 impl TwistedWispConfig {
@@ -62,7 +63,12 @@ impl TwistedWisp {
         info!("Loaded the config");
 
         info!("Initializing server: {:?}", config.executable_path);
-        let mut runner = WispRunnerClient::init(&config.executable_path, Some(512), Some(48000));
+        let mut runner = WispRunnerClient::init(
+            &config.executable_path,
+            Some(512),
+            Some(48000),
+            config.midi_in_port.as_deref(),
+        );
         let sys_info = runner.get_system_info();
 
         let mut ctx = WispContext::new(sys_info.num_channels);

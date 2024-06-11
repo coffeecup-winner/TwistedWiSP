@@ -1,25 +1,57 @@
 use std::{
     borrow::BorrowMut,
+    collections::HashMap,
     sync::{Arc, Mutex},
 };
 
 use cpal::Stream;
 use inkwell::execution_engine::ExecutionEngine;
-use log::info;
+use log::{error, info};
+use midir::MidiInputConnection;
+use midly::{
+    live::LiveEvent,
+    num::{u4, u7},
+    MidiMessage,
+};
 use twisted_wisp_ir::CallId;
-use twisted_wisp_protocol::{WatchIndex, WatchedDataValues};
+use twisted_wisp_protocol::{DataIndex, WatchIndex, WatchedDataValues};
 
 use crate::{
     audio::device::ConfiguredAudioDevice,
     compiler::{DataArray, SignalProcessCreationError, SignalProcessor, SignalProcessorBuilder},
     context::{WispContext, WispExecutionContext},
+    midi::WispMidiIn,
 };
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+struct MidiCC {
+    pub channel: u4,
+    pub controller: u7,
+}
+
+struct MidiState {
+    pub mappings: HashMap<MidiCC, (String, CallId, DataIndex)>,
+    pub processor_mutex: Arc<Mutex<Option<SignalProcessor>>>,
+    pub learn: Option<(String, CallId, DataIndex)>,
+}
+
+impl MidiState {
+    pub fn new(processor_mutex: Arc<Mutex<Option<SignalProcessor>>>) -> Self {
+        MidiState {
+            mappings: HashMap::new(),
+            processor_mutex,
+            learn: None,
+        }
+    }
+}
 
 pub struct WispRuntime<'ectx> {
     _device: ConfiguredAudioDevice,
     _stream: Stream,
+    _midi_in_connection: MidiInputConnection<Arc<Mutex<MidiState>>>,
     ee_ref: Option<ExecutionEngine<'ectx>>,
     builder: SignalProcessorBuilder,
+    midi_state_mutex: Arc<Mutex<MidiState>>,
     processor_mutex: Arc<Mutex<Option<SignalProcessor>>>,
     state: RuntimeState<'ectx>,
 }
@@ -30,8 +62,59 @@ enum RuntimeState<'ectx> {
 }
 
 impl<'ectx> WispRuntime<'ectx> {
-    pub fn init(device: ConfiguredAudioDevice) -> Self {
+    pub fn init(device: ConfiguredAudioDevice, midi_in: WispMidiIn) -> Self {
         let processor_mutex: Arc<Mutex<Option<SignalProcessor>>> = Arc::new(Mutex::new(None));
+        let midi_in_mutex = Arc::new(Mutex::new(MidiState::new(processor_mutex.clone())));
+
+        let midi_in_connection = midi_in
+            .midi_in
+            .connect(
+                &midi_in.port,
+                "wisp-midi-in",
+                move |_, message, state| match LiveEvent::parse(message) {
+                    #[allow(clippy::single_match)]
+                    Ok(LiveEvent::Midi { channel, message }) => match message {
+                        MidiMessage::Controller { controller, value } => {
+                            let mut state = state.lock().unwrap();
+                            if let Some((name, id, idx)) = state.learn.take() {
+                                info!(
+                                    "Learned MIDI CC {} on channel {} => ({}, {}, {})",
+                                    controller, channel, name, id.0, idx.0
+                                );
+                                state.mappings.insert(
+                                    MidiCC {
+                                        channel,
+                                        controller,
+                                    },
+                                    (name, id, idx),
+                                );
+                            }
+                            if let Some((name, id, idx)) = state.mappings.get(&MidiCC {
+                                channel,
+                                controller,
+                            }) {
+                                info!("MIDI CC {} on channel {} = {}", controller, channel, value);
+                                if let Some(sp) = state.processor_mutex.lock().unwrap().as_mut() {
+                                    sp.set_data_value(
+                                        name,
+                                        *id,
+                                        *idx,
+                                        value.as_int() as f32 / 127.0,
+                                    );
+                                };
+                            }
+                        }
+                        _ => {}
+                    },
+                    Ok(_) => {}
+                    Err(e) => {
+                        error!("Failed to parse MIDI message: {:?}", e);
+                    }
+                },
+                midi_in_mutex.clone(),
+            )
+            .expect("Failed to connect to MIDI port");
+
         let mut processor_mutex_audio_thread = processor_mutex.clone();
         let stream = device
             .build_output_audio_stream(move |_num_outputs: u32, buffer: &mut [f32]| {
@@ -62,8 +145,10 @@ impl<'ectx> WispRuntime<'ectx> {
         WispRuntime {
             _device: device,
             _stream: stream,
+            _midi_in_connection: midi_in_connection,
             ee_ref: None,
             builder: SignalProcessorBuilder::new(),
+            midi_state_mutex: midi_in_mutex,
             processor_mutex,
             state: RuntimeState::Stopped(None),
         }
@@ -172,16 +257,31 @@ impl<'ectx> WispRuntime<'ectx> {
         Ok(())
     }
 
-    pub fn set_data_value(&mut self, name: String, id: CallId, idx: u32, value: f32) {
-        self.with_processor_mut_do(|sp| sp.set_data_value(name, id, idx, value));
+    pub fn set_data_value(&mut self, name: String, id: CallId, idx: DataIndex, value: f32) {
+        self.with_processor_mut_do(|sp| sp.set_data_value(&name, id, idx, value));
     }
 
-    pub fn set_data_array(&mut self, name: String, id: CallId, idx: u32, array: *mut DataArray) {
-        self.with_processor_mut_do(|sp| sp.set_data_array(name, id, idx, array));
+    pub fn set_data_array(
+        &mut self,
+        name: String,
+        id: CallId,
+        idx: DataIndex,
+        array: *mut DataArray,
+    ) {
+        self.with_processor_mut_do(|sp| sp.set_data_array(&name, id, idx, array));
     }
 
-    pub fn watch_data_value(&mut self, name: String, id: CallId, idx: u32) -> Option<WatchIndex> {
-        self.with_processor_mut_do(|sp| sp.watch_data_value(name, id, idx))
+    pub fn learn_midi_cc(&mut self, name: String, id: CallId, idx: DataIndex) {
+        self.midi_state_mutex.lock().unwrap().learn = Some((name, id, idx));
+    }
+
+    pub fn watch_data_value(
+        &mut self,
+        name: String,
+        id: CallId,
+        idx: DataIndex,
+    ) -> Option<WatchIndex> {
+        self.with_processor_mut_do(|sp| sp.watch_data_value(&name, id, idx))
     }
 
     pub fn unwatch_data_value(&mut self, idx: WatchIndex) {

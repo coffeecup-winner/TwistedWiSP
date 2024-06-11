@@ -6,12 +6,17 @@ use twisted_wisp_protocol::{self, CommandResponse, SystemInfo, WispCommand, Wisp
 use crate::{
     audio::device::ConfiguredAudioDevice,
     context::{WispContext, WispExecutionContext},
+    midi::WispMidiIn,
     runtime::WispRuntime,
 };
 
-pub fn main(mut wisp: WispContext, device: ConfiguredAudioDevice) -> Result<(), Box<dyn Error>> {
+pub fn main(
+    mut wisp: WispContext,
+    device: ConfiguredAudioDevice,
+    midi_in: WispMidiIn,
+) -> Result<(), Box<dyn Error>> {
     let execution_context = WispExecutionContext::init();
-    let mut runtime = WispRuntime::init(device);
+    let mut runtime = WispRuntime::init(device, midi_in);
 
     info!("Switching to server mode - waiting for commands now");
     let input = std::io::stdin();
@@ -65,14 +70,14 @@ pub fn main(mut wisp: WispContext, device: ConfiguredAudioDevice) -> Result<(), 
                 reply(&output, WispCommandResponse::Ok(()))
             }
             WispCommand::ContextSetDataValue(name, id, idx, value) => {
-                runtime.set_data_value(name, id, idx.0, value);
+                runtime.set_data_value(name, id, idx, value);
                 // TODO: Async update
                 reply(&output, WispCommandResponse::Ok(()))
             }
             WispCommand::ContextSetDataArray(name, id, idx, array_name) => {
                 let resp = match wisp.get_data_array(&name, &array_name) {
                     Some(array) => {
-                        runtime.set_data_array(name, id, idx.0, array);
+                        runtime.set_data_array(name, id, idx, array);
                         WispCommandResponse::Ok(())
                     }
                     None => WispCommandResponse::<()>::NonFatalFailure,
@@ -80,8 +85,12 @@ pub fn main(mut wisp: WispContext, device: ConfiguredAudioDevice) -> Result<(), 
                 // TODO: Async update
                 reply(&output, resp)
             }
+            WispCommand::ContextLearnMidiCC(name, id, idx) => {
+                runtime.learn_midi_cc(name, id, idx);
+                reply(&output, WispCommandResponse::Ok(()))
+            }
             WispCommand::ContextWatchDataValue(name, id, idx) => {
-                let idx = runtime.watch_data_value(name, id, idx.0);
+                let idx = runtime.watch_data_value(name, id, idx);
                 reply(&output, WispCommandResponse::Ok(idx))
             }
             WispCommand::ContextUnwatchDataValue(idx) => {

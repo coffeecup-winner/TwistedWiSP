@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use ringbuffer::{AllocRingBuffer, RingBuffer};
 use twisted_wisp_ir::CallId;
-use twisted_wisp_protocol::{WatchIndex, WatchedDataValues};
+use twisted_wisp_protocol::{DataIndex, WatchIndex, WatchedDataValues};
 
 use super::data_layout::{DataArray, DataLayout, DataValue};
 
@@ -147,12 +147,12 @@ impl SignalProcessor {
 
     pub fn set_data_value(
         &mut self,
-        name: String,
+        name: &str,
         id: CallId,
-        _idx: u32,
+        _idx: DataIndex,
         value: f32,
     ) -> Option<()> {
-        let data_layout = self.data_layout.get(&name)?;
+        let data_layout = self.data_layout.get(name)?;
         let (_, child_offset) = data_layout.children_data_items.get(&id)?;
         // TODO: Add data index within child using idx
         let data = self.data.get_mut(*child_offset as usize)?;
@@ -162,12 +162,12 @@ impl SignalProcessor {
 
     pub fn set_data_array(
         &mut self,
-        name: String,
+        name: &str,
         id: CallId,
-        _idx: u32,
+        _idx: DataIndex,
         array: *mut DataArray,
     ) -> Option<()> {
-        let data_layout = self.data_layout.get(&name)?;
+        let data_layout = self.data_layout.get(name)?;
         let (_, child_offset) = data_layout.children_data_items.get(&id)?;
         // TODO: Add data index within child using idx
         let data = self.data.get_mut(*child_offset as usize)?;
@@ -175,8 +175,13 @@ impl SignalProcessor {
         Some(())
     }
 
-    pub fn watch_data_value(&mut self, name: String, id: CallId, _idx: u32) -> Option<WatchIndex> {
-        let data_layout = self.data_layout.get(&name)?;
+    pub fn watch_data_value(
+        &mut self,
+        name: &str,
+        id: CallId,
+        _idx: DataIndex,
+    ) -> Option<WatchIndex> {
+        let data_layout = self.data_layout.get(name)?;
         let (_, child_offset) = data_layout.children_data_items.get(&id)?;
         // TODO: Add data index within child using idx
         let idx = WatchIndex(self.watch_id_gen);

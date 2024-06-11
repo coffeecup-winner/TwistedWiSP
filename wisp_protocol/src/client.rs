@@ -22,6 +22,7 @@ impl WispRunnerClient {
         exe_path: &Path,
         preferred_buffer_size: Option<u32>,
         preferred_sample_rate: Option<u32>,
+        midi_in_port: Option<&str>,
     ) -> WispRunnerClient {
         let log_file = File::create("wisp.log").expect("Failed to create the log file");
         let mut command = Command::new(exe_path);
@@ -30,6 +31,9 @@ impl WispRunnerClient {
         }
         if let Some(sample_rate) = preferred_sample_rate {
             command.args(["--audio-sample-rate", &sample_rate.to_string()]);
+        }
+        if let Some(port) = midi_in_port {
+            command.args(["--midi-in-port", port]);
         }
         let mut child = command
             .arg("--server")
@@ -111,6 +115,10 @@ impl WispRunnerClient {
         array_name: String,
     ) {
         self.execute_command(WispCommand::ContextSetDataArray(name, id, idx, array_name))
+    }
+
+    pub fn context_learn_midi_cc(&mut self, name: String, id: CallId, idx: DataIndex) {
+        self.execute_command(WispCommand::ContextLearnMidiCC(name, id, idx))
     }
 
     pub fn context_watch_data_value(

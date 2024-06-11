@@ -34,6 +34,7 @@ pub enum WispCommand {
     ContextSetMainFunction(String),
     ContextSetDataValue(String, CallId, DataIndex, f32),
     ContextSetDataArray(String, CallId, DataIndex, String),
+    ContextLearnMidiCC(String, CallId, DataIndex),
     ContextWatchDataValue(String, CallId, DataIndex), // -> Option<WatchIndex>
     ContextUnwatchDataValue(WatchIndex),
     ContextQueryWatchedDataValues, // -> WatchedDataValues

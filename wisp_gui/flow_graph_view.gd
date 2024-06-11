@@ -23,11 +23,10 @@ const FlowGraphNodeSelector = preload("res://flow_graph_node_selector.tscn")
 var wisp: TwistedWisp
 var flow: TwistedWispFlow
 var flow_file_path = ""
+var selected_nodes = []
 
 
 func _ready():
-	connect("connection_request", _on_connection_request)
-	connect("disconnection_request", _on_disconnection_request)
 	flow = wisp.create_flow()
 
 
@@ -55,6 +54,14 @@ func _on_disconnection_request(from_node, from_port, to_node, to_port):
 		from_port,
 		get_node(NodePath(to_node)).flow_node,
 		to_port)
+
+
+func _on_node_selected(node):
+	selected_nodes.append(node)
+
+
+func _on_node_deselected(node):
+	selected_nodes.erase(node)
 
 
 func _on_delete_nodes_request(node_names):
@@ -134,12 +141,21 @@ func _on_gui_input(event):
 			fd.connect("file_selected", _on_save_file_selected)
 			fd.popup()
 	elif event is InputEventKey:
-		if event.pressed and event.keycode == KEY_N:
-			accept_event()
-			var selector = FlowGraphNodeSelector.instantiate()
-			selector.set_position(get_local_mouse_position())
-			add_child(selector)
-			selector.grab_focus()
+		if event.pressed:
+			if event.keycode == KEY_N:
+				accept_event()
+				var selector = FlowGraphNodeSelector.instantiate()
+				selector.set_position(get_local_mouse_position())
+				add_child(selector)
+				selector.grab_focus()
+			elif event.keycode == KEY_L:
+				accept_event()
+				if len(selected_nodes) == 1:
+					var node = selected_nodes[0]
+					if node is FlowGraphNode:
+						# TODO: Change this when there are multiple controls
+						if node.flow_node.function_name() == NODE_NAME_CONTROL:
+							node.flow_node.learn_midi_cc()
 
 
 func create_node(func_name):

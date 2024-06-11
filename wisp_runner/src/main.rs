@@ -1,6 +1,7 @@
 mod audio;
 mod compiler;
 mod context;
+mod midi;
 mod runtime;
 mod server;
 
@@ -11,6 +12,7 @@ use std::{
 
 use clap::Parser;
 use context::{WispContext, WispExecutionContext};
+use midi::WispMidiIn;
 use runtime::WispRuntime;
 use stderrlog::LogLevelNum;
 
@@ -31,6 +33,8 @@ struct Args {
     audio_buffer_size: Option<u32>,
     #[arg(short = 'r', long)]
     audio_sample_rate: Option<u32>,
+    #[arg(short = 'm', long)]
+    midi_in_port: Option<String>,
     #[arg(short, long)]
     server: bool,
 
@@ -62,10 +66,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         args.audio_buffer_size,
         args.audio_sample_rate,
     )?;
+    let midi_in = WispMidiIn::open(args.midi_in_port.as_deref())?;
     let wisp = WispContext::new(device.num_output_channels(), device.sample_rate());
 
     if args.server {
-        crate::server::main(wisp, device)
+        crate::server::main(wisp, device, midi_in)
     } else {
         run_file(
             args.core_lib_path
@@ -74,6 +79,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             args.file_name.as_ref().expect("No file name provided"),
             wisp,
             device,
+            midi_in,
         )
     }
 }
@@ -83,6 +89,7 @@ fn run_file(
     file_path: &Path,
     mut wisp: WispContext,
     device: ConfiguredAudioDevice,
+    midi_in: WispMidiIn,
 ) -> Result<(), Box<dyn Error>> {
     let mut core_context = twisted_wisp::WispContext::new(wisp.num_outputs());
     core_context.add_builtin_functions();
@@ -96,7 +103,7 @@ fn run_file(
     }
 
     let execution_context = WispExecutionContext::init();
-    let mut runtime = WispRuntime::init(device);
+    let mut runtime = WispRuntime::init(device, midi_in);
 
     runtime.switch_to_signal_processor(&execution_context, &wisp, &flow_name)?;
     runtime.start_dsp();
