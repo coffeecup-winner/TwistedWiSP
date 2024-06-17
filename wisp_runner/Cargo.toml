@@ -15,6 +15,7 @@ midir = "0.10"
 # CLI
 clap = { version = "4", features = ["derive"] }
 # Core
+crossbeam = "0.8"
 inkwell = { version = "0.4.0", features = ["llvm17-0-prefer-dynamic"] }
 rand = "0.8"
 # Utilities

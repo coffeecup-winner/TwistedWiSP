@@ -5,6 +5,7 @@ use std::{
 };
 
 use cpal::Stream;
+use crossbeam::channel::{Receiver, Sender};
 use inkwell::execution_engine::ExecutionEngine;
 use log::{error, info};
 use midir::MidiInputConnection;
@@ -45,13 +46,17 @@ impl MidiState {
     }
 }
 
+enum MidiStateMessage {
+    LearnCC(String, CallId, DataIndex),
+}
+
 pub struct WispRuntime<'ectx> {
     _device: ConfiguredAudioDevice,
     _stream: Stream,
-    _midi_in_connection: MidiInputConnection<Arc<Mutex<MidiState>>>,
+    _midi_in_connection: MidiInputConnection<(MidiState, Receiver<MidiStateMessage>)>,
     ee_ref: Option<ExecutionEngine<'ectx>>,
     builder: SignalProcessorBuilder,
-    midi_state_mutex: Arc<Mutex<MidiState>>,
+    midi_state_queue: Sender<MidiStateMessage>,
     processor_mutex: Arc<Mutex<Option<SignalProcessor>>>,
     state: RuntimeState<'ectx>,
 }
@@ -64,54 +69,68 @@ enum RuntimeState<'ectx> {
 impl<'ectx> WispRuntime<'ectx> {
     pub fn init(device: ConfiguredAudioDevice, midi_in: WispMidiIn) -> Self {
         let processor_mutex: Arc<Mutex<Option<SignalProcessor>>> = Arc::new(Mutex::new(None));
-        let midi_in_mutex = Arc::new(Mutex::new(MidiState::new(processor_mutex.clone())));
+        let midi_state = MidiState::new(processor_mutex.clone());
 
+        let (midi_state_tx, midi_state_rx) = crossbeam::channel::bounded(0);
         let midi_in_connection = midi_in
             .midi_in
             .connect(
                 &midi_in.port,
                 "wisp-midi-in",
-                move |_, message, state| match LiveEvent::parse(message) {
-                    #[allow(clippy::single_match)]
-                    Ok(LiveEvent::Midi { channel, message }) => match message {
-                        MidiMessage::Controller { controller, value } => {
-                            let mut state = state.lock().unwrap();
-                            if let Some((name, id, idx)) = state.learn.take() {
-                                info!(
-                                    "Learned MIDI CC {} on channel {} => ({}, {}, {})",
-                                    controller, channel, name, id.0, idx.0
-                                );
-                                state.mappings.insert(
-                                    MidiCC {
-                                        channel,
-                                        controller,
-                                    },
-                                    (name, id, idx),
-                                );
-                            }
-                            if let Some((name, id, idx)) = state.mappings.get(&MidiCC {
-                                channel,
-                                controller,
-                            }) {
-                                info!("MIDI CC {} on channel {} = {}", controller, channel, value);
-                                if let Some(sp) = state.processor_mutex.lock().unwrap().as_mut() {
-                                    sp.set_data_value(
-                                        name,
-                                        *id,
-                                        *idx,
-                                        value.as_int() as f32 / 127.0,
-                                    );
-                                };
+                move |_, message, (state, rx)| {
+                    if let Ok(message) = rx.try_recv() {
+                        match message {
+                            MidiStateMessage::LearnCC(name, id, idx) => {
+                                state.learn = Some((name, id, idx));
                             }
                         }
-                        _ => {}
-                    },
-                    Ok(_) => {}
-                    Err(e) => {
-                        error!("Failed to parse MIDI message: {:?}", e);
+                    }
+
+                    match LiveEvent::parse(message) {
+                        #[allow(clippy::single_match)]
+                        Ok(LiveEvent::Midi { channel, message }) => match message {
+                            MidiMessage::Controller { controller, value } => {
+                                if let Some((name, id, idx)) = state.learn.take() {
+                                    info!(
+                                        "Learned MIDI CC {} on channel {} => ({}, {}, {})",
+                                        controller, channel, name, id.0, idx.0
+                                    );
+                                    state.mappings.insert(
+                                        MidiCC {
+                                            channel,
+                                            controller,
+                                        },
+                                        (name, id, idx),
+                                    );
+                                }
+                                if let Some((name, id, idx)) = state.mappings.get(&MidiCC {
+                                    channel,
+                                    controller,
+                                }) {
+                                    info!(
+                                        "MIDI CC {} on channel {} = {}",
+                                        controller, channel, value
+                                    );
+                                    if let Some(sp) = state.processor_mutex.lock().unwrap().as_mut()
+                                    {
+                                        sp.set_data_value(
+                                            name,
+                                            *id,
+                                            *idx,
+                                            value.as_int() as f32 / 127.0,
+                                        );
+                                    };
+                                }
+                            }
+                            _ => {}
+                        },
+                        Ok(_) => {}
+                        Err(e) => {
+                            error!("Failed to parse MIDI message: {:?}", e);
+                        }
                     }
                 },
-                midi_in_mutex.clone(),
+                (midi_state, midi_state_rx),
             )
             .expect("Failed to connect to MIDI port");
 
@@ -148,7 +167,7 @@ impl<'ectx> WispRuntime<'ectx> {
             _midi_in_connection: midi_in_connection,
             ee_ref: None,
             builder: SignalProcessorBuilder::new(),
-            midi_state_mutex: midi_in_mutex,
+            midi_state_queue: midi_state_tx,
             processor_mutex,
             state: RuntimeState::Stopped(None),
         }
@@ -272,7 +291,9 @@ impl<'ectx> WispRuntime<'ectx> {
     }
 
     pub fn learn_midi_cc(&mut self, name: &str, id: CallId, idx: DataIndex) {
-        self.midi_state_mutex.lock().unwrap().learn = Some((name.to_owned(), id, idx));
+        self.midi_state_queue
+            .send(MidiStateMessage::LearnCC(name.to_owned(), id, idx))
+            .expect("The MIDI channel is disconnected");
     }
 
     pub fn watch_data_value(
