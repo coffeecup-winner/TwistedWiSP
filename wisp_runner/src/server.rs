@@ -70,14 +70,14 @@ pub fn main(
                 reply(&output, WispCommandResponse::Ok(()))
             }
             WispCommand::ContextSetDataValue(name, id, idx, value) => {
-                runtime.set_data_value(name, id, idx, value);
+                runtime.set_data_value(&name, id, idx, value);
                 // TODO: Async update
                 reply(&output, WispCommandResponse::Ok(()))
             }
             WispCommand::ContextSetDataArray(name, id, idx, array_name) => {
                 let resp = match wisp.get_data_array(&name, &array_name) {
                     Some(array) => {
-                        runtime.set_data_array(name, id, idx, array);
+                        runtime.set_data_array(&name, id, idx, array);
                         WispCommandResponse::Ok(())
                     }
                     None => WispCommandResponse::<()>::NonFatalFailure,
@@ -86,11 +86,12 @@ pub fn main(
                 reply(&output, resp)
             }
             WispCommand::ContextLearnMidiCC(name, id, idx) => {
-                runtime.learn_midi_cc(name, id, idx);
-                reply(&output, WispCommandResponse::Ok(()))
+                runtime.learn_midi_cc(&name, id, idx);
+                let idx = runtime.watch_data_value(&name, id, idx, true);
+                reply(&output, WispCommandResponse::Ok(idx))
             }
             WispCommand::ContextWatchDataValue(name, id, idx) => {
-                let idx = runtime.watch_data_value(name, id, idx);
+                let idx = runtime.watch_data_value(&name, id, idx, false);
                 reply(&output, WispCommandResponse::Ok(idx))
             }
             WispCommand::ContextUnwatchDataValue(idx) => {

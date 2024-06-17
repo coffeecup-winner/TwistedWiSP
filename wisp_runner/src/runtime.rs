@@ -257,31 +257,32 @@ impl<'ectx> WispRuntime<'ectx> {
         Ok(())
     }
 
-    pub fn set_data_value(&mut self, name: String, id: CallId, idx: DataIndex, value: f32) {
-        self.with_processor_mut_do(|sp| sp.set_data_value(&name, id, idx, value));
+    pub fn set_data_value(&mut self, name: &str, id: CallId, idx: DataIndex, value: f32) {
+        self.with_processor_mut_do(|sp| sp.set_data_value(name, id, idx, value));
     }
 
     pub fn set_data_array(
         &mut self,
-        name: String,
+        name: &str,
         id: CallId,
         idx: DataIndex,
         array: *mut DataArray,
     ) {
-        self.with_processor_mut_do(|sp| sp.set_data_array(&name, id, idx, array));
+        self.with_processor_mut_do(|sp| sp.set_data_array(name, id, idx, array));
     }
 
-    pub fn learn_midi_cc(&mut self, name: String, id: CallId, idx: DataIndex) {
-        self.midi_state_mutex.lock().unwrap().learn = Some((name, id, idx));
+    pub fn learn_midi_cc(&mut self, name: &str, id: CallId, idx: DataIndex) {
+        self.midi_state_mutex.lock().unwrap().learn = Some((name.to_owned(), id, idx));
     }
 
     pub fn watch_data_value(
         &mut self,
-        name: String,
+        name: &str,
         id: CallId,
         idx: DataIndex,
+        only_last_value: bool,
     ) -> Option<WatchIndex> {
-        self.with_processor_mut_do(|sp| sp.watch_data_value(&name, id, idx))
+        self.with_processor_mut_do(|sp| sp.watch_data_value(name, id, idx, only_last_value))
     }
 
     pub fn unwatch_data_value(&mut self, idx: WatchIndex) {

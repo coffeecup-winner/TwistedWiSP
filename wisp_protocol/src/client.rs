@@ -117,7 +117,12 @@ impl WispRunnerClient {
         self.execute_command(WispCommand::ContextSetDataArray(name, id, idx, array_name))
     }
 
-    pub fn context_learn_midi_cc(&mut self, name: String, id: CallId, idx: DataIndex) {
+    pub fn context_learn_midi_cc(
+        &mut self,
+        name: String,
+        id: CallId,
+        idx: DataIndex,
+    ) -> Option<WatchIndex> {
         self.execute_command(WispCommand::ContextLearnMidiCC(name, id, idx))
     }
 

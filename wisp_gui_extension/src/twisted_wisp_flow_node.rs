@@ -104,11 +104,15 @@ impl TwistedWispFlowNode {
     #[func]
     fn learn_midi_cc(&mut self) {
         let mut wisp = self.wisp.bind_mut();
-        wisp.runner_mut().context_learn_midi_cc(
-            self.flow.bind().name().to_owned(),
-            CallId(self.idx.index() as u32),
-            DataIndex(0),
-        );
+        let watch_idx = wisp
+            .runner_mut()
+            .context_learn_midi_cc(
+                self.flow.bind().name().to_owned(),
+                CallId(self.idx.index() as u32),
+                DataIndex(0),
+            )
+            .expect("Failed to learn a MIDI CC");
+        self.watch_idx = Some(watch_idx);
     }
 
     #[func]

@@ -17,7 +17,12 @@ type ProcessFn = unsafe extern "C" fn(*mut DataValue);
 struct Watch {
     data_offset: u32,
     rate: u32,
-    history: AllocRingBuffer<f32>,
+    data: WatchedData,
+}
+
+enum WatchedData {
+    LastValue(f32),
+    Buffer(AllocRingBuffer<f32>),
 }
 
 pub struct SignalProcessor {
@@ -67,7 +72,10 @@ impl SignalProcessor {
             for watch in &mut self.watches.values_mut() {
                 if self.elapsed_ticks % watch.rate == 0 {
                     let value = self.data[watch.data_offset as usize];
-                    watch.history.push(value.as_float());
+                    match watch.data {
+                        WatchedData::LastValue(ref mut v) => *v = value.as_float(),
+                        WatchedData::Buffer(ref mut buffer) => buffer.push(value.as_float()),
+                    }
                 }
             }
 
@@ -106,8 +114,7 @@ impl SignalProcessor {
                     idx,
                     Watch {
                         data_offset: *offset,
-                        rate: watch.rate,
-                        history: watch.history.clone(),
+                        ..watch
                     },
                 );
             }
@@ -180,6 +187,7 @@ impl SignalProcessor {
         name: &str,
         id: CallId,
         _idx: DataIndex,
+        only_last_value: bool,
     ) -> Option<WatchIndex> {
         let data_layout = self.data_layout.get(name)?;
         let (_, child_offset) = data_layout.children_data_items.get(&id)?;
@@ -191,7 +199,11 @@ impl SignalProcessor {
             Watch {
                 data_offset: *child_offset,
                 rate: 1,
-                history: AllocRingBuffer::new(4096),
+                data: if only_last_value {
+                    WatchedData::LastValue(self.data.get(*child_offset as usize)?.as_float())
+                } else {
+                    WatchedData::Buffer(AllocRingBuffer::new(4096))
+                },
             },
         );
         Some(idx)
@@ -204,7 +216,12 @@ impl SignalProcessor {
     pub fn query_watched_data_value(&mut self) -> WatchedDataValues {
         let mut values = HashMap::new();
         for (idx, watch) in &mut self.watches {
-            let mut history: Vec<_> = watch.history.drain().collect();
+            let mut history = match watch.data {
+                WatchedData::LastValue(v) => {
+                    vec![v]
+                }
+                WatchedData::Buffer(ref mut buffer) => buffer.drain().collect(),
+            };
             // NaNs are serialized as nulls and can't be deserialized as f32, easier to zero them out
             for v in history.iter_mut() {
                 if v.is_nan() {
