@@ -7,16 +7,29 @@ use twisted_wisp_ir::{
 use crate::context::WispContext;
 
 #[derive(Debug, Clone, Copy)]
-pub struct DataArray {
-    pub length: u32,
-    pub data: *mut f32,
+#[allow(dead_code)] // Only used by the JIT-compiled code
+struct DataArray {
+    length: u32,
+    data: *mut f32,
+}
+
+#[derive(Debug, Clone, Copy)]
+#[repr(transparent)]
+pub struct DataArrayHandle(*mut DataArray);
+// Safety is guaranteed by never removing or modifying the data array while it's still in use
+unsafe impl Send for DataArrayHandle {}
+
+impl<'a> From<&'a [f32]> for DataArrayHandle {
+    fn from(value: &'a [f32]) -> Self {
+        DataArrayHandle(value.as_ptr() as *mut DataArray)
+    }
 }
 
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub union DataValue {
     float: f32,
-    array: *mut DataArray,
+    array: DataArrayHandle,
 }
 unsafe impl Send for DataValue {}
 
@@ -25,7 +38,7 @@ impl DataValue {
         DataValue { float: value }
     }
 
-    pub fn new_array(array: *mut DataArray) -> DataValue {
+    pub fn new_array(array: DataArrayHandle) -> DataValue {
         DataValue { array }
     }
 
@@ -190,7 +203,7 @@ impl DataLayout {
             data[item.offset as usize] = match item.type_ {
                 IRFunctionDataType::Float => DataValue::new_float(0.0),
                 IRFunctionDataType::Array => {
-                    DataValue::new_array([0u32].as_ptr() as *mut DataArray)
+                    DataValue::new_array(DataArrayHandle::from(&[0f32][..]))
                 }
             };
         }

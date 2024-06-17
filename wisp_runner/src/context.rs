@@ -9,7 +9,7 @@ use log::info;
 use string_error::into_err;
 use twisted_wisp_ir::IRFunction;
 
-use crate::compiler::DataArray;
+use crate::compiler::DataArrayHandle;
 
 pub struct WispExecutionContext {
     context: Context,
@@ -28,9 +28,10 @@ impl WispExecutionContext {
 }
 
 #[derive(Debug, Clone)]
-pub struct WispDataArray {
-    pub data: Vec<f32>,
-    pub array: *mut DataArray,
+struct WispDataArray {
+    #[allow(dead_code)] // Only read by the JIT-compiled code
+    data: Vec<f32>,
+    array: DataArrayHandle,
 }
 
 #[derive(Debug, Default)]
@@ -90,14 +91,14 @@ impl WispContext {
 
     pub fn add_data_array(&mut self, name: &str, array_name: String, mut data: Vec<f32>) {
         data.insert(0, f32::from_bits(data.len() as u32));
-        let array = data.as_mut_ptr() as *mut DataArray;
+        let array = DataArrayHandle::from(&data[..]);
         self.data_arrays
             .entry(name.into())
             .or_default()
             .insert(array_name, WispDataArray { data, array });
     }
 
-    pub fn get_data_array(&mut self, name: &str, array_name: &str) -> Option<*mut DataArray> {
+    pub fn get_data_array(&mut self, name: &str, array_name: &str) -> Option<DataArrayHandle> {
         self.data_arrays
             .get(name)
             .and_then(|m| m.get(array_name).map(|a| a.array))

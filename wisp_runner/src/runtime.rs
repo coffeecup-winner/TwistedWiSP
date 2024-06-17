@@ -1,8 +1,4 @@
-use std::{
-    borrow::BorrowMut,
-    collections::HashMap,
-    sync::{Arc, Mutex},
-};
+use std::collections::HashMap;
 
 use cpal::Stream;
 use crossbeam::channel::{Receiver, Sender};
@@ -19,7 +15,9 @@ use twisted_wisp_protocol::{DataIndex, WatchIndex, WatchedDataValues};
 
 use crate::{
     audio::device::ConfiguredAudioDevice,
-    compiler::{DataArray, SignalProcessCreationError, SignalProcessor, SignalProcessorBuilder},
+    compiler::{
+        DataArrayHandle, SignalProcessCreationError, SignalProcessor, SignalProcessorBuilder,
+    },
     context::{WispContext, WispExecutionContext},
     midi::WispMidiIn,
 };
@@ -32,15 +30,15 @@ struct MidiCC {
 
 struct MidiState {
     pub mappings: HashMap<MidiCC, (String, CallId, DataIndex)>,
-    pub processor_mutex: Arc<Mutex<Option<SignalProcessor>>>,
+    pub runtime_tx: Sender<RuntimeStateMessage>,
     pub learn: Option<(String, CallId, DataIndex)>,
 }
 
 impl MidiState {
-    pub fn new(processor_mutex: Arc<Mutex<Option<SignalProcessor>>>) -> Self {
+    pub fn new(runtime_tx: Sender<RuntimeStateMessage>) -> Self {
         MidiState {
             mappings: HashMap::new(),
-            processor_mutex,
+            runtime_tx,
             learn: None,
         }
     }
@@ -50,28 +48,45 @@ enum MidiStateMessage {
     LearnCC(String, CallId, DataIndex),
 }
 
+enum RuntimeStateMessage {
+    StartDsp,
+    StopDsp,
+    SetProcessor(SignalProcessor),
+    SetDataValue(String, CallId, DataIndex, f32),
+    SetDataArray(String, CallId, DataIndex, DataArrayHandle),
+    WatchDataValue(String, CallId, DataIndex, bool),
+    UnwatchDataValue(WatchIndex),
+    QueryWatchedDataValues,
+}
+
+enum SignalProcessorResponse {
+    Watch(Option<WatchIndex>),
+    WatchData(WatchedDataValues),
+}
+
 pub struct WispRuntime<'ectx> {
     _device: ConfiguredAudioDevice,
     _stream: Stream,
     _midi_in_connection: MidiInputConnection<(MidiState, Receiver<MidiStateMessage>)>,
     ee_ref: Option<ExecutionEngine<'ectx>>,
     builder: SignalProcessorBuilder,
-    midi_state_queue: Sender<MidiStateMessage>,
-    processor_mutex: Arc<Mutex<Option<SignalProcessor>>>,
-    state: RuntimeState<'ectx>,
+    midi_state_tx: Sender<MidiStateMessage>,
+    runtime_tx: Sender<RuntimeStateMessage>,
+    runtime_result_rx: Receiver<SignalProcessorResponse>,
 }
 
-enum RuntimeState<'ectx> {
-    Running,
-    Stopped(Option<Box<(SignalProcessor, ExecutionEngine<'ectx>)>>),
+struct RuntimeState {
+    processor: Option<SignalProcessor>,
+    is_running: bool,
 }
 
 impl<'ectx> WispRuntime<'ectx> {
     pub fn init(device: ConfiguredAudioDevice, midi_in: WispMidiIn) -> Self {
-        let processor_mutex: Arc<Mutex<Option<SignalProcessor>>> = Arc::new(Mutex::new(None));
-        let midi_state = MidiState::new(processor_mutex.clone());
-
+        let (runtime_tx, runtime_rx) = crossbeam::channel::bounded(0);
+        let (runtime_result_tx, runtime_result_rx) = crossbeam::channel::bounded(0);
         let (midi_state_tx, midi_state_rx) = crossbeam::channel::bounded(0);
+
+        let midi_state = MidiState::new(runtime_tx.clone());
         let midi_in_connection = midi_in
             .midi_in
             .connect(
@@ -111,15 +126,15 @@ impl<'ectx> WispRuntime<'ectx> {
                                         "MIDI CC {} on channel {} = {}",
                                         controller, channel, value
                                     );
-                                    if let Some(sp) = state.processor_mutex.lock().unwrap().as_mut()
-                                    {
-                                        sp.set_data_value(
-                                            name,
+                                    state
+                                        .runtime_tx
+                                        .send(RuntimeStateMessage::SetDataValue(
+                                            name.to_owned(),
                                             *id,
                                             *idx,
                                             value.as_int() as f32 / 127.0,
-                                        );
-                                    };
+                                        ))
+                                        .expect("The processor channel is disconnected");
                                 }
                             }
                             _ => {}
@@ -134,22 +149,79 @@ impl<'ectx> WispRuntime<'ectx> {
             )
             .expect("Failed to connect to MIDI port");
 
-        let mut processor_mutex_audio_thread = processor_mutex.clone();
+        let mut runtime_state = RuntimeState {
+            processor: None,
+            is_running: false,
+        };
         let stream = device
             .build_output_audio_stream(move |_num_outputs: u32, buffer: &mut [f32]| {
-                if let Some(sp) = processor_mutex_audio_thread
-                    .borrow_mut()
-                    .lock()
-                    .unwrap()
-                    .as_mut()
-                {
-                    sp.process(buffer);
-                    // Clip the output to safe levels
-                    for b in buffer.iter_mut() {
-                        if b.is_nan() {
-                            *b = 0.0;
-                        } else {
-                            *b = b.clamp(-1.0, 1.0);
+                if let Ok(message) = runtime_rx.try_recv() {
+                    match message {
+                        RuntimeStateMessage::StartDsp => {
+                            runtime_state.is_running = true;
+                        }
+                        RuntimeStateMessage::StopDsp => {
+                            runtime_state.is_running = false;
+                        }
+                        RuntimeStateMessage::SetProcessor(mut sp) => {
+                            if let Some(current_sp) = runtime_state.processor.take() {
+                                if sp.name() == current_sp.name() {
+                                    info!("Copying data from the current signal processor");
+                                    sp.copy_from(current_sp);
+                                } else {
+                                    info!(
+                                        "Not copying data from the current signal processor ({} != {})",
+                                        sp.name(),
+                                        current_sp.name()
+                                    );
+                                }
+                            }
+                            runtime_state.processor = Some(sp);
+                        }
+                        RuntimeStateMessage::SetDataValue(name, id, idx, value) => {
+                            if let Some(sp) = runtime_state.processor.as_mut() {
+                                sp.set_data_value(&name, id, idx, value);
+                            }
+                        }
+                        RuntimeStateMessage::SetDataArray(name, id, idx, array) => {
+                            if let Some(sp) = runtime_state.processor.as_mut() {
+                                sp.set_data_array(&name, id, idx, array);
+                            }
+                        }
+                        RuntimeStateMessage::WatchDataValue(name, id, idx, only_last_value) => {
+                            let idx = if let Some(sp) = runtime_state.processor.as_mut() {
+                                sp.watch_data_value(&name, id, idx, only_last_value)
+                            } else {
+                                None
+                            };
+                            runtime_result_tx.send(SignalProcessorResponse::Watch(idx)).unwrap();
+                        }
+                        RuntimeStateMessage::UnwatchDataValue(index) => {
+                            if let Some(sp) = runtime_state.processor.as_mut() {
+                                sp.unwatch_data_value(index);
+                            }
+                        }
+                        RuntimeStateMessage::QueryWatchedDataValues => {
+                            let values = if let Some(sp) = runtime_state.processor.as_mut() {
+                                sp.query_watched_data_value()
+                            } else {
+                                WatchedDataValues::default()
+                            };
+                            runtime_result_tx.send(SignalProcessorResponse::WatchData(values)).unwrap();
+                        }
+                    }
+                }
+
+                if runtime_state.is_running {
+                    if let Some(sp) = runtime_state.processor.as_mut() {
+                        sp.process(buffer);
+                        // Clip the output to safe levels
+                        for b in buffer.iter_mut() {
+                            if b.is_nan() {
+                                *b = 0.0;
+                            } else {
+                                *b = b.clamp(-1.0, 1.0);
+                            }
                         }
                     }
                 } else {
@@ -167,82 +239,22 @@ impl<'ectx> WispRuntime<'ectx> {
             _midi_in_connection: midi_in_connection,
             ee_ref: None,
             builder: SignalProcessorBuilder::new(),
-            midi_state_queue: midi_state_tx,
-            processor_mutex,
-            state: RuntimeState::Stopped(None),
+            midi_state_tx,
+            runtime_tx,
+            runtime_result_rx,
         }
     }
 
     pub fn start_dsp(&mut self) {
-        match self.state {
-            RuntimeState::Running => (),
-            RuntimeState::Stopped(ref mut stopped_sp) => {
-                if let Some(pair) = stopped_sp.take() {
-                    *self.processor_mutex.borrow_mut().lock().unwrap() = Some(pair.0);
-                    self.ee_ref = Some(pair.1);
-                }
-                self.state = RuntimeState::Running;
-            }
-        }
+        self.runtime_tx
+            .send(RuntimeStateMessage::StartDsp)
+            .expect("The processor channel is disconnected");
     }
 
     pub fn stop_dsp(&mut self) {
-        match self.state {
-            RuntimeState::Running => {
-                let mut running_processor = self.processor_mutex.borrow_mut().lock().unwrap();
-                let stopped_processor = running_processor
-                    .take()
-                    .map(|sp| Box::new((sp, self.ee_ref.take().unwrap())));
-                self.state = RuntimeState::Stopped(stopped_processor);
-            }
-            RuntimeState::Stopped(_) => (),
-        }
-    }
-
-    fn with_processor_take_do<T>(&mut self, f: impl FnOnce(SignalProcessor) -> T) -> T
-    where
-        T: Default,
-    {
-        match self.state {
-            RuntimeState::Running => {
-                let mut running_processor = self.processor_mutex.borrow_mut().lock().unwrap();
-                if let Some(current_sp) = running_processor.take() {
-                    f(current_sp)
-                } else {
-                    T::default()
-                }
-            }
-            RuntimeState::Stopped(ref mut stopped_sp) => {
-                if let Some(stopped_sp) = stopped_sp.take() {
-                    f(stopped_sp.0)
-                } else {
-                    T::default()
-                }
-            }
-        }
-    }
-
-    fn with_processor_mut_do<T>(&mut self, f: impl FnOnce(&mut SignalProcessor) -> T) -> T
-    where
-        T: Default,
-    {
-        match self.state {
-            RuntimeState::Running => {
-                let mut running_processor = self.processor_mutex.borrow_mut().lock().unwrap();
-                if let Some(current_sp) = running_processor.as_mut() {
-                    f(current_sp)
-                } else {
-                    T::default()
-                }
-            }
-            RuntimeState::Stopped(ref mut stopped_sp) => {
-                if let Some(stopped_sp) = stopped_sp.as_mut() {
-                    f(&mut stopped_sp.0)
-                } else {
-                    T::default()
-                }
-            }
-        }
+        self.runtime_tx
+            .send(RuntimeStateMessage::StopDsp)
+            .expect("The processor channel is disconnected");
     }
 
     pub fn switch_to_signal_processor(
@@ -251,33 +263,23 @@ impl<'ectx> WispRuntime<'ectx> {
         ctx: &WispContext,
         top_level: &str,
     ) -> Result<(), SignalProcessCreationError> {
-        let (mut sp, ee) = self.builder.create_signal_processor(ectx, ctx, top_level)?;
-        self.with_processor_take_do(|current_sp| {
-            if sp.name() == current_sp.name() {
-                info!("Copying data from the current signal processor");
-                sp.copy_from(current_sp);
-            } else {
-                info!(
-                    "Not copying data from the current signal processor ({} != {})",
-                    sp.name(),
-                    current_sp.name()
-                );
-            }
-        });
-        match self.state {
-            RuntimeState::Running => {
-                *self.processor_mutex.borrow_mut().lock().unwrap() = Some(sp);
-                self.ee_ref = Some(ee);
-            }
-            RuntimeState::Stopped(ref mut stopped_sp) => {
-                *stopped_sp = Some(Box::new((sp, ee)));
-            }
-        }
+        let (sp, ee) = self.builder.create_signal_processor(ectx, ctx, top_level)?;
+        self.runtime_tx
+            .send(RuntimeStateMessage::SetProcessor(sp))
+            .expect("The processor channel is disconnected");
+        self.ee_ref = Some(ee);
         Ok(())
     }
 
     pub fn set_data_value(&mut self, name: &str, id: CallId, idx: DataIndex, value: f32) {
-        self.with_processor_mut_do(|sp| sp.set_data_value(name, id, idx, value));
+        self.runtime_tx
+            .send(RuntimeStateMessage::SetDataValue(
+                name.to_owned(),
+                id,
+                idx,
+                value,
+            ))
+            .expect("The processor channel is disconnected");
     }
 
     pub fn set_data_array(
@@ -285,13 +287,20 @@ impl<'ectx> WispRuntime<'ectx> {
         name: &str,
         id: CallId,
         idx: DataIndex,
-        array: *mut DataArray,
+        array: DataArrayHandle,
     ) {
-        self.with_processor_mut_do(|sp| sp.set_data_array(name, id, idx, array));
+        self.runtime_tx
+            .send(RuntimeStateMessage::SetDataArray(
+                name.to_owned(),
+                id,
+                idx,
+                array,
+            ))
+            .expect("The processor channel is disconnected");
     }
 
     pub fn learn_midi_cc(&mut self, name: &str, id: CallId, idx: DataIndex) {
-        self.midi_state_queue
+        self.midi_state_tx
             .send(MidiStateMessage::LearnCC(name.to_owned(), id, idx))
             .expect("The MIDI channel is disconnected");
     }
@@ -303,14 +312,33 @@ impl<'ectx> WispRuntime<'ectx> {
         idx: DataIndex,
         only_last_value: bool,
     ) -> Option<WatchIndex> {
-        self.with_processor_mut_do(|sp| sp.watch_data_value(name, id, idx, only_last_value))
+        self.runtime_tx
+            .send(RuntimeStateMessage::WatchDataValue(
+                name.to_owned(),
+                id,
+                idx,
+                only_last_value,
+            ))
+            .expect("The processor channel is disconnected");
+        match self.runtime_result_rx.recv().unwrap() {
+            SignalProcessorResponse::Watch(idx) => idx,
+            _ => unreachable!(),
+        }
     }
 
     pub fn unwatch_data_value(&mut self, idx: WatchIndex) {
-        self.with_processor_mut_do(|sp| sp.unwatch_data_value(idx));
+        self.runtime_tx
+            .send(RuntimeStateMessage::UnwatchDataValue(idx))
+            .expect("The processor channel is disconnected");
     }
 
     pub fn query_watched_data_values(&mut self) -> WatchedDataValues {
-        self.with_processor_mut_do(|sp| sp.query_watched_data_value())
+        self.runtime_tx
+            .send(RuntimeStateMessage::QueryWatchedDataValues)
+            .expect("The processor channel is disconnected");
+        match self.runtime_result_rx.recv().unwrap() {
+            SignalProcessorResponse::WatchData(values) => values,
+            _ => unreachable!(),
+        }
     }
 }

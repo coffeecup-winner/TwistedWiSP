@@ -4,7 +4,9 @@ use ringbuffer::{AllocRingBuffer, RingBuffer};
 use twisted_wisp_ir::CallId;
 use twisted_wisp_protocol::{DataIndex, WatchIndex, WatchedDataValues};
 
-use super::data_layout::{DataArray, DataLayout, DataValue};
+use crate::compiler::DataArrayHandle;
+
+use super::data_layout::{DataLayout, DataValue};
 
 pub struct SignalProcessorContext {
     pub p_output: *mut f32,
@@ -172,7 +174,7 @@ impl SignalProcessor {
         name: &str,
         id: CallId,
         _idx: DataIndex,
-        array: *mut DataArray,
+        array: DataArrayHandle,
     ) -> Option<()> {
         let data_layout = self.data_layout.get(name)?;
         let (_, child_offset) = data_layout.children_data_items.get(&id)?;
