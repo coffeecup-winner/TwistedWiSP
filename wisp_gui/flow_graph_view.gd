@@ -183,13 +183,15 @@ func slot_type_to_color(slot_type) -> Color:
 		_: return Color.RED
 
 
-func add_flow_node(flow_node: TwistedWispFlowNode, is_new: bool, pos):
+func add_flow_node(flow_node: TwistedWispFlowNode, is_new: bool, local_pos):
 	var node: FlowGraphNode
 	var func_name = flow_node.function_name()
 	var display_name = func_name
 	if is_new:
 		node = create_node(func_name)
-		node.position_offset = pos
+		node.position_offset = (self.scroll_offset + local_pos) / self.zoom
+		if snapping_enabled:
+			node.position_offset = (node.position_offset / self.snapping_distance).floor() * self.snapping_distance
 		if func_name == NODE_NAME_CONTROL:
 			node.size = Vector2(120, 60)
 		elif func_name != NODE_NAME_GRAPH:
