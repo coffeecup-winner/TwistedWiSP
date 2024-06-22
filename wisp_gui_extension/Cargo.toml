@@ -9,7 +9,6 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-# NOTE: Newer commits make the extension fail to load, maybe because of Godot 4.2.1?
 log = "0.4"
 godot = { git = "https://github.com/godot-rust/gdext" }
 serde = { version = "1.0", features = ["derive"] }
