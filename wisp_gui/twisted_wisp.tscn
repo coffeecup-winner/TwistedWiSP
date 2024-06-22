@@ -1,12 +1,16 @@
-[gd_scene load_steps=2 format=3 uid="uid://ddowe537ontfv"]
+[gd_scene load_steps=3 format=3 uid="uid://ddowe537ontfv"]
 
 [ext_resource type="Script" path="res://twisted_wisp.gd" id="1_qnwpt"]
+[ext_resource type="PackedScene" uid="uid://oiwobku8cddq" path="res://property_inspector.tscn" id="2_udajw"]
 
-[node name="TwistedWiSP" type="Control"]
-layout_mode = 3
+[node name="SplitContainer" type="SplitContainer"]
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
+split_offset = 300
 script = ExtResource("1_qnwpt")
+
+[node name="PropertyInspector" parent="." instance=ExtResource("2_udajw")]
+layout_mode = 2

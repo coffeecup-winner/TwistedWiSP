@@ -15,6 +15,22 @@ pub struct TwistedWispFlowNode {
     watch_idx: Option<WatchIndex>,
 }
 
+#[derive(GodotClass)]
+#[class(init)]
+pub struct TwistedWispFlowNodeProperty {
+    base: Base<RefCounted>,
+    #[var]
+    name: GString,
+    #[var]
+    display_name: GString,
+    #[var]
+    value_type: GString,
+    #[var]
+    min_value: f32,
+    #[var]
+    max_value: f32,
+}
+
 #[godot_api]
 impl TwistedWispFlowNode {
     pub fn create(
@@ -34,6 +50,9 @@ impl TwistedWispFlowNode {
     pub fn idx(&self) -> FlowNodeIndex {
         self.idx
     }
+
+    #[signal]
+    fn coordinates_changed(&self, x: f32, y: f32, w: f32, h: f32);
 
     #[func]
     fn id(&self) -> u32 {
@@ -197,5 +216,108 @@ impl TwistedWispFlowNode {
             DataIndex(0),
             name,
         );
+    }
+
+    #[func]
+    fn get_properties(&self) -> Array<Gd<TwistedWispFlowNodeProperty>> {
+        let mut array = Array::new();
+        array.extend([
+            Gd::from_init_fn(|base| TwistedWispFlowNodeProperty {
+                base,
+                name: "x".into(),
+                display_name: "x".into(),
+                value_type: "number".into(),
+                min_value: -10000.0,
+                max_value: 10000.0,
+            }),
+            Gd::from_init_fn(|base| TwistedWispFlowNodeProperty {
+                base,
+                name: "y".into(),
+                display_name: "y".into(),
+                value_type: "number".into(),
+                min_value: -10000.0,
+                max_value: 10000.0,
+            }),
+            Gd::from_init_fn(|base| TwistedWispFlowNodeProperty {
+                base,
+                name: "w".into(),
+                display_name: "w".into(),
+                value_type: "number".into(),
+                min_value: -10000.0,
+                max_value: 10000.0,
+            }),
+            Gd::from_init_fn(|base| TwistedWispFlowNodeProperty {
+                base,
+                name: "h".into(),
+                display_name: "h".into(),
+                value_type: "number".into(),
+                min_value: -10000.0,
+                max_value: 10000.0,
+            }),
+        ]);
+        array
+    }
+
+    #[func]
+    fn get_property_number(&self, name: String) -> f32 {
+        let wisp = self.wisp.bind();
+        let flow = wisp
+            .ctx()
+            .get_function(self.flow.bind().name())
+            .and_then(|f| f.as_flow())
+            .unwrap();
+        let node = flow.get_node(self.idx).unwrap();
+        match name.as_str() {
+            "x" => node.coords.x as f32,
+            "y" => node.coords.y as f32,
+            "w" => node.coords.w as f32,
+            "h" => node.coords.h as f32,
+            _ => 0.0,
+        }
+    }
+
+    #[func]
+    fn set_property_number(&mut self, name: String, value: f32) {
+        let mut wisp = self.wisp.bind_mut();
+        let flow = wisp
+            .ctx_mut()
+            .get_function_mut(self.flow.bind().name())
+            .and_then(|f| f.as_flow_mut())
+            .unwrap();
+        let node = flow.get_node_mut(self.idx).unwrap();
+        let mut coords_changed = false;
+        match name.as_str() {
+            "x" => {
+                node.coords.x = value as i32;
+                coords_changed = true;
+            }
+            "y" => {
+                node.coords.y = value as i32;
+                coords_changed = true;
+            }
+            "w" => {
+                node.coords.w = value as u32;
+                coords_changed = true;
+            }
+            "h" => {
+                node.coords.h = value as u32;
+                coords_changed = true;
+            }
+            _ => {}
+        }
+
+        let coords = node.coords.clone();
+        std::mem::drop(wisp);
+        if coords_changed {
+            self.to_gd().emit_signal(
+                "coordinates_changed".into(),
+                &[
+                    Variant::from(coords.x),
+                    Variant::from(coords.y),
+                    Variant::from(coords.w),
+                    Variant::from(coords.h),
+                ],
+            );
+        }
     }
 }

@@ -1,0 +1,15 @@
+[gd_scene load_steps=2 format=3 uid="uid://rmt2i2dwmc60"]
+
+[ext_resource type="Script" path="res://property_number.gd" id="1_j1p8j"]
+
+[node name="PropertyNumber" type="HBoxContainer"]
+size_flags_vertical = 0
+script = ExtResource("1_j1p8j")
+
+[node name="Label" type="Label" parent="."]
+layout_mode = 2
+
+[node name="Control" type="SpinBox" parent="."]
+layout_mode = 2
+
+[connection signal="value_changed" from="Control" to="." method="_on_control_value_changed"]

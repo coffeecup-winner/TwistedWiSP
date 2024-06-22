@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://oiwobku8cddq"]
+
+[ext_resource type="Script" path="res://property_inspector.gd" id="1_4c0hi"]
+
+[node name="PropertyInspector" type="VBoxContainer"]
+script = ExtResource("1_4c0hi")
