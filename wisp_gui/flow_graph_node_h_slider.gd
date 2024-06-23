@@ -2,6 +2,7 @@ extends FlowGraphNode
 
 
 func _ready():
+	super._ready()
 	$HSlider.value = flow_node.get_data_value()
 
 

@@ -2,6 +2,7 @@ extends FlowGraphNode
 
 
 func _ready():
+	super._ready()
 	$CheckButton.toggle_mode = flow_node.get_data_value() > 0.0
 
 

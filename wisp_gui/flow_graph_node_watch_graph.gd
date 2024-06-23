@@ -6,6 +6,7 @@ var data = []
 
 
 func _ready():
+	super._ready()
 	flow_node.add_watch()
 	self._on_resized()
 

@@ -2,6 +2,7 @@ extends FlowGraphNode
 
 
 func _ready():
+	super._ready()
 	flow_node.add_watch()
 
 
