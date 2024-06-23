@@ -1,5 +1,6 @@
-use std::{cell::RefCell, collections::HashMap, path::PathBuf, vec};
+use std::{cell::RefCell, collections::HashMap, path::PathBuf};
 
+use indexmap::IndexMap;
 use petgraph::{
     graph::{EdgeIndex, NodeIndex},
     stable_graph::{EdgeIndices, NodeIndices, StableGraph},
@@ -18,21 +19,27 @@ use twisted_wisp_ir::{
     IRFunctionOutput, Instruction, Operand, SourceLocation, TargetLocation, VarRef,
 };
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum FlowNodeExtraData {
+    Number(f32),
+}
+
+impl FlowNodeExtraData {
+    pub fn as_number(&self) -> Option<f32> {
+        match self {
+            FlowNodeExtraData::Number(v) => Some(*v),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct FlowNode {
     pub name: String,
     pub display_text: String,
-    pub coords: FlowNodeCoords,
     pub buffer: Option<String>,
     pub value: Option<f32>,
-}
-
-#[derive(Debug, Default, Clone)]
-pub struct FlowNodeCoords {
-    pub x: i32,
-    pub y: i32,
-    pub w: u32,
-    pub h: u32,
+    pub extra_data: IndexMap<String, FlowNodeExtraData>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -73,12 +80,10 @@ struct FileFormatFlow {
 #[derive(Debug, Serialize, Deserialize)]
 struct FileFormatNode {
     text: String,
-    x: i32,
-    y: i32,
-    w: u32,
-    h: u32,
     buffer: Option<String>,
     value: Option<f32>,
+    #[serde(flatten)]
+    extra_data: IndexMap<String, FlowNodeExtraData>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -139,14 +144,9 @@ impl WispFunction for FlowFunction {
         for n in format.flow.nodes {
             let node_idx = flow.add_node(&n.text);
             let node = flow.get_node_mut(node_idx).unwrap();
-            node.coords = FlowNodeCoords {
-                x: n.x,
-                y: n.y,
-                w: n.w,
-                h: n.h,
-            };
             node.buffer = n.buffer;
             node.value = n.value;
+            node.extra_data = n.extra_data;
         }
         for e in format.flow.edges {
             flow.graph.add_edge(
@@ -173,12 +173,9 @@ impl WispFunction for FlowFunction {
             let n = self.graph.node_weight(idx).unwrap();
             nodes.push(FileFormatNode {
                 text: n.display_text.clone(),
-                x: n.coords.x,
-                y: n.coords.y,
-                w: n.coords.w,
-                h: n.coords.h,
                 buffer: n.buffer.clone(),
                 value: n.value,
+                extra_data: n.extra_data.clone(),
             });
             node_idx_map.insert(idx.index(), sequential_idx);
         }
@@ -298,9 +295,9 @@ impl FlowFunction {
         self.graph.add_node(FlowNode {
             name,
             display_text: display_text.to_owned(),
-            coords: Default::default(),
             buffer: None,
             value: None,
+            extra_data: Default::default(),
         })
     }
 

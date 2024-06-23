@@ -1,5 +1,5 @@
 use godot::prelude::*;
-use twisted_wisp::{FlowNodeIndex, WispFunction};
+use twisted_wisp::{FlowNodeExtraData, FlowNodeIndex, WispFunction};
 use twisted_wisp_ir::CallId;
 use twisted_wisp_protocol::{DataIndex, WatchIndex};
 
@@ -96,12 +96,12 @@ impl TwistedWispFlowNode {
             .get_function(self.flow.bind().name())
             .and_then(|f| f.as_flow())
             .unwrap();
-        let data = &flow.get_node(self.idx).unwrap().coords;
+        let data = &flow.get_node(self.idx).unwrap().extra_data;
         dict! {
-            "x": data.x,
-            "y": data.y,
-            "w": data.w,
-            "h": data.h,
+            "x": data["x"].as_number().unwrap(),
+            "y": data["y"].as_number().unwrap(),
+            "w": data["w"].as_number().unwrap(),
+            "h": data["h"].as_number().unwrap(),
         }
     }
 
@@ -113,11 +113,19 @@ impl TwistedWispFlowNode {
             .get_function_mut(self.flow.bind().name())
             .and_then(|f| f.as_flow_mut())
             .unwrap();
-        let data = &mut flow.get_node_mut(self.idx).unwrap().coords;
-        data.x = x;
-        data.y = y;
-        data.w = w;
-        data.h = h;
+        let data = &mut flow.get_node_mut(self.idx).unwrap().extra_data;
+        *data
+            .entry("x".to_owned())
+            .or_insert(FlowNodeExtraData::Number(0.0)) = FlowNodeExtraData::Number(x as f32);
+        *data
+            .entry("y".to_owned())
+            .or_insert(FlowNodeExtraData::Number(0.0)) = FlowNodeExtraData::Number(y as f32);
+        *data
+            .entry("w".to_owned())
+            .or_insert(FlowNodeExtraData::Number(0.0)) = FlowNodeExtraData::Number(w as f32);
+        *data
+            .entry("h".to_owned())
+            .or_insert(FlowNodeExtraData::Number(0.0)) = FlowNodeExtraData::Number(h as f32);
     }
 
     #[func]
@@ -268,10 +276,10 @@ impl TwistedWispFlowNode {
             .unwrap();
         let node = flow.get_node(self.idx).unwrap();
         match name.as_str() {
-            "x" => node.coords.x as f32,
-            "y" => node.coords.y as f32,
-            "w" => node.coords.w as f32,
-            "h" => node.coords.h as f32,
+            "x" => node.extra_data["x"].as_number().unwrap(),
+            "y" => node.extra_data["y"].as_number().unwrap(),
+            "w" => node.extra_data["w"].as_number().unwrap(),
+            "h" => node.extra_data["h"].as_number().unwrap(),
             _ => 0.0,
         }
     }
@@ -288,34 +296,35 @@ impl TwistedWispFlowNode {
         let mut coords_changed = false;
         match name.as_str() {
             "x" => {
-                node.coords.x = value as i32;
+                node.extra_data["x"] = FlowNodeExtraData::Number(value);
                 coords_changed = true;
             }
             "y" => {
-                node.coords.y = value as i32;
+                node.extra_data["y"] = FlowNodeExtraData::Number(value);
                 coords_changed = true;
             }
             "w" => {
-                node.coords.w = value as u32;
+                node.extra_data["w"] = FlowNodeExtraData::Number(value);
                 coords_changed = true;
             }
             "h" => {
-                node.coords.h = value as u32;
+                node.extra_data["h"] = FlowNodeExtraData::Number(value);
                 coords_changed = true;
             }
             _ => {}
         }
 
-        let coords = node.coords.clone();
-        std::mem::drop(wisp);
         if coords_changed {
+            // TODO: Remove this
+            let data = node.extra_data.clone();
+            std::mem::drop(wisp);
             self.to_gd().emit_signal(
                 "coordinates_changed".into(),
                 &[
-                    Variant::from(coords.x),
-                    Variant::from(coords.y),
-                    Variant::from(coords.w),
-                    Variant::from(coords.h),
+                    Variant::from(data["x"].as_number().unwrap()),
+                    Variant::from(data["y"].as_number().unwrap()),
+                    Variant::from(data["w"].as_number().unwrap()),
+                    Variant::from(data["h"].as_number().unwrap()),
                 ],
             );
         }
