@@ -52,7 +52,7 @@ impl TwistedWispFlowNode {
     }
 
     #[signal]
-    fn coordinates_changed(&self, x: f32, y: f32, w: f32, h: f32);
+    fn coordinates_changed(&self, x: i32, y: i32, w: u32, h: u32);
 
     #[func]
     fn id(&self) -> u32 {
@@ -98,10 +98,10 @@ impl TwistedWispFlowNode {
             .unwrap();
         let data = &flow.get_node(self.idx).unwrap().extra_data;
         dict! {
-            "x": data["x"].as_number().unwrap(),
-            "y": data["y"].as_number().unwrap(),
-            "w": data["w"].as_number().unwrap(),
-            "h": data["h"].as_number().unwrap(),
+            "x": data["x"].as_integer().unwrap(),
+            "y": data["y"].as_integer().unwrap(),
+            "w": data["w"].as_integer().unwrap(),
+            "h": data["h"].as_integer().unwrap(),
         }
     }
 
@@ -116,16 +116,16 @@ impl TwistedWispFlowNode {
         let data = &mut flow.get_node_mut(self.idx).unwrap().extra_data;
         *data
             .entry("x".to_owned())
-            .or_insert(FlowNodeExtraData::Number(0.0)) = FlowNodeExtraData::Number(x as f32);
+            .or_insert(FlowNodeExtraData::Integer(0)) = FlowNodeExtraData::Integer(x);
         *data
             .entry("y".to_owned())
-            .or_insert(FlowNodeExtraData::Number(0.0)) = FlowNodeExtraData::Number(y as f32);
+            .or_insert(FlowNodeExtraData::Integer(0)) = FlowNodeExtraData::Integer(y);
         *data
             .entry("w".to_owned())
-            .or_insert(FlowNodeExtraData::Number(0.0)) = FlowNodeExtraData::Number(w as f32);
+            .or_insert(FlowNodeExtraData::Integer(0)) = FlowNodeExtraData::Integer(w as i32);
         *data
             .entry("h".to_owned())
-            .or_insert(FlowNodeExtraData::Number(0.0)) = FlowNodeExtraData::Number(h as f32);
+            .or_insert(FlowNodeExtraData::Integer(0)) = FlowNodeExtraData::Integer(h as i32);
     }
 
     #[func]
@@ -191,7 +191,7 @@ impl TwistedWispFlowNode {
         let node = flow.get_node(self.idx).unwrap();
         node.extra_data
             .get("value")
-            .and_then(|d| d.as_number())
+            .and_then(|d| d.as_float())
             .unwrap_or(0.0)
     }
 
@@ -208,7 +208,7 @@ impl TwistedWispFlowNode {
             .unwrap()
             .extra_data
             .entry("value".to_owned())
-            .or_insert(FlowNodeExtraData::Number(0.0)) = FlowNodeExtraData::Number(value);
+            .or_insert(FlowNodeExtraData::Float(0.0)) = FlowNodeExtraData::Float(value);
         wisp.runner_mut().context_set_data_value(
             self.flow.bind().name().to_owned(),
             CallId(self.idx.index() as u32),
@@ -230,7 +230,7 @@ impl TwistedWispFlowNode {
             .unwrap()
             .extra_data
             .entry("buffer".to_owned())
-            .or_insert(FlowNodeExtraData::Number(0.0)) = FlowNodeExtraData::String(name.clone());
+            .or_insert(FlowNodeExtraData::Integer(0)) = FlowNodeExtraData::String(name.clone());
         wisp.runner_mut().context_set_data_array(
             self.flow.bind().name().to_owned(),
             CallId(self.idx.index() as u32),
@@ -289,10 +289,10 @@ impl TwistedWispFlowNode {
             .unwrap();
         let node = flow.get_node(self.idx).unwrap();
         match name.as_str() {
-            "x" => node.extra_data["x"].as_number().unwrap(),
-            "y" => node.extra_data["y"].as_number().unwrap(),
-            "w" => node.extra_data["w"].as_number().unwrap(),
-            "h" => node.extra_data["h"].as_number().unwrap(),
+            "x" => node.extra_data["x"].as_integer().unwrap() as f32,
+            "y" => node.extra_data["y"].as_integer().unwrap() as f32,
+            "w" => node.extra_data["w"].as_integer().unwrap() as f32,
+            "h" => node.extra_data["h"].as_integer().unwrap() as f32,
             _ => 0.0,
         }
     }
@@ -309,19 +309,19 @@ impl TwistedWispFlowNode {
         let mut coords_changed = false;
         match name.as_str() {
             "x" => {
-                node.extra_data["x"] = FlowNodeExtraData::Number(value);
+                node.extra_data["x"] = FlowNodeExtraData::Integer(value as i32);
                 coords_changed = true;
             }
             "y" => {
-                node.extra_data["y"] = FlowNodeExtraData::Number(value);
+                node.extra_data["y"] = FlowNodeExtraData::Integer(value as i32);
                 coords_changed = true;
             }
             "w" => {
-                node.extra_data["w"] = FlowNodeExtraData::Number(value);
+                node.extra_data["w"] = FlowNodeExtraData::Integer(value as i32);
                 coords_changed = true;
             }
             "h" => {
-                node.extra_data["h"] = FlowNodeExtraData::Number(value);
+                node.extra_data["h"] = FlowNodeExtraData::Integer(value as i32);
                 coords_changed = true;
             }
             _ => {}
@@ -334,10 +334,10 @@ impl TwistedWispFlowNode {
             self.to_gd().emit_signal(
                 "coordinates_changed".into(),
                 &[
-                    Variant::from(data["x"].as_number().unwrap()),
-                    Variant::from(data["y"].as_number().unwrap()),
-                    Variant::from(data["w"].as_number().unwrap()),
-                    Variant::from(data["h"].as_number().unwrap()),
+                    Variant::from(data["x"].as_integer().unwrap()),
+                    Variant::from(data["y"].as_integer().unwrap()),
+                    Variant::from(data["w"].as_integer().unwrap() as u32),
+                    Variant::from(data["h"].as_integer().unwrap() as u32),
                 ],
             );
         }

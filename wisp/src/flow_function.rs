@@ -22,14 +22,22 @@ use twisted_wisp_ir::{
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum FlowNodeExtraData {
-    Number(f32),
+    Integer(i32),
+    Float(f32),
     String(String),
 }
 
 impl FlowNodeExtraData {
-    pub fn as_number(&self) -> Option<f32> {
+    pub fn as_integer(&self) -> Option<i32> {
         match self {
-            FlowNodeExtraData::Number(v) => Some(*v),
+            FlowNodeExtraData::Integer(v) => Some(*v),
+            _ => None,
+        }
+    }
+
+    pub fn as_float(&self) -> Option<f32> {
+        match self {
+            FlowNodeExtraData::Float(v) => Some(*v),
             _ => None,
         }
     }

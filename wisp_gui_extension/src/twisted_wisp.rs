@@ -170,7 +170,7 @@ impl TwistedWisp {
         for idx in flow.node_indices() {
             let node = flow.get_node(idx).unwrap();
             if let Some(value) = node.extra_data.get("value") {
-                value_nodes.push((idx, value.as_number().unwrap()));
+                value_nodes.push((idx, value.as_float().unwrap()));
             }
         }
         let runner = self.runner_mut();
