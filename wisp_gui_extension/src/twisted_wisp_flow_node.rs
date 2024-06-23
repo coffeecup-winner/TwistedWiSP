@@ -189,7 +189,10 @@ impl TwistedWispFlowNode {
             .and_then(|f| f.as_flow())
             .unwrap();
         let node = flow.get_node(self.idx).unwrap();
-        node.value.unwrap_or(0.0)
+        node.extra_data
+            .get("value")
+            .and_then(|d| d.as_number())
+            .unwrap_or(0.0)
     }
 
     #[func]
@@ -200,7 +203,12 @@ impl TwistedWispFlowNode {
             .get_function_mut(self.flow.bind().name())
             .and_then(|f| f.as_flow_mut())
             .unwrap();
-        flow.get_node_mut(self.idx).unwrap().value = Some(value);
+        *flow
+            .get_node_mut(self.idx)
+            .unwrap()
+            .extra_data
+            .entry("value".to_owned())
+            .or_insert(FlowNodeExtraData::Number(0.0)) = FlowNodeExtraData::Number(value);
         wisp.runner_mut().context_set_data_value(
             self.flow.bind().name().to_owned(),
             CallId(self.idx.index() as u32),
@@ -217,7 +225,12 @@ impl TwistedWispFlowNode {
             .get_function_mut(self.flow.bind().name())
             .and_then(|f| f.as_flow_mut())
             .unwrap();
-        flow.get_node_mut(self.idx).unwrap().buffer = Some(name.clone());
+        *flow
+            .get_node_mut(self.idx)
+            .unwrap()
+            .extra_data
+            .entry("buffer".to_owned())
+            .or_insert(FlowNodeExtraData::Number(0.0)) = FlowNodeExtraData::String(name.clone());
         wisp.runner_mut().context_set_data_array(
             self.flow.bind().name().to_owned(),
             CallId(self.idx.index() as u32),

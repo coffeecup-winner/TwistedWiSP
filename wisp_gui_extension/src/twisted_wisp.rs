@@ -162,15 +162,15 @@ impl TwistedWisp {
         let mut buffer_nodes = vec![];
         for idx in flow.node_indices() {
             let node = flow.get_node(idx).unwrap();
-            if let Some(buffer_name) = node.buffer.as_ref() {
-                buffer_nodes.push((idx, buffer_name.clone()));
+            if let Some(buffer_name) = node.extra_data.get("buffer") {
+                buffer_nodes.push((idx, buffer_name.as_string().unwrap().to_owned()));
             }
         }
         let mut value_nodes = vec![];
         for idx in flow.node_indices() {
             let node = flow.get_node(idx).unwrap();
-            if let Some(value) = node.value {
-                value_nodes.push((idx, value));
+            if let Some(value) = node.extra_data.get("value") {
+                value_nodes.push((idx, value.as_number().unwrap()));
             }
         }
         let runner = self.runner_mut();

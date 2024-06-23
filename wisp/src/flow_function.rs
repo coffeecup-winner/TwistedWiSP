@@ -23,12 +23,21 @@ use twisted_wisp_ir::{
 #[serde(untagged)]
 pub enum FlowNodeExtraData {
     Number(f32),
+    String(String),
 }
 
 impl FlowNodeExtraData {
     pub fn as_number(&self) -> Option<f32> {
         match self {
             FlowNodeExtraData::Number(v) => Some(*v),
+            _ => None,
+        }
+    }
+
+    pub fn as_string(&self) -> Option<&str> {
+        match self {
+            FlowNodeExtraData::String(v) => Some(v),
+            _ => None,
         }
     }
 }
@@ -37,8 +46,6 @@ impl FlowNodeExtraData {
 pub struct FlowNode {
     pub name: String,
     pub display_text: String,
-    pub buffer: Option<String>,
-    pub value: Option<f32>,
     pub extra_data: IndexMap<String, FlowNodeExtraData>,
 }
 
@@ -80,8 +87,6 @@ struct FileFormatFlow {
 #[derive(Debug, Serialize, Deserialize)]
 struct FileFormatNode {
     text: String,
-    buffer: Option<String>,
-    value: Option<f32>,
     #[serde(flatten)]
     extra_data: IndexMap<String, FlowNodeExtraData>,
 }
@@ -144,8 +149,6 @@ impl WispFunction for FlowFunction {
         for n in format.flow.nodes {
             let node_idx = flow.add_node(&n.text);
             let node = flow.get_node_mut(node_idx).unwrap();
-            node.buffer = n.buffer;
-            node.value = n.value;
             node.extra_data = n.extra_data;
         }
         for e in format.flow.edges {
@@ -173,8 +176,6 @@ impl WispFunction for FlowFunction {
             let n = self.graph.node_weight(idx).unwrap();
             nodes.push(FileFormatNode {
                 text: n.display_text.clone(),
-                buffer: n.buffer.clone(),
-                value: n.value,
                 extra_data: n.extra_data.clone(),
             });
             node_idx_map.insert(idx.index(), sequential_idx);
@@ -295,8 +296,6 @@ impl FlowFunction {
         self.graph.add_node(FlowNode {
             name,
             display_text: display_text.to_owned(),
-            buffer: None,
-            value: None,
             extra_data: Default::default(),
         })
     }
