@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use godot::prelude::*;
 use twisted_wisp::{FlowNodeExtraData, FlowNodeIndex, WispFunction};
 use twisted_wisp_ir::CallId;
@@ -15,9 +17,106 @@ pub struct TwistedWispFlowNode {
     watch_idx: Option<WatchIndex>,
 }
 
+pub enum TwistedWispFlowNodePropertyType {
+    Integer,
+    Float,
+    String,
+}
+
+impl FromStr for TwistedWispFlowNodePropertyType {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "integer" => Ok(Self::Integer),
+            "float" => Ok(Self::Float),
+            "string" => Ok(Self::String),
+            _ => Err(()),
+        }
+    }
+}
+
+impl TwistedWispFlowNodePropertyType {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Integer => "integer",
+            Self::Float => "float",
+            Self::String => "string",
+        }
+    }
+}
+
+pub enum TwistedWispFlowNodeProperty {
+    PositionX,
+    PositionY,
+    Width,
+    Height,
+    Value,
+    Buffer,
+}
+
+impl FromStr for TwistedWispFlowNodeProperty {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "x" => Ok(Self::PositionX),
+            "y" => Ok(Self::PositionY),
+            "w" => Ok(Self::Width),
+            "h" => Ok(Self::Height),
+            "value" => Ok(Self::Value),
+            "buffer" => Ok(Self::Buffer),
+            _ => Err(()),
+        }
+    }
+}
+
+impl TwistedWispFlowNodeProperty {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::PositionX => "x",
+            Self::PositionY => "y",
+            Self::Width => "w",
+            Self::Height => "h",
+            Self::Value => "value",
+            Self::Buffer => "buffer",
+        }
+    }
+
+    pub fn value_type(&self) -> TwistedWispFlowNodePropertyType {
+        match self {
+            Self::PositionX => TwistedWispFlowNodePropertyType::Integer,
+            Self::PositionY => TwistedWispFlowNodePropertyType::Integer,
+            Self::Width => TwistedWispFlowNodePropertyType::Integer,
+            Self::Height => TwistedWispFlowNodePropertyType::Integer,
+            Self::Value => TwistedWispFlowNodePropertyType::Float,
+            Self::Buffer => TwistedWispFlowNodePropertyType::String,
+        }
+    }
+
+    pub fn get_descriptor(&self) -> Gd<TwistedWispFlowNodePropertyData> {
+        let (display_name, min_value, max_value) = match self {
+            Self::PositionX => ("x".into(), -10000.0, 10000.0),
+            Self::PositionY => ("y".into(), -10000.0, 10000.0),
+            Self::Width => ("w".into(), -10000.0, 10000.0),
+            Self::Height => ("h".into(), -10000.0, 10000.0),
+            Self::Value => ("value".into(), -10000.0, 10000.0),
+            Self::Buffer => ("buffer".into(), -10000.0, 10000.0),
+        };
+        Gd::from_init_fn(|base| TwistedWispFlowNodePropertyData {
+            base,
+            name: self.as_str().into(),
+            display_name,
+            value_type: self.value_type().as_str().into(),
+            min_value,
+            max_value,
+        })
+    }
+}
+
 #[derive(GodotClass)]
 #[class(init)]
-pub struct TwistedWispFlowNodeProperty {
+pub struct TwistedWispFlowNodePropertyData {
     base: Base<RefCounted>,
     #[var]
     name: GString,
@@ -52,7 +151,7 @@ impl TwistedWispFlowNode {
     }
 
     #[signal]
-    fn coordinates_changed(&self, x: i32, y: i32, w: u32, h: u32);
+    fn property_value_changed(&self, name: GString, value: Variant);
 
     #[func]
     fn id(&self) -> u32 {
@@ -86,46 +185,6 @@ impl TwistedWispFlowNode {
             .unwrap();
         let node = flow.get_node(self.idx).unwrap();
         node.display_text.clone()
-    }
-
-    #[func]
-    fn coordinates(&self) -> Dictionary {
-        let wisp = self.wisp.bind();
-        let flow = wisp
-            .ctx()
-            .get_function(self.flow.bind().name())
-            .and_then(|f| f.as_flow())
-            .unwrap();
-        let data = &flow.get_node(self.idx).unwrap().extra_data;
-        dict! {
-            "x": data["x"].as_integer().unwrap(),
-            "y": data["y"].as_integer().unwrap(),
-            "w": data["w"].as_integer().unwrap(),
-            "h": data["h"].as_integer().unwrap(),
-        }
-    }
-
-    #[func]
-    fn set_coordinates(&mut self, x: i32, y: i32, w: u32, h: u32) {
-        let mut wisp = self.wisp.bind_mut();
-        let flow = wisp
-            .ctx_mut()
-            .get_function_mut(self.flow.bind().name())
-            .and_then(|f| f.as_flow_mut())
-            .unwrap();
-        let data = &mut flow.get_node_mut(self.idx).unwrap().extra_data;
-        *data
-            .entry("x".to_owned())
-            .or_insert(FlowNodeExtraData::Integer(0)) = FlowNodeExtraData::Integer(x);
-        *data
-            .entry("y".to_owned())
-            .or_insert(FlowNodeExtraData::Integer(0)) = FlowNodeExtraData::Integer(y);
-        *data
-            .entry("w".to_owned())
-            .or_insert(FlowNodeExtraData::Integer(0)) = FlowNodeExtraData::Integer(w as i32);
-        *data
-            .entry("h".to_owned())
-            .or_insert(FlowNodeExtraData::Integer(0)) = FlowNodeExtraData::Integer(h as i32);
     }
 
     #[func]
@@ -240,47 +299,23 @@ impl TwistedWispFlowNode {
     }
 
     #[func]
-    fn get_properties(&self) -> Array<Gd<TwistedWispFlowNodeProperty>> {
+    fn get_properties(&self) -> Array<Gd<TwistedWispFlowNodePropertyData>> {
         let mut array = Array::new();
-        array.extend([
-            Gd::from_init_fn(|base| TwistedWispFlowNodeProperty {
-                base,
-                name: "x".into(),
-                display_name: "x".into(),
-                value_type: "number".into(),
-                min_value: -10000.0,
-                max_value: 10000.0,
-            }),
-            Gd::from_init_fn(|base| TwistedWispFlowNodeProperty {
-                base,
-                name: "y".into(),
-                display_name: "y".into(),
-                value_type: "number".into(),
-                min_value: -10000.0,
-                max_value: 10000.0,
-            }),
-            Gd::from_init_fn(|base| TwistedWispFlowNodeProperty {
-                base,
-                name: "w".into(),
-                display_name: "w".into(),
-                value_type: "number".into(),
-                min_value: -10000.0,
-                max_value: 10000.0,
-            }),
-            Gd::from_init_fn(|base| TwistedWispFlowNodeProperty {
-                base,
-                name: "h".into(),
-                display_name: "h".into(),
-                value_type: "number".into(),
-                min_value: -10000.0,
-                max_value: 10000.0,
-            }),
-        ]);
+        array.extend(
+            [
+                TwistedWispFlowNodeProperty::PositionX,
+                TwistedWispFlowNodeProperty::PositionY,
+                TwistedWispFlowNodeProperty::Width,
+                TwistedWispFlowNodeProperty::Height,
+            ]
+            .into_iter()
+            .map(|p| p.get_descriptor()),
+        );
         array
     }
 
     #[func]
-    fn get_property_number(&self, name: String) -> f32 {
+    fn get_property_value(&self, name: String) -> Variant {
         let wisp = self.wisp.bind();
         let flow = wisp
             .ctx()
@@ -288,17 +323,24 @@ impl TwistedWispFlowNode {
             .and_then(|f| f.as_flow())
             .unwrap();
         let node = flow.get_node(self.idx).unwrap();
-        match name.as_str() {
-            "x" => node.extra_data["x"].as_integer().unwrap() as f32,
-            "y" => node.extra_data["y"].as_integer().unwrap() as f32,
-            "w" => node.extra_data["w"].as_integer().unwrap() as f32,
-            "h" => node.extra_data["h"].as_integer().unwrap() as f32,
-            _ => 0.0,
+        let prop = name
+            .parse::<TwistedWispFlowNodeProperty>()
+            .expect("Invalid property name");
+        match prop.value_type() {
+            TwistedWispFlowNodePropertyType::Integer => {
+                Variant::from(node.extra_data[prop.as_str()].as_integer().unwrap())
+            }
+            TwistedWispFlowNodePropertyType::Float => {
+                Variant::from(node.extra_data[prop.as_str()].as_float().unwrap())
+            }
+            TwistedWispFlowNodePropertyType::String => {
+                Variant::from(node.extra_data[prop.as_str()].as_string().unwrap())
+            }
         }
     }
 
     #[func]
-    fn set_property_number(&mut self, name: String, value: f32) {
+    fn set_property_value(&mut self, name: String, value: Variant) {
         let mut wisp = self.wisp.bind_mut();
         let flow = wisp
             .ctx_mut()
@@ -306,40 +348,29 @@ impl TwistedWispFlowNode {
             .and_then(|f| f.as_flow_mut())
             .unwrap();
         let node = flow.get_node_mut(self.idx).unwrap();
-        let mut coords_changed = false;
-        match name.as_str() {
-            "x" => {
-                node.extra_data["x"] = FlowNodeExtraData::Integer(value as i32);
-                coords_changed = true;
+        let prop = name
+            .parse::<TwistedWispFlowNodeProperty>()
+            .expect("Invalid property name");
+        let new_value = match prop.value_type() {
+            TwistedWispFlowNodePropertyType::Integer => {
+                assert_eq!(value.get_type(), VariantType::INT);
+                FlowNodeExtraData::Integer(value.to::<i32>())
             }
-            "y" => {
-                node.extra_data["y"] = FlowNodeExtraData::Integer(value as i32);
-                coords_changed = true;
+            TwistedWispFlowNodePropertyType::Float => {
+                assert_eq!(value.get_type(), VariantType::FLOAT);
+                FlowNodeExtraData::Float(value.to::<f32>())
             }
-            "w" => {
-                node.extra_data["w"] = FlowNodeExtraData::Integer(value as i32);
-                coords_changed = true;
+            TwistedWispFlowNodePropertyType::String => {
+                assert_eq!(value.get_type(), VariantType::STRING);
+                FlowNodeExtraData::String(value.to::<String>())
             }
-            "h" => {
-                node.extra_data["h"] = FlowNodeExtraData::Integer(value as i32);
-                coords_changed = true;
-            }
-            _ => {}
-        }
+        };
+        node.extra_data[prop.as_str()] = new_value;
 
-        if coords_changed {
-            // TODO: Remove this
-            let data = node.extra_data.clone();
-            std::mem::drop(wisp);
-            self.to_gd().emit_signal(
-                "coordinates_changed".into(),
-                &[
-                    Variant::from(data["x"].as_integer().unwrap()),
-                    Variant::from(data["y"].as_integer().unwrap()),
-                    Variant::from(data["w"].as_integer().unwrap() as u32),
-                    Variant::from(data["h"].as_integer().unwrap() as u32),
-                ],
-            );
-        }
+        std::mem::drop(wisp);
+        self.to_gd().emit_signal(
+            "property_value_changed".into(),
+            &[Variant::from(name), value],
+        );
     }
 }

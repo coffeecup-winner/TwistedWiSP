@@ -203,11 +203,10 @@ func add_flow_node(flow_node: TwistedWispFlowNode, is_new: bool, local_pos):
 			int(node.size.y))
 	else:
 		node = create_node(func_name)
-		var coords = flow_node.coordinates()
-		node.position_offset.x = coords.x
-		node.position_offset.y = coords.y
-		node.size.x = coords.w
-		node.size.y = coords.h
+		node.position_offset.x = flow_node.get_property_value("x")
+		node.position_offset.y = flow_node.get_property_value("y")
+		node.size.x = flow_node.get_property_value("w")
+		node.size.y = flow_node.get_property_value("h")
 		display_name = flow_node.display_name()
 	
 	node.title = display_name
@@ -242,11 +241,10 @@ func add_flow_node(flow_node: TwistedWispFlowNode, is_new: bool, local_pos):
 func _on_end_node_move():
 	for node in get_children():
 		if node.is_in_group(GROUP_NODES) and node.selected:
-			node.flow_node.set_coordinates(
-				int(node.position_offset.x),
-				int(node.position_offset.y),
-				int(node.size.x),
-				int(node.size.y))
+			node.set_property_value("x", int(node.position_offset.x))
+			node.set_property_value("y", int(node.position_offset.y))
+			node.set_property_value("w", int(node.size.x))
+			node.set_property_value("h", int(node.size.y))
 
 
 func _process(_delta):
