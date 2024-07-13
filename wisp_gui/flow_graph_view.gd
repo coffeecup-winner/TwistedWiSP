@@ -196,11 +196,10 @@ func add_flow_node(flow_node: TwistedWispFlowNode, is_new: bool, local_pos):
 			node.size = Vector2(120, 60)
 		elif func_name != NODE_NAME_GRAPH:
 			node.size = Vector2(80, 80)
-		flow_node.set_coordinates(
-			int(node.position_offset.x),
-			int(node.position_offset.y),
-			int(node.size.x),
-			int(node.size.y))
+		flow_node.set_property_value("x", int(node.position_offset.x))
+		flow_node.set_property_value("y", int(node.position_offset.y))
+		flow_node.set_property_value("w", int(node.size.x))
+		flow_node.set_property_value("h", int(node.size.y))
 	else:
 		node = create_node(func_name)
 		node.position_offset.x = flow_node.get_property_value("x")
