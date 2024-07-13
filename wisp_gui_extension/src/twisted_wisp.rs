@@ -8,7 +8,7 @@ use twisted_wisp::{FlowFunction, WispContext, WispFunction};
 use twisted_wisp_ir::CallId;
 use twisted_wisp_protocol::{DataIndex, WispRunnerClient};
 
-use crate::{logger::GodotLogger, TwistedWispFlow};
+use crate::TwistedWispFlow;
 
 #[derive(GodotClass)]
 #[class(no_init, base=RefCounted)]
@@ -53,7 +53,7 @@ impl TwistedWisp {
     fn create(config: String) -> Gd<Self> {
         godot::log::godot_print!("TwistedWiSP extension initializing");
 
-        GodotLogger::init().expect("Failed to init the logger");
+        // GodotLogger::init().expect("Failed to init the logger");
 
         info!("Initialized the logger");
 

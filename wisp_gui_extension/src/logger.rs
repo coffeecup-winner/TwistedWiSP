@@ -4,10 +4,10 @@ use log::Log;
 pub struct GodotLogger;
 
 impl GodotLogger {
-    pub fn init() -> std::result::Result<(), log::SetLoggerError> {
-        log::set_max_level(log::LevelFilter::Debug);
-        log::set_boxed_logger(Box::new(GodotLogger))
-    }
+    // pub fn init() -> std::result::Result<(), log::SetLoggerError> {
+    //     log::set_max_level(log::LevelFilter::Debug);
+    //     log::set_boxed_logger(Box::new(GodotLogger))
+    // }
 }
 
 impl Log for GodotLogger {

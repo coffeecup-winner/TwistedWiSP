@@ -4,4 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-iced = { version = "0.12.1", default-features = false, features = [] }
+iced = { version = "0.12.1", default-features = false, features = ["canvas"] }
+# NOTE: termcolor is only added because without this its version cannot be resolved,
+# this can probably be removed in the future.
+termcolor = "1.4"
