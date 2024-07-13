@@ -19,7 +19,7 @@ use twisted_wisp_ir::{
     IRFunctionOutput, Instruction, Operand, SourceLocation, TargetLocation, VarRef,
 };
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum FlowNodeExtraData {
     Integer(i32),

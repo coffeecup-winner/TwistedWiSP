@@ -22,6 +22,7 @@ func _set_flow_node(value):
 			node.queue_free()
 	else:
 		for prop in flow_node.get_properties():
-			var node = PROPERTY_NUMBER.instantiate()
-			node.initialize(flow_node, prop)
-			add_child(node)
+			if prop.value_type == "integer" or prop.value_type == "float":
+				var node = PROPERTY_NUMBER.instantiate()
+				node.initialize(flow_node, prop)
+				add_child(node)

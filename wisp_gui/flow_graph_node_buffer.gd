@@ -3,7 +3,7 @@ extends FlowGraphNode
 
 func _on_open_file_selected(f):
 	var buffer_name = flow_node.flow().load_wave_file(f)
-	flow_node.set_data_buffer(buffer_name)
+	flow_node.set_property_buffer("buffer", buffer_name)
 
 
 func _on_btn_open_pressed():

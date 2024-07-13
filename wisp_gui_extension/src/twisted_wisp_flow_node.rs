@@ -95,13 +95,13 @@ impl TwistedWispFlowNodeProperty {
     }
 
     pub fn get_descriptor(&self) -> Gd<TwistedWispFlowNodePropertyData> {
-        let (display_name, min_value, max_value) = match self {
-            Self::PositionX => ("x".into(), -10000.0, 10000.0),
-            Self::PositionY => ("y".into(), -10000.0, 10000.0),
-            Self::Width => ("w".into(), -10000.0, 10000.0),
-            Self::Height => ("h".into(), -10000.0, 10000.0),
-            Self::Value => ("value".into(), -10000.0, 10000.0),
-            Self::Buffer => ("buffer".into(), -10000.0, 10000.0),
+        let (display_name, min_value, max_value, step) = match self {
+            Self::PositionX => ("x".into(), -10000.0, 10000.0, 1.0),
+            Self::PositionY => ("y".into(), -10000.0, 10000.0, 1.0),
+            Self::Width => ("w".into(), -10000.0, 10000.0, 1.0),
+            Self::Height => ("h".into(), -10000.0, 10000.0, 1.0),
+            Self::Value => ("value".into(), 0.0, 1.0, 0.001),
+            Self::Buffer => ("buffer".into(), 0.0, 0.0, 0.0),
         };
         Gd::from_init_fn(|base| TwistedWispFlowNodePropertyData {
             base,
@@ -110,6 +110,7 @@ impl TwistedWispFlowNodeProperty {
             value_type: self.value_type().as_str().into(),
             min_value,
             max_value,
+            step,
         })
     }
 }
@@ -128,6 +129,8 @@ pub struct TwistedWispFlowNodePropertyData {
     min_value: f32,
     #[var]
     max_value: f32,
+    #[var]
+    step: f32,
 }
 
 #[godot_api]
@@ -240,65 +243,6 @@ impl TwistedWispFlowNode {
     }
 
     #[func]
-    fn get_data_value(&self) -> f32 {
-        let wisp = self.wisp.bind();
-        let flow = wisp
-            .ctx()
-            .get_function(self.flow.bind().name())
-            .and_then(|f| f.as_flow())
-            .unwrap();
-        let node = flow.get_node(self.idx).unwrap();
-        node.extra_data
-            .get("value")
-            .and_then(|d| d.as_float())
-            .unwrap_or(0.0)
-    }
-
-    #[func]
-    fn set_data_value(&mut self, value: f32) {
-        let mut wisp = self.wisp.bind_mut();
-        let flow = wisp
-            .ctx_mut()
-            .get_function_mut(self.flow.bind().name())
-            .and_then(|f| f.as_flow_mut())
-            .unwrap();
-        *flow
-            .get_node_mut(self.idx)
-            .unwrap()
-            .extra_data
-            .entry("value".to_owned())
-            .or_insert(FlowNodeExtraData::Float(0.0)) = FlowNodeExtraData::Float(value);
-        wisp.runner_mut().context_set_data_value(
-            self.flow.bind().name().to_owned(),
-            CallId(self.idx.index() as u32),
-            DataIndex(0),
-            value,
-        );
-    }
-
-    #[func]
-    fn set_data_buffer(&mut self, name: String) {
-        let mut wisp = self.wisp.bind_mut();
-        let flow = wisp
-            .ctx_mut()
-            .get_function_mut(self.flow.bind().name())
-            .and_then(|f| f.as_flow_mut())
-            .unwrap();
-        *flow
-            .get_node_mut(self.idx)
-            .unwrap()
-            .extra_data
-            .entry("buffer".to_owned())
-            .or_insert(FlowNodeExtraData::Integer(0)) = FlowNodeExtraData::String(name.clone());
-        wisp.runner_mut().context_set_data_array(
-            self.flow.bind().name().to_owned(),
-            CallId(self.idx.index() as u32),
-            DataIndex(0),
-            name,
-        );
-    }
-
-    #[func]
     fn get_properties(&self) -> Array<Gd<TwistedWispFlowNodePropertyData>> {
         let mut array = Array::new();
         array.extend(
@@ -311,6 +255,24 @@ impl TwistedWispFlowNode {
             .into_iter()
             .map(|p| p.get_descriptor()),
         );
+
+        let wisp = self.wisp.bind();
+        let flow = wisp
+            .ctx()
+            .get_function(self.flow.bind().name())
+            .and_then(|f| f.as_flow())
+            .unwrap();
+        let node = flow.get_node(self.idx).unwrap();
+        match &node.name[..] {
+            "control" => {
+                array.push(TwistedWispFlowNodeProperty::Value.get_descriptor());
+            }
+            "buffer" => {
+                array.push(TwistedWispFlowNodeProperty::Buffer.get_descriptor());
+            }
+            _ => {}
+        }
+
         array
     }
 
@@ -365,10 +327,40 @@ impl TwistedWispFlowNode {
                 FlowNodeExtraData::String(value.to::<String>())
             }
         };
-        node.extra_data[prop.as_str()] = new_value;
+        // TODO: Should there always be an old value?
+        if let Some(old_value) = node
+            .extra_data
+            .insert(prop.as_str().to_owned(), new_value.clone())
+        {
+            if old_value == new_value {
+                // No need to run the on change handlers as there was no change
+                return;
+            }
+        }
 
+        // Handle the property change
+
+        match prop {
+            TwistedWispFlowNodeProperty::Value => wisp.runner_mut().context_set_data_value(
+                self.flow.bind().name().to_owned(),
+                CallId(self.idx.index() as u32),
+                DataIndex(0),
+                value.to::<f32>(),
+            ),
+            TwistedWispFlowNodeProperty::Buffer => {
+                wisp.runner_mut().context_set_data_array(
+                    self.flow.bind().name().to_owned(),
+                    CallId(self.idx.index() as u32),
+                    DataIndex(0),
+                    value.to::<String>(),
+                );
+            }
+            _ => {}
+        }
+
+        // Make sure we drop the mutable reference since we can reenter before the end of the function
         std::mem::drop(wisp);
-        self.to_gd().emit_signal(
+        self.base_mut().emit_signal(
             "property_value_changed".into(),
             &[Variant::from(name), value],
         );

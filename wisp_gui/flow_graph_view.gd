@@ -241,10 +241,10 @@ func add_flow_node(flow_node: TwistedWispFlowNode, is_new: bool, local_pos):
 func _on_end_node_move():
 	for node in get_children():
 		if node.is_in_group(GROUP_NODES) and node.selected:
-			node.set_property_value("x", int(node.position_offset.x))
-			node.set_property_value("y", int(node.position_offset.y))
-			node.set_property_value("w", int(node.size.x))
-			node.set_property_value("h", int(node.size.y))
+			node.flow_node.set_property_value("x", int(node.position_offset.x))
+			node.flow_node.set_property_value("y", int(node.position_offset.y))
+			node.flow_node.set_property_value("w", int(node.size.x))
+			node.flow_node.set_property_value("h", int(node.size.y))
 
 
 func _process(_delta):

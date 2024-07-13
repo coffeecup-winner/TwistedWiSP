@@ -22,4 +22,11 @@ func initialize(node: TwistedWispFlowNode, prop: TwistedWispFlowNodePropertyData
 	$Label.text = prop.display_name
 	$Control.min_value = prop.min_value
 	$Control.max_value = prop.max_value
+	$Control.step = prop.step
 	$Control.value = flow_node.get_property_value(property_name)
+	node.connect("property_value_changed", _on_property_value_changed)
+
+
+func _on_property_value_changed(prop_name, new_value):
+	if prop_name == property_name:
+		$Control.value = new_value
