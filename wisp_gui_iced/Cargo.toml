@@ -5,6 +5,11 @@ edition = "2021"
 
 [dependencies]
 iced = { version = "0.12.1", default-features = false, features = ["canvas"] }
+serde = { version = "1.0", features = ["derive"] }
 # NOTE: termcolor is only added because without this its version cannot be resolved,
 # this can probably be removed in the future.
 termcolor = "1.4"
+toml = "0.8"
+twisted-wisp = { path = "../wisp" }
+twisted-wisp-ir = { path = "../wisp_ir" }
+twisted-wisp-protocol = { path = "../wisp_protocol" }

@@ -1,0 +1,14 @@
+[wisp]
+# This path needs to be set to point to the TwistedWiSP executable
+# in order for the GUI to find and spawn it
+executable_path = "/home/user/projects/TwistedWiSP/target/release/twisted-wisp-runner"
+# This path needs to be set to point to the TwistedWiSP core library
+# in order for the core functions to be found and load
+core_path = "/home/user/projects/TwistedWiSP/wisp/core"
+# This path needs to be set to point to the data folders
+# in order for the samples to be found and load using relative paths
+data_paths = [
+    "/home/user/projects/TwistedWiSP/data"
+]
+# [optional] MIDI input port name (match by substring, case insensitive)
+midi_in_port = "faderfox"
