@@ -94,31 +94,34 @@ impl Program<Message> for FlowGraphView {
         &self,
         state: &mut Self::State,
         event: Event,
-        _bounds: Rectangle,
+        bounds: Rectangle,
         cursor: Cursor,
     ) -> (Status, Option<Message>) {
         match event {
             Event::Mouse(mouse_event) => match mouse_event {
                 mouse::Event::ButtonPressed(Button::Middle) => {
                     if let Some(pos) = cursor.position() {
-                        state.pan_start = Some(pos - state.viewport_offset);
+                        if bounds.contains(pos) {
+                            state.pan_start = Some(pos - state.viewport_offset);
+                            return (Status::Captured, None);
+                        }
                     }
-                    (Status::Captured, None)
                 }
                 mouse::Event::ButtonReleased(Button::Middle) => {
                     state.pan_start = None;
-                    (Status::Captured, None)
+                    return (Status::Captured, None);
                 }
                 mouse::Event::CursorMoved { position, .. } => {
                     if let Some(start) = state.pan_start {
                         state.viewport_offset = position - start;
+                        return (Status::Captured, None);
                     }
-                    (Status::Captured, None)
                 }
-                _ => (Status::Ignored, None),
+                _ => {}
             },
-            _ => (Status::Ignored, None),
+            _ => {}
         }
+        (Status::Ignored, None)
     }
 
     fn draw(
