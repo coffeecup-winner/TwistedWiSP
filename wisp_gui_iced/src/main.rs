@@ -5,14 +5,17 @@ use std::path::PathBuf;
 
 use config::TwistedWispConfig;
 use flow_graph_view::FlowGraphView;
-use iced::widget::{button, column, container};
+use iced::widget::{button, column, container, toggler};
 use iced::{Application, Command, Element, Length, Settings};
 use twisted_wisp::{WispContext, WispFunction};
 use twisted_wisp_ir::CallId;
 use twisted_wisp_protocol::{DataIndex, WispRunnerClient};
 
 #[derive(Debug, Clone)]
+#[allow(clippy::enum_variant_names)]
 enum Message {
+    SetDspEnabled(bool),
+
     LoadFlowFromFile(String),
 
     FlowGraphViewMessage(flow_graph_view::Message),
@@ -25,6 +28,8 @@ struct TwistedWispGui {
     runner: WispRunnerClient,
     #[allow(dead_code)]
     ctx: WispContext,
+
+    is_dsp_enabled: bool,
 
     flow_graph_view: FlowGraphView,
 }
@@ -108,6 +113,15 @@ impl TwistedWispGui {
         }
         flow_name
     }
+
+    fn set_dsp_enabled(&mut self, v: bool) {
+        if v {
+            self.runner_mut().dsp_start()
+        } else {
+            self.runner_mut().dsp_stop()
+        }
+        self.is_dsp_enabled = v;
+    }
 }
 
 impl Application for TwistedWispGui {
@@ -140,6 +154,7 @@ impl Application for TwistedWispGui {
                 config,
                 runner,
                 ctx,
+                is_dsp_enabled: false,
                 flow_graph_view,
             },
             Command::none(),
@@ -152,6 +167,10 @@ impl Application for TwistedWispGui {
 
     fn update(&mut self, message: Message) -> Command<Message> {
         match message {
+            Message::SetDspEnabled(v) => {
+                self.set_dsp_enabled(v);
+                Command::none()
+            }
             Message::LoadFlowFromFile(path) => {
                 let flow_name = self.load_flow_from_file(path);
                 self.flow_graph_view = FlowGraphView::new(Some(flow_name), self.ctx());
@@ -167,6 +186,9 @@ impl Application for TwistedWispGui {
 
         let content = column![
             button("Load").on_press(Message::LoadFlowFromFile(PATH.to_owned())),
+            toggler(Some("DSP".to_owned()), self.is_dsp_enabled, |v| {
+                Message::SetDspEnabled(v)
+            }),
             self.flow_graph_view
                 .view()
                 .map(Message::FlowGraphViewMessage)
