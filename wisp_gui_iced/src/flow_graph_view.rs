@@ -1,8 +1,9 @@
 use iced::{
+    alignment,
     event::Status,
     mouse::{self, Button, Cursor, Interaction},
     widget::{
-        canvas::{Event, Frame, Geometry, Program},
+        canvas::{Event, Frame, Geometry, Program, Text},
         Canvas,
     },
     Length, Point, Rectangle, Renderer, Size, Theme, Vector,
@@ -17,60 +18,57 @@ pub enum Message {}
 pub struct FlowGraphView {
     #[allow(dead_code)]
     flow_name: Option<String>,
-    view_model: FlowGraphViewModel,
+    nodes: Vec<FlowGraphNodeView>,
 }
 
-#[derive(Debug, Default)]
-struct FlowGraphViewModel {
-    nodes: Vec<Rectangle>,
+#[derive(Debug)]
+struct FlowGraphNodeView {
+    pos: Point,
+    size: Size,
+    text: String,
 }
 
 impl FlowGraphView {
     pub fn new(flow_name: Option<String>, ctx: &WispContext) -> Self {
-        let view_model = if let Some(flow) = flow_name
+        let mut nodes = vec![];
+        if let Some(flow) = flow_name
             .as_ref()
             .and_then(|name| ctx.get_function(name))
             .and_then(|f| f.as_flow())
         {
-            let mut nodes = vec![];
             for node_idx in flow.node_indices() {
                 let node = flow.get_node(node_idx).unwrap();
-                nodes.push(Rectangle {
-                    x: node
-                        .extra_data
-                        .get("x")
-                        .unwrap_or(&FlowNodeExtraData::Integer(0))
-                        .as_integer()
-                        .unwrap() as f32,
-                    y: node
-                        .extra_data
-                        .get("y")
-                        .unwrap_or(&FlowNodeExtraData::Integer(0))
-                        .as_integer()
-                        .unwrap() as f32,
-                    width: node
-                        .extra_data
-                        .get("w")
-                        .unwrap_or(&FlowNodeExtraData::Integer(80))
-                        .as_integer()
-                        .unwrap() as f32,
-                    height: node
-                        .extra_data
-                        .get("h")
-                        .unwrap_or(&FlowNodeExtraData::Integer(40))
-                        .as_integer()
-                        .unwrap() as f32,
+                nodes.push(FlowGraphNodeView {
+                    pos: Point::new(
+                        node.extra_data
+                            .get("x")
+                            .unwrap_or(&FlowNodeExtraData::Integer(0))
+                            .as_integer()
+                            .unwrap() as f32,
+                        node.extra_data
+                            .get("y")
+                            .unwrap_or(&FlowNodeExtraData::Integer(0))
+                            .as_integer()
+                            .unwrap() as f32,
+                    ),
+                    size: Size::new(
+                        node.extra_data
+                            .get("w")
+                            .unwrap_or(&FlowNodeExtraData::Integer(80))
+                            .as_integer()
+                            .unwrap() as f32,
+                        node.extra_data
+                            .get("h")
+                            .unwrap_or(&FlowNodeExtraData::Integer(40))
+                            .as_integer()
+                            .unwrap() as f32,
+                    ),
+                    text: node.display_text.clone(),
                 });
             }
-            FlowGraphViewModel { nodes }
-        } else {
-            FlowGraphViewModel::default()
-        };
-
-        Self {
-            flow_name,
-            view_model,
         }
+
+        Self { flow_name, nodes }
     }
 
     pub fn view(&self) -> iced::Element<Message> {
@@ -97,6 +95,7 @@ impl Program<Message> for FlowGraphView {
         bounds: Rectangle,
         cursor: Cursor,
     ) -> (Status, Option<Message>) {
+        #[allow(clippy::single_match)]
         match event {
             Event::Mouse(mouse_event) => match mouse_event {
                 mouse::Event::ButtonPressed(Button::Middle) => {
@@ -134,12 +133,27 @@ impl Program<Message> for FlowGraphView {
     ) -> Vec<Geometry> {
         let mut frame = Frame::new(renderer, bounds.size());
 
-        for node in &self.view_model.nodes {
+        for node in &self.nodes {
             frame.fill_rectangle(
-                Point::new(node.x, node.y) + state.viewport_offset,
-                Size::new(node.width, node.height),
+                node.pos + state.viewport_offset,
+                node.size,
                 iced::Color::BLACK,
             );
+            frame.fill_rectangle(
+                node.pos + state.viewport_offset + Vector::new(1.0, 1.0),
+                node.size - Size::new(2.0, 2.0),
+                iced::Color::WHITE,
+            );
+            let text = Text {
+                content: node.text.clone(),
+                position: node.pos + state.viewport_offset + Vector::new(5.0, 5.0),
+                size: 20.0.into(),
+                color: iced::Color::BLACK,
+                horizontal_alignment: alignment::Horizontal::Left,
+                vertical_alignment: alignment::Vertical::Top,
+                ..Default::default()
+            };
+            frame.fill_text(text);
         }
 
         vec![frame.into_geometry()]
