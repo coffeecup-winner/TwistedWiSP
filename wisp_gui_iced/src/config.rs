@@ -21,4 +21,17 @@ impl TwistedWispConfig {
         let config = toml::from_str::<TwistedWispConfigFormat>(&config_text)?;
         Ok(config.wisp)
     }
+
+    pub fn resolve_data_path(&self, path: &Path) -> Option<PathBuf> {
+        if path.is_absolute() {
+            return Some(path.to_owned());
+        }
+        for data_path in &self.data_paths {
+            let full_path = data_path.join(path);
+            if full_path.exists() {
+                return Some(full_path);
+            }
+        }
+        None
+    }
 }
