@@ -1,10 +1,11 @@
 use iced::{
-    mouse::Cursor,
+    event::Status,
+    mouse::{self, Button, Cursor, Interaction},
     widget::{
-        canvas::{Frame, Geometry},
+        canvas::{Event, Frame, Geometry, Program},
         Canvas,
     },
-    Length, Point, Rectangle, Renderer, Size, Theme,
+    Length, Point, Rectangle, Renderer, Size, Theme, Vector,
 };
 
 use twisted_wisp::{FlowNodeExtraData, WispContext};
@@ -80,12 +81,49 @@ impl FlowGraphView {
     }
 }
 
-impl iced::widget::canvas::Program<Message> for FlowGraphView {
-    type State = ();
+#[derive(Debug, Default)]
+pub struct FlowGraphViewState {
+    pan_start: Option<Point>,
+    viewport_offset: Vector,
+}
+
+impl Program<Message> for FlowGraphView {
+    type State = FlowGraphViewState;
+
+    fn update(
+        &self,
+        state: &mut Self::State,
+        event: Event,
+        _bounds: Rectangle,
+        cursor: Cursor,
+    ) -> (Status, Option<Message>) {
+        match event {
+            Event::Mouse(mouse_event) => match mouse_event {
+                mouse::Event::ButtonPressed(Button::Middle) => {
+                    if let Some(pos) = cursor.position() {
+                        state.pan_start = Some(pos - state.viewport_offset);
+                    }
+                    (Status::Captured, None)
+                }
+                mouse::Event::ButtonReleased(Button::Middle) => {
+                    state.pan_start = None;
+                    (Status::Captured, None)
+                }
+                mouse::Event::CursorMoved { position, .. } => {
+                    if let Some(start) = state.pan_start {
+                        state.viewport_offset = position - start;
+                    }
+                    (Status::Captured, None)
+                }
+                _ => (Status::Ignored, None),
+            },
+            _ => (Status::Ignored, None),
+        }
+    }
 
     fn draw(
         &self,
-        _state: &Self::State,
+        state: &Self::State,
         renderer: &Renderer,
         _theme: &Theme,
         bounds: Rectangle,
@@ -95,12 +133,25 @@ impl iced::widget::canvas::Program<Message> for FlowGraphView {
 
         for node in &self.view_model.nodes {
             frame.fill_rectangle(
-                Point::new(node.x, node.y),
+                Point::new(node.x, node.y) + state.viewport_offset,
                 Size::new(node.width, node.height),
                 iced::Color::BLACK,
             );
         }
 
         vec![frame.into_geometry()]
+    }
+
+    fn mouse_interaction(
+        &self,
+        state: &Self::State,
+        _bounds: Rectangle,
+        _cursor: Cursor,
+    ) -> Interaction {
+        if state.pan_start.is_some() {
+            Interaction::Grab
+        } else {
+            Interaction::default()
+        }
     }
 }
