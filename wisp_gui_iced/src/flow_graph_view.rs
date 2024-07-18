@@ -3,7 +3,7 @@ use iced::{
     event::Status,
     mouse::{self, Button, Cursor, Interaction},
     widget::{
-        canvas::{Event, Frame, Geometry, Program, Text},
+        canvas::{Event, Frame, Geometry, Path, Program, Stroke, Text},
         Canvas,
     },
     Length, Point, Rectangle, Renderer, Size, Theme, Vector,
@@ -113,6 +113,8 @@ impl Program<Message> for FlowGraphView {
                 mouse::Event::CursorMoved { position, .. } => {
                     if let Some(start) = state.pan_start {
                         state.viewport_offset = position - start;
+                        state.viewport_offset.x = state.viewport_offset.x.round();
+                        state.viewport_offset.y = state.viewport_offset.y.round();
                         return (Status::Captured, None);
                     }
                 }
@@ -133,20 +135,23 @@ impl Program<Message> for FlowGraphView {
     ) -> Vec<Geometry> {
         let mut frame = Frame::new(renderer, bounds.size());
 
+        frame.translate(state.viewport_offset);
+
         for node in &self.nodes {
+            frame.fill_rectangle(node.pos, node.size, iced::Color::BLACK);
             frame.fill_rectangle(
-                node.pos + state.viewport_offset,
-                node.size,
-                iced::Color::BLACK,
-            );
-            frame.fill_rectangle(
-                node.pos + state.viewport_offset + Vector::new(1.0, 1.0),
+                node.pos + Vector::new(1.0, 1.0),
                 node.size - Size::new(2.0, 2.0),
                 iced::Color::WHITE,
             );
+            let line = Path::line(
+                node.pos + Vector::new(0.0, 30.0),
+                node.pos + Vector::new(node.size.width, 30.0),
+            );
+            frame.stroke(&line, Stroke::default().with_color(iced::Color::BLACK));
             let text = Text {
                 content: node.text.clone(),
-                position: node.pos + state.viewport_offset + Vector::new(5.0, 5.0),
+                position: node.pos + Vector::new(5.0, 5.0),
                 size: 20.0.into(),
                 color: iced::Color::BLACK,
                 horizontal_alignment: alignment::Horizontal::Left,
