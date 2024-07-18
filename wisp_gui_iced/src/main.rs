@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use config::TwistedWispConfig;
 use flow_graph_view::FlowGraphView;
 use iced::widget::{button, column, container, toggler};
-use iced::{Application, Command, Element, Length, Settings};
+use iced::{Application, Command, Element, Length, Settings, Size};
 use twisted_wisp::{WispContext, WispFunction};
 use twisted_wisp_ir::CallId;
 use twisted_wisp_protocol::{DataIndex, WispRunnerClient};
@@ -209,5 +209,14 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config_path = app_path.with_file_name("wisp.toml");
     let config = TwistedWispConfig::load_from_file(&config_path)?;
 
-    Ok(TwistedWispGui::run(Settings::with_flags(config))?)
+    let settings = Settings {
+        window: iced::window::Settings {
+            size: Size::new(1024.0, 768.0),
+            position: iced::window::Position::Centered,
+            ..Default::default()
+        },
+        ..Settings::with_flags(config)
+    };
+
+    Ok(TwistedWispGui::run(settings)?)
 }
