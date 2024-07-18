@@ -1,9 +1,11 @@
+use std::collections::HashMap;
+
 use iced::{
     alignment,
     event::Status,
     mouse::{self, Button, Cursor, Interaction},
     widget::{
-        canvas::{Event, Frame, Geometry, Path, Program, Stroke, Text},
+        canvas::{path::Builder, Event, Frame, Geometry, Path, Program, Stroke, Text},
         Canvas,
     },
     Length, Point, Rectangle, Renderer, Size, Theme, Vector,
@@ -19,6 +21,7 @@ pub struct FlowGraphView {
     #[allow(dead_code)]
     flow_name: Option<String>,
     nodes: Vec<FlowGraphNodeView>,
+    connections: Vec<FlowGraphConnectionView>,
 }
 
 #[derive(Debug)]
@@ -28,15 +31,28 @@ struct FlowGraphNodeView {
     text: String,
 }
 
+#[derive(Debug)]
+struct FlowGraphConnectionView {
+    from: usize,
+    to: usize,
+    output_index: u32,
+    input_index: u32,
+}
+
 impl FlowGraphView {
     pub fn new(flow_name: Option<String>, ctx: &WispContext) -> Self {
         let mut nodes = vec![];
+        let mut connections = vec![];
+
         if let Some(flow) = flow_name
             .as_ref()
             .and_then(|name| ctx.get_function(name))
             .and_then(|f| f.as_flow())
         {
+            let mut node_idx_to_vector_idx = HashMap::new();
             for node_idx in flow.node_indices() {
+                node_idx_to_vector_idx.insert(node_idx, nodes.len());
+
                 let node = flow.get_node(node_idx).unwrap();
                 nodes.push(FlowGraphNodeView {
                     pos: Point::new(
@@ -66,9 +82,22 @@ impl FlowGraphView {
                     text: node.display_text.clone(),
                 });
             }
+            for edge_idx in flow.edge_indices() {
+                let (from, to, conn) = flow.get_connection(edge_idx).unwrap();
+                connections.push(FlowGraphConnectionView {
+                    from: node_idx_to_vector_idx[&from],
+                    to: node_idx_to_vector_idx[&to],
+                    output_index: conn.output_index,
+                    input_index: conn.input_index,
+                });
+            }
         }
 
-        Self { flow_name, nodes }
+        Self {
+            flow_name,
+            nodes,
+            connections,
+        }
     }
 
     pub fn view(&self) -> iced::Element<Message> {
@@ -159,6 +188,27 @@ impl Program<Message> for FlowGraphView {
                 ..Default::default()
             };
             frame.fill_text(text);
+        }
+
+        for conn in &self.connections {
+            let from = &self.nodes[conn.from];
+            let to = &self.nodes[conn.to];
+
+            let start =
+                from.pos + Vector::new(from.size.width, 50.0 + 30.0 * conn.output_index as f32);
+            let end = to.pos + Vector::new(0.0, 50.0 + 30.0 * conn.input_index as f32);
+
+            let line_x_size = (end.x - start.x).abs();
+            let mut builder = Builder::new();
+            builder.move_to(start);
+            builder.bezier_curve_to(
+                start + Vector::new(line_x_size * 0.4, 0.0),
+                end - Vector::new(line_x_size * 0.4, 0.0),
+                end,
+            );
+
+            let line = builder.build();
+            frame.stroke(&line, Stroke::default().with_color(iced::Color::BLACK));
         }
 
         vec![frame.into_geometry()]
