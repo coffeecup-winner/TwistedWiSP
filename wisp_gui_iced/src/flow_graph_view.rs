@@ -16,6 +16,10 @@ use twisted_wisp::{FlowNodeExtraData, WispContext};
 #[derive(Debug, Clone, Copy)]
 pub enum Message {}
 
+const NODE_HEADER_HEIGHT: f32 = 30.0;
+const NODE_CONNECTION_SLOT_OFFSET: f32 = 20.0;
+const NODE_CONNECTION_SLOT_SPACING: f32 = 30.0;
+
 #[derive(Debug)]
 pub struct FlowGraphView {
     #[allow(dead_code)]
@@ -29,6 +33,8 @@ struct FlowGraphNodeView {
     pos: Point,
     size: Size,
     text: String,
+    inputs: Vec<Point>,
+    outputs: Vec<Point>,
 }
 
 #[derive(Debug)]
@@ -54,32 +60,56 @@ impl FlowGraphView {
                 node_idx_to_vector_idx.insert(node_idx, nodes.len());
 
                 let node = flow.get_node(node_idx).unwrap();
+                let func = ctx.get_function(&node.name).unwrap();
+
+                let pos = Point::new(
+                    node.extra_data
+                        .get("x")
+                        .unwrap_or(&FlowNodeExtraData::Integer(0))
+                        .as_integer()
+                        .unwrap() as f32,
+                    node.extra_data
+                        .get("y")
+                        .unwrap_or(&FlowNodeExtraData::Integer(0))
+                        .as_integer()
+                        .unwrap() as f32,
+                );
+
+                let size = Size::new(
+                    node.extra_data
+                        .get("w")
+                        .unwrap_or(&FlowNodeExtraData::Integer(80))
+                        .as_integer()
+                        .unwrap() as f32,
+                    node.extra_data
+                        .get("h")
+                        .unwrap_or(&FlowNodeExtraData::Integer(40))
+                        .as_integer()
+                        .unwrap() as f32,
+                );
+
+                let mut inputs = vec![];
+                let x = pos.x;
+                let mut y = pos.y + NODE_HEADER_HEIGHT + NODE_CONNECTION_SLOT_OFFSET;
+                for _ in 0..func.inputs().len() {
+                    inputs.push(Point::new(x, y));
+                    y += NODE_CONNECTION_SLOT_SPACING;
+                }
+
+                let mut outputs = vec![];
+                let x = pos.x + size.width;
+                let mut y = pos.y + NODE_HEADER_HEIGHT + NODE_CONNECTION_SLOT_OFFSET;
+                for _ in 0..func.outputs().len() {
+                    outputs.push(Point::new(x, y));
+                    y += NODE_CONNECTION_SLOT_SPACING;
+                }
+
                 nodes.push(FlowGraphNodeView {
-                    pos: Point::new(
-                        node.extra_data
-                            .get("x")
-                            .unwrap_or(&FlowNodeExtraData::Integer(0))
-                            .as_integer()
-                            .unwrap() as f32,
-                        node.extra_data
-                            .get("y")
-                            .unwrap_or(&FlowNodeExtraData::Integer(0))
-                            .as_integer()
-                            .unwrap() as f32,
-                    ),
-                    size: Size::new(
-                        node.extra_data
-                            .get("w")
-                            .unwrap_or(&FlowNodeExtraData::Integer(80))
-                            .as_integer()
-                            .unwrap() as f32,
-                        node.extra_data
-                            .get("h")
-                            .unwrap_or(&FlowNodeExtraData::Integer(40))
-                            .as_integer()
-                            .unwrap() as f32,
-                    ),
+                    pos,
+                    size,
                     text: node.display_text.clone(),
+                    inputs,
+                    outputs,
                 });
             }
             for edge_idx in flow.edge_indices() {
@@ -174,10 +204,21 @@ impl Program<Message> for FlowGraphView {
                 iced::Color::WHITE,
             );
             let line = Path::line(
-                node.pos + Vector::new(0.0, 30.0),
-                node.pos + Vector::new(node.size.width, 30.0),
+                node.pos + Vector::new(0.0, NODE_HEADER_HEIGHT),
+                node.pos + Vector::new(node.size.width, NODE_HEADER_HEIGHT),
             );
             frame.stroke(&line, Stroke::default().with_color(iced::Color::BLACK));
+
+            for input in &node.inputs {
+                let path = Path::circle(*input, 5.0);
+                frame.fill(&path, iced::Color::BLACK);
+            }
+
+            for output in &node.outputs {
+                let path = Path::circle(*output, 5.0);
+                frame.fill(&path, iced::Color::BLACK);
+            }
+
             let text = Text {
                 content: node.text.clone(),
                 position: node.pos + Vector::new(5.0, 5.0),
@@ -194,9 +235,8 @@ impl Program<Message> for FlowGraphView {
             let from = &self.nodes[conn.from];
             let to = &self.nodes[conn.to];
 
-            let start =
-                from.pos + Vector::new(from.size.width, 50.0 + 30.0 * conn.output_index as f32);
-            let end = to.pos + Vector::new(0.0, 50.0 + 30.0 * conn.input_index as f32);
+            let start = from.outputs[conn.output_index as usize];
+            let end = to.inputs[conn.input_index as usize];
 
             let line_x_size = (end.x - start.x).abs();
             let mut builder = Builder::new();
