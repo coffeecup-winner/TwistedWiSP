@@ -5,11 +5,15 @@ use std::path::PathBuf;
 
 use config::TwistedWispConfig;
 use flow_graph_view::FlowGraphView;
-use iced::widget::{button, column, container, toggler};
+use iced::widget::scrollable::AbsoluteOffset;
+use iced::widget::{button, column, container, scrollable, toggler};
 use iced::{Application, Command, Element, Length, Settings, Size};
+use once_cell::sync::Lazy;
 use twisted_wisp::{WispContext, WispFunction};
 use twisted_wisp_ir::CallId;
 use twisted_wisp_protocol::{DataIndex, WispRunnerClient};
+
+static SCROLLABLE_ID: Lazy<scrollable::Id> = Lazy::new(scrollable::Id::unique);
 
 #[derive(Debug, Clone)]
 #[allow(clippy::enum_variant_names)]
@@ -30,8 +34,8 @@ struct TwistedWispGui {
     ctx: WispContext,
 
     is_dsp_enabled: bool,
-
-    flow_graph_view: FlowGraphView,
+    flow_name: Option<String>,
+    // flow_graph_view: FlowGraphView,
 }
 
 impl TwistedWispGui {
@@ -148,14 +152,15 @@ impl Application for TwistedWispGui {
             runner.context_add_or_update_functions(f.get_ir_functions(&ctx));
         }
 
-        let flow_graph_view = FlowGraphView::new(None, &ctx);
+        // let flow_graph_view = FlowGraphView::new(None, &ctx);
         (
             Self {
                 config,
                 runner,
                 ctx,
                 is_dsp_enabled: false,
-                flow_graph_view,
+                flow_name: None,
+                // flow_graph_view,
             },
             Command::none(),
         )
@@ -172,11 +177,23 @@ impl Application for TwistedWispGui {
                 Command::none()
             }
             Message::LoadFlowFromFile(path) => {
-                let flow_name = self.load_flow_from_file(path);
-                self.flow_graph_view = FlowGraphView::new(Some(flow_name), self.ctx());
+                self.flow_name = Some(self.load_flow_from_file(path));
                 Command::none()
             }
-            Message::FlowGraphViewMessage(_) => Command::none(),
+            Message::FlowGraphViewMessage(flow_graph_view_message) => match flow_graph_view_message
+            {
+                flow_graph_view::Message::ScrollTo(point) => {
+                    // self.
+                    iced::widget::scrollable::scroll_to(
+                        SCROLLABLE_ID.clone(),
+                        AbsoluteOffset {
+                            x: point.x,
+                            y: point.y,
+                        },
+                    )
+                }
+                _ => Command::none(),
+            },
         }
     }
 
@@ -189,9 +206,16 @@ impl Application for TwistedWispGui {
             toggler(Some("DSP".to_owned()), self.is_dsp_enabled, |v| {
                 Message::SetDspEnabled(v)
             }),
-            self.flow_graph_view
-                .view()
-                .map(Message::FlowGraphViewMessage)
+            scrollable(FlowGraphView::new(
+                self.flow_name.clone(),
+                &self.ctx,
+                Message::FlowGraphViewMessage
+            ))
+            .id(SCROLLABLE_ID.clone())
+            .direction(iced::widget::scrollable::Direction::Both {
+                horizontal: Default::default(),
+                vertical: Default::default(),
+            }),
         ]
         .height(Length::Fill);
 
@@ -211,7 +235,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let settings = Settings {
         window: iced::window::Settings {
-            size: Size::new(1024.0, 768.0),
+            size: Size::new(800.0, 600.0),
             position: iced::window::Position::Centered,
             ..Default::default()
         },

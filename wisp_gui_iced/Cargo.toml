@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-iced = { version = "0.12.1", default-features = false, features = ["canvas"] }
+iced = { version = "0.12.1", default-features = false, features = ["advanced","canvas"] }
+once_cell = "1.19"
 serde = { version = "1.0", features = ["derive"] }
 # NOTE: termcolor is only added because without this its version cannot be resolved,
 # this can probably be removed in the future.
