@@ -9,7 +9,7 @@ use iced::widget::scrollable::AbsoluteOffset;
 use iced::widget::{button, column, container, scrollable, toggler};
 use iced::{Application, Command, Element, Length, Settings, Size};
 use once_cell::sync::Lazy;
-use twisted_wisp::{WispContext, WispFunction};
+use twisted_wisp::{FlowNodeExtraData, WispContext, WispFunction};
 use twisted_wisp_ir::CallId;
 use twisted_wisp_protocol::{DataIndex, WispRunnerClient};
 
@@ -182,16 +182,29 @@ impl Application for TwistedWispGui {
             }
             Message::FlowGraphViewMessage(flow_graph_view_message) => match flow_graph_view_message
             {
-                flow_graph_view::Message::ScrollTo(point) => {
-                    // self.
-                    iced::widget::scrollable::scroll_to(
-                        SCROLLABLE_ID.clone(),
-                        AbsoluteOffset {
-                            x: point.x,
-                            y: point.y,
-                        },
-                    )
+                flow_graph_view::Message::MoveNodeTo(node_idx, point) => {
+                    let ctx = &mut self.ctx;
+                    let flow = ctx
+                        .get_function_mut(self.flow_name.as_ref().unwrap())
+                        .unwrap()
+                        .as_flow_mut()
+                        .unwrap();
+                    let node = flow.get_node_mut(node_idx).unwrap();
+                    let x = point.x;
+                    let y = point.y;
+                    node.extra_data
+                        .insert("x".to_owned(), FlowNodeExtraData::Integer(x as i32));
+                    node.extra_data
+                        .insert("y".to_owned(), FlowNodeExtraData::Integer(y as i32));
+                    Command::none()
                 }
+                flow_graph_view::Message::ScrollTo(point) => iced::widget::scrollable::scroll_to(
+                    SCROLLABLE_ID.clone(),
+                    AbsoluteOffset {
+                        x: point.x,
+                        y: point.y,
+                    },
+                ),
                 _ => Command::none(),
             },
         }

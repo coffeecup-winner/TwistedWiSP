@@ -4,19 +4,21 @@ use iced::advanced::graphics::geometry::Renderer as GeometryRenderer;
 use iced::advanced::layout::{self, Limits};
 use iced::advanced::widget::Widget;
 use iced::widget::button;
+use iced::Theme;
 use iced::{
     alignment,
     event::Status,
-    mouse::{self, Button, Cursor, Interaction},
-    widget::canvas::{path::Builder, Event, Frame, Geometry, Path, Program, Stroke, Text},
-    Element, Length, Point, Rectangle, Renderer, Size, Theme, Vector,
+    mouse::{self, Button, Interaction},
+    widget::canvas::{path::Builder, Frame, Path, Stroke, Text},
+    Element, Length, Point, Rectangle, Renderer, Size, Vector,
 };
 
-use twisted_wisp::{FlowNodeExtraData, WispContext};
+use twisted_wisp::{FlowNodeExtraData, FlowNodeIndex, WispContext};
 
 #[derive(Debug, Clone, Copy)]
 pub enum Message {
     Dummy,
+    MoveNodeTo(FlowNodeIndex, Point),
     ScrollTo(Vector),
 }
 
@@ -24,22 +26,24 @@ const NODE_HEADER_HEIGHT: f32 = 30.0;
 const NODE_CONNECTION_SLOT_OFFSET: f32 = 20.0;
 const NODE_CONNECTION_SLOT_SPACING: f32 = 30.0;
 
-pub struct FlowGraphView<'a, M, T> {
+pub struct FlowGraphView<'a, M> {
     #[allow(dead_code)]
     flow_name: Option<String>,
-    nodes: Vec<FlowGraphNodeView<'a, T>>,
+    nodes: Vec<FlowGraphNodeView<'a>>,
     connections: Vec<FlowGraphConnectionView>,
     size: Size,
+    padding: Vector,
     f: Box<dyn Fn(Message) -> M>,
 }
 
-struct FlowGraphNodeView<'a, T> {
+struct FlowGraphNodeView<'a> {
+    id: FlowNodeIndex,
     pos: Point,
     size: Size,
     text: String,
     inputs: Vec<Point>,
     outputs: Vec<Point>,
-    widget: Option<Element<'a, Message, T>>,
+    widget: Option<Element<'a, Message>>,
 }
 
 struct FlowGraphConnectionView {
@@ -49,13 +53,7 @@ struct FlowGraphConnectionView {
     input_index: u32,
 }
 
-impl<'a, M, T> FlowGraphView<'a, M, T>
-where
-    T: iced::widget::button::StyleSheet
-        + iced::widget::text::StyleSheet
-        + iced::widget::container::StyleSheet
-        + 'a,
-{
+impl<'a, M> FlowGraphView<'a, M> {
     pub fn new(
         flow_name: Option<String>,
         ctx: &WispContext,
@@ -119,6 +117,7 @@ where
                 }
 
                 nodes.push(FlowGraphNodeView {
+                    id: node_idx,
                     pos,
                     size,
                     text: node.display_text.clone(),
@@ -142,11 +141,33 @@ where
             flow_name,
             nodes,
             connections,
-            size: Size::new(0.0, 0.0), // To be updated
+            size: Size::ZERO,      // To be updated
+            padding: Vector::ZERO, // To be updated
             f: Box::new(f),
         };
         view.update_size();
         view
+    }
+
+    fn get_node(&self, idx: usize) -> Option<&FlowGraphNodeView> {
+        self.nodes.get(idx)
+    }
+
+    fn update_node_position(&mut self, node_idx: usize, new_pos: Point) {
+        let node = self.nodes.get_mut(node_idx).unwrap();
+
+        let offset = new_pos - node.pos;
+        node.pos = new_pos;
+
+        for input in node.inputs.iter_mut() {
+            input.x += offset.x;
+            input.y += offset.y;
+        }
+
+        for output in node.outputs.iter_mut() {
+            output.x += offset.x;
+            output.y += offset.y;
+        }
     }
 
     fn update_size(&mut self) {
@@ -180,16 +201,39 @@ where
         }
 
         self.size = Size::new(max_x - min_x + 2.0 * PADDING, max_y - min_y + 2.0 * PADDING);
+        self.padding = Vector::new(min_x, min_y);
+    }
+
+    fn hit_test_node_header(&self, pos: Point) -> Option<usize> {
+        for (i, node) in self.nodes.iter().enumerate() {
+            let header_rect = Rectangle {
+                x: node.pos.x,
+                y: node.pos.y,
+                width: node.size.width,
+                height: NODE_HEADER_HEIGHT,
+            };
+            if header_rect.contains(pos) {
+                return Some(i);
+            }
+        }
+        None
     }
 }
 
 #[derive(Debug, Default)]
-pub struct FlowGraphViewState {
-    pan_start: Option<Point>,
+struct ViewState {
     viewport_offset: Vector,
+    pan_start: Option<Point>,
+    grabbed_node: Option<GrabbedNode>,
 }
 
-impl<'a, M, T> Widget<M, T, Renderer> for FlowGraphView<'a, M, T> {
+#[derive(Debug, Default)]
+struct GrabbedNode {
+    node_idx: usize,
+    offset: Vector,
+}
+
+impl<'a, M> Widget<M, Theme, Renderer> for FlowGraphView<'a, M> {
     fn size(&self) -> Size<Length> {
         Size::new(Length::Fill, Length::Fill)
     }
@@ -235,7 +279,7 @@ impl<'a, M, T> Widget<M, T, Renderer> for FlowGraphView<'a, M, T> {
         &self,
         tree: &iced::advanced::widget::Tree,
         renderer: &mut Renderer,
-        theme: &T,
+        theme: &Theme,
         style: &iced::advanced::renderer::Style,
         layout: iced::advanced::Layout<'_>,
         cursor: iced::advanced::mouse::Cursor,
@@ -329,11 +373,11 @@ impl<'a, M, T> Widget<M, T, Renderer> for FlowGraphView<'a, M, T> {
     }
 
     fn tag(&self) -> iced::advanced::widget::tree::Tag {
-        iced::advanced::widget::tree::Tag::of::<FlowGraphViewState>()
+        iced::advanced::widget::tree::Tag::of::<ViewState>()
     }
 
     fn state(&self) -> iced::advanced::widget::tree::State {
-        iced::advanced::widget::tree::State::Some(Box::new(FlowGraphViewState::default()))
+        iced::advanced::widget::tree::State::Some(Box::new(ViewState::default()))
     }
 
     fn children(&self) -> Vec<iced::advanced::widget::Tree> {
@@ -376,12 +420,23 @@ impl<'a, M, T> Widget<M, T, Renderer> for FlowGraphView<'a, M, T> {
         shell: &mut iced::advanced::Shell<'_, M>,
         viewport: &Rectangle,
     ) -> iced::advanced::graphics::core::event::Status {
-        // iced::advanced::graphics::core::event::Status::Ignored
         #[allow(clippy::single_match)]
         match event {
             iced::Event::Mouse(mouse_event) => match mouse_event {
+                mouse::Event::ButtonPressed(Button::Left) => {
+                    let state = state.state.downcast_mut::<ViewState>();
+                    if let Some(pos) = cursor.position() {
+                        if let Some(node_idx) = self.hit_test_node_header(pos) {
+                            state.grabbed_node = Some(GrabbedNode {
+                                node_idx,
+                                offset: pos - self.get_node(node_idx).unwrap().pos,
+                            });
+                            return Status::Captured;
+                        }
+                    }
+                }
                 mouse::Event::ButtonPressed(Button::Middle) => {
-                    let state = state.state.downcast_mut::<FlowGraphViewState>();
+                    let state = state.state.downcast_mut::<ViewState>();
                     if let Some(pos) = cursor.position() {
                         if viewport.contains(pos) {
                             state.pan_start = Some(pos - state.viewport_offset);
@@ -389,14 +444,36 @@ impl<'a, M, T> Widget<M, T, Renderer> for FlowGraphView<'a, M, T> {
                         }
                     }
                 }
+                mouse::Event::ButtonReleased(Button::Left) => {
+                    let state = state.state.downcast_mut::<ViewState>();
+                    if let Some(grabbed_node) = state.grabbed_node.take() {
+                        let node = self.get_node(grabbed_node.node_idx).unwrap();
+                        shell.publish((self.f)(Message::MoveNodeTo(
+                            node.id,
+                            node.pos + self.padding,
+                        )));
+                        return Status::Captured;
+                    }
+                }
                 mouse::Event::ButtonReleased(Button::Middle) => {
-                    let state = state.state.downcast_mut::<FlowGraphViewState>();
-                    state.pan_start = None;
-                    return Status::Captured;
+                    let state = state.state.downcast_mut::<ViewState>();
+                    if state.pan_start.is_some() {
+                        state.pan_start = None;
+                        return Status::Captured;
+                    }
                 }
                 mouse::Event::CursorMoved { position, .. } => {
-                    let state = state.state.downcast_mut::<FlowGraphViewState>();
-                    if let Some(start) = state.pan_start {
+                    let state = state.state.downcast_mut::<ViewState>();
+                    if let Some(GrabbedNode { node_idx, offset }) = state.grabbed_node {
+                        self.update_node_position(
+                            node_idx,
+                            position - offset + state.viewport_offset,
+                        );
+                        if self.get_node(node_idx).unwrap().widget.is_some() {
+                            shell.invalidate_layout();
+                        }
+                        return Status::Captured;
+                    } else if let Some(start) = state.pan_start {
                         state.viewport_offset = position - start;
                         state.viewport_offset.x = state.viewport_offset.x.round();
                         state.viewport_offset.y = state.viewport_offset.y.round();
@@ -415,13 +492,27 @@ impl<'a, M, T> Widget<M, T, Renderer> for FlowGraphView<'a, M, T> {
 
     fn mouse_interaction(
         &self,
-        _state: &iced::advanced::widget::Tree,
+        state: &iced::advanced::widget::Tree,
         _layout: layout::Layout<'_>,
-        _cursor: iced::advanced::mouse::Cursor,
+        cursor: iced::advanced::mouse::Cursor,
         _viewport: &Rectangle,
         _renderer: &Renderer,
     ) -> iced::advanced::mouse::Interaction {
-        iced::advanced::mouse::Interaction::Idle
+        let state = state.state.downcast_ref::<ViewState>();
+
+        if state.pan_start.is_some() {
+            Interaction::Grab
+        } else if state.grabbed_node.is_some() {
+            Interaction::Grabbing
+        } else if let Some(pos) = cursor.position() {
+            if self.hit_test_node_header(pos).is_some() {
+                Interaction::Pointer
+            } else {
+                Interaction::default()
+            }
+        } else {
+            Interaction::default()
+        }
     }
 
     // fn overlay<'a>(
@@ -435,136 +526,11 @@ impl<'a, M, T> Widget<M, T, Renderer> for FlowGraphView<'a, M, T> {
     // }
 }
 
-impl<'a, M, T> From<FlowGraphView<'a, M, T>> for Element<'a, M, T>
+impl<'a, M> From<FlowGraphView<'a, M>> for Element<'a, M>
 where
     M: 'a,
-    T: 'a,
 {
-    fn from(graph_view: FlowGraphView<'a, M, T>) -> Self {
+    fn from(graph_view: FlowGraphView<'a, M>) -> Self {
         Self::new(graph_view)
-    }
-}
-
-impl<'a, M, T> Program<Message> for FlowGraphView<'a, M, T> {
-    type State = FlowGraphViewState;
-
-    fn update(
-        &self,
-        state: &mut Self::State,
-        event: Event,
-        bounds: Rectangle,
-        cursor: Cursor,
-    ) -> (Status, Option<Message>) {
-        #[allow(clippy::single_match)]
-        match event {
-            Event::Mouse(mouse_event) => match mouse_event {
-                mouse::Event::ButtonPressed(Button::Middle) => {
-                    if let Some(pos) = cursor.position() {
-                        if bounds.contains(pos) {
-                            state.pan_start = Some(pos - state.viewport_offset);
-                            return (Status::Captured, None);
-                        }
-                    }
-                }
-                mouse::Event::ButtonReleased(Button::Middle) => {
-                    state.pan_start = None;
-                    return (Status::Captured, None);
-                }
-                mouse::Event::CursorMoved { position, .. } => {
-                    if let Some(start) = state.pan_start {
-                        state.viewport_offset = position - start;
-                        state.viewport_offset.x = state.viewport_offset.x.round();
-                        state.viewport_offset.y = state.viewport_offset.y.round();
-                        return (Status::Captured, None);
-                    }
-                }
-                _ => {}
-            },
-            _ => {}
-        }
-        (Status::Ignored, None)
-    }
-
-    fn draw(
-        &self,
-        state: &Self::State,
-        renderer: &Renderer,
-        _theme: &Theme,
-        bounds: Rectangle,
-        _cursor: Cursor,
-    ) -> Vec<Geometry> {
-        let mut frame = Frame::new(renderer, bounds.size());
-
-        frame.translate(state.viewport_offset);
-
-        for node in &self.nodes {
-            frame.fill_rectangle(node.pos, node.size, iced::Color::BLACK);
-            frame.fill_rectangle(
-                node.pos + Vector::new(1.0, 1.0),
-                node.size - Size::new(2.0, 2.0),
-                iced::Color::WHITE,
-            );
-            let line = Path::line(
-                node.pos + Vector::new(0.0, NODE_HEADER_HEIGHT),
-                node.pos + Vector::new(node.size.width, NODE_HEADER_HEIGHT),
-            );
-            frame.stroke(&line, Stroke::default().with_color(iced::Color::BLACK));
-
-            for input in &node.inputs {
-                let path = Path::circle(*input, 5.0);
-                frame.fill(&path, iced::Color::BLACK);
-            }
-
-            for output in &node.outputs {
-                let path = Path::circle(*output, 5.0);
-                frame.fill(&path, iced::Color::BLACK);
-            }
-
-            let text = Text {
-                content: node.text.clone(),
-                position: node.pos + Vector::new(5.0, 5.0),
-                size: 20.0.into(),
-                color: iced::Color::BLACK,
-                horizontal_alignment: alignment::Horizontal::Left,
-                vertical_alignment: alignment::Vertical::Top,
-                ..Default::default()
-            };
-            frame.fill_text(text);
-        }
-
-        for conn in &self.connections {
-            let from = &self.nodes[conn.from];
-            let to = &self.nodes[conn.to];
-
-            let start = from.outputs[conn.output_index as usize];
-            let end = to.inputs[conn.input_index as usize];
-
-            let line_x_size = (end.x - start.x).abs();
-            let mut builder = Builder::new();
-            builder.move_to(start);
-            builder.bezier_curve_to(
-                start + Vector::new(line_x_size * 0.4, 0.0),
-                end - Vector::new(line_x_size * 0.4, 0.0),
-                end,
-            );
-
-            let line = builder.build();
-            frame.stroke(&line, Stroke::default().with_color(iced::Color::BLACK));
-        }
-
-        vec![frame.into_geometry()]
-    }
-
-    fn mouse_interaction(
-        &self,
-        state: &Self::State,
-        _bounds: Rectangle,
-        _cursor: Cursor,
-    ) -> Interaction {
-        if state.pan_start.is_some() {
-            Interaction::Grab
-        } else {
-            Interaction::default()
-        }
     }
 }
