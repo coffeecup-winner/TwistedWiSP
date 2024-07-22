@@ -270,7 +270,6 @@ impl<'a, M> Widget<M, Theme, Renderer> for FlowGraphView<'a, M> {
 
         let size = Size::new(max_x - min_x, max_y - min_y);
         let size = size.expand(Size::new(500.0, 500.0));
-        dbg!(size);
 
         layout::Node::with_children(size, children)
     }
@@ -418,7 +417,7 @@ impl<'a, M> Widget<M, Theme, Renderer> for FlowGraphView<'a, M> {
         _renderer: &Renderer,
         _clipboard: &mut dyn iced::advanced::Clipboard,
         shell: &mut iced::advanced::Shell<'_, M>,
-        viewport: &Rectangle,
+        _viewport: &Rectangle,
     ) -> iced::advanced::graphics::core::event::Status {
         #[allow(clippy::single_match)]
         match event {
@@ -435,15 +434,6 @@ impl<'a, M> Widget<M, Theme, Renderer> for FlowGraphView<'a, M> {
                         }
                     }
                 }
-                mouse::Event::ButtonPressed(Button::Middle) => {
-                    let state = state.state.downcast_mut::<ViewState>();
-                    if let Some(pos) = cursor.position() {
-                        if viewport.contains(pos) {
-                            state.pan_start = Some(pos - state.viewport_offset);
-                            return Status::Captured;
-                        }
-                    }
-                }
                 mouse::Event::ButtonReleased(Button::Left) => {
                     let state = state.state.downcast_mut::<ViewState>();
                     if let Some(grabbed_node) = state.grabbed_node.take() {
@@ -452,13 +442,6 @@ impl<'a, M> Widget<M, Theme, Renderer> for FlowGraphView<'a, M> {
                             node.id,
                             node.pos + self.padding,
                         )));
-                        return Status::Captured;
-                    }
-                }
-                mouse::Event::ButtonReleased(Button::Middle) => {
-                    let state = state.state.downcast_mut::<ViewState>();
-                    if state.pan_start.is_some() {
-                        state.pan_start = None;
                         return Status::Captured;
                     }
                 }
@@ -472,14 +455,6 @@ impl<'a, M> Widget<M, Theme, Renderer> for FlowGraphView<'a, M> {
                         if self.get_node(node_idx).unwrap().widget.is_some() {
                             shell.invalidate_layout();
                         }
-                        return Status::Captured;
-                    } else if let Some(start) = state.pan_start {
-                        state.viewport_offset = position - start;
-                        state.viewport_offset.x = state.viewport_offset.x.round();
-                        state.viewport_offset.y = state.viewport_offset.y.round();
-                        shell.publish((self.f)(Message::ScrollTo(
-                            Vector::ZERO - state.viewport_offset,
-                        )));
                         return Status::Captured;
                     }
                 }

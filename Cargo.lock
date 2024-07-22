@@ -3424,6 +3424,7 @@ name = "twisted-wisp-gui"
 version = "0.1.0"
 dependencies = [
  "iced",
+ "iced_widget",
  "once_cell",
  "serde",
  "termcolor",

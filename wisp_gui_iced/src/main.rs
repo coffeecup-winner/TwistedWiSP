@@ -1,5 +1,6 @@
 mod config;
 mod flow_graph_view;
+mod pannable;
 
 use std::path::PathBuf;
 
@@ -9,9 +10,12 @@ use iced::widget::scrollable::AbsoluteOffset;
 use iced::widget::{button, column, container, scrollable, toggler};
 use iced::{Application, Command, Element, Length, Settings, Size};
 use once_cell::sync::Lazy;
+
 use twisted_wisp::{FlowNodeExtraData, WispContext, WispFunction};
 use twisted_wisp_ir::CallId;
 use twisted_wisp_protocol::{DataIndex, WispRunnerClient};
+
+use crate::pannable::pannable;
 
 static SCROLLABLE_ID: Lazy<scrollable::Id> = Lazy::new(scrollable::Id::unique);
 
@@ -214,21 +218,18 @@ impl Application for TwistedWispGui {
         // TODO: Fix this
         const PATH: &str = "wisp_gui/beat3.twf";
 
+        eprintln!("Rebuilding view");
+
         let content = column![
             button("Load").on_press(Message::LoadFlowFromFile(PATH.to_owned())),
             toggler(Some("DSP".to_owned()), self.is_dsp_enabled, |v| {
                 Message::SetDspEnabled(v)
             }),
-            scrollable(FlowGraphView::new(
+            pannable(FlowGraphView::new(
                 self.flow_name.clone(),
                 &self.ctx,
                 Message::FlowGraphViewMessage
-            ))
-            .id(SCROLLABLE_ID.clone())
-            .direction(iced::widget::scrollable::Direction::Both {
-                horizontal: Default::default(),
-                vertical: Default::default(),
-            }),
+            )),
         ]
         .height(Length::Fill);
 
