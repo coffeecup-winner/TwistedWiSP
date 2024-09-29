@@ -1,4 +1,4 @@
-use godot::log::{godot_error, godot_print, godot_warn};
+use godot::global::{godot_error, godot_print, godot_warn};
 use log::Log;
 
 pub struct GodotLogger;

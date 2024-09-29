@@ -51,7 +51,7 @@ impl TwistedWispConfig {
 impl TwistedWisp {
     #[func]
     fn create(config: String) -> Gd<Self> {
-        godot::log::godot_print!("TwistedWiSP extension initializing");
+        godot::global::godot_print!("TwistedWiSP extension initializing");
 
         GodotLogger::init().expect("Failed to init the logger");
 
@@ -209,7 +209,7 @@ impl TwistedWisp {
     fn list_functions(&mut self) -> Array<GString> {
         let mut array = Array::new();
         for f in self.ctx_mut().functions_iter() {
-            array.push(f.name().into());
+            array.push(f.name().to_godot());
         }
         array
     }
@@ -219,11 +219,11 @@ impl TwistedWisp {
         let func = self.ctx_mut().get_function(&name).unwrap();
         let mut inputs = Array::new();
         for input in func.inputs() {
-            inputs.push(input.type_.to_str().into_godot());
+            inputs.push(input.type_.to_str().to_godot());
         }
         let mut outputs = Array::new();
         for output in func.outputs() {
-            outputs.push(output.type_.to_str().into_godot());
+            outputs.push(output.type_.to_str().to_godot());
         }
         dict! {
             "inlets": inputs,
