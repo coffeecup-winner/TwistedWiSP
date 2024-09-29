@@ -14,7 +14,6 @@ use clap::Parser;
 use context::{WispContext, WispExecutionContext};
 use midi::WispMidiIn;
 use runtime::WispRuntime;
-use stderrlog::LogLevelNum;
 
 use crate::audio::device::ConfiguredAudioDevice;
 
@@ -46,11 +45,9 @@ struct Args {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    stderrlog::new()
-        .verbosity(LogLevelNum::Debug)
-        .timestamp(stderrlog::Timestamp::Microsecond)
-        .init()
-        .expect("Failed to initialize the logger");
+    let mut log_builder = env_logger::Builder::from_default_env();
+    log_builder.target(env_logger::Target::Stderr);
+    log_builder.init();
 
     let args = Args::parse();
 

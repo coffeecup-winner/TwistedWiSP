@@ -19,9 +19,9 @@ crossbeam = "0.8"
 inkwell = { version = "0.4.0", features = ["llvm17-0-prefer-dynamic"] }
 rand = "0.8"
 # Utilities
+env_logger = "0.11"
 log = "0.4"
 ringbuffer = "0.15.0"
-stderrlog = "0.6"
 string-error = "0.1.0"
 thiserror = "1"
 # WiSP
