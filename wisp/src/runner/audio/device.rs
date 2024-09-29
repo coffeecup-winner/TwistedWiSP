@@ -11,8 +11,8 @@ pub struct ConfiguredAudioDevice {
 
 impl ConfiguredAudioDevice {
     pub fn open(
-        preferred_host: Option<String>,
-        preferred_device: Option<String>,
+        preferred_host: Option<&str>,
+        preferred_device: Option<&str>,
         preferred_output_channels: Option<u16>,
         preferred_buffer_size: Option<u32>,
         preferred_sample_rate: Option<u32>,
@@ -27,6 +27,7 @@ impl ConfiguredAudioDevice {
         Ok(ConfiguredAudioDevice { device, config })
     }
 
+    #[allow(dead_code)]
     pub fn list_all_devices() -> Result<(), Box<dyn std::error::Error>> {
         info!("Available audio devices:");
         let default_host_id = cpal::default_host().id();
@@ -84,8 +85,8 @@ impl ConfiguredAudioDevice {
     }
 
     fn select_output_audio_device(
-        preferred_host: Option<String>,
-        preferred_device: Option<String>,
+        preferred_host: Option<&str>,
+        preferred_device: Option<&str>,
     ) -> Result<Device, Box<dyn std::error::Error>> {
         let host = if let Some(host_name) = preferred_host {
             let mut host = None;

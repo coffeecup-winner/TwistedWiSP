@@ -4,8 +4,10 @@ use ringbuffer::{AllocRingBuffer, RingBuffer};
 
 use crate::{
     ir::CallId,
-    protocol::{DataIndex, WatchIndex, WatchedDataValues},
-    runner::compiler::DataArrayHandle,
+    runner::{
+        compiler::DataArrayHandle,
+        server::{DataIndex, WatchIndex, WatchedDataValues},
+    },
 };
 
 use super::data_layout::{DataLayout, DataValue};

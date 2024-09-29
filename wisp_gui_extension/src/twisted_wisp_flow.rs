@@ -5,7 +5,7 @@ use std::{
 
 use godot::prelude::*;
 
-use twisted_wisp::protocol::WatchIndex;
+use twisted_wisp::WatchIndex;
 
 use crate::{TwistedWisp, TwistedWispFlowNode};
 
@@ -77,7 +77,7 @@ impl TwistedWispFlow {
             runner.context_remove_function(node_name);
         }
         runner.context_add_or_update_functions(ir_functions);
-        runner.context_update();
+        runner.context_update().expect("Failed to update context");
     }
 
     #[func]
@@ -124,7 +124,7 @@ impl TwistedWispFlow {
         let ir_functions = func.get_ir_functions(ctx);
         let runner = wisp.runner_mut();
         runner.context_add_or_update_functions(ir_functions);
-        runner.context_update();
+        runner.context_update().expect("Failed to update context");
     }
 
     #[func]
@@ -152,7 +152,7 @@ impl TwistedWispFlow {
         let ir_functions = func.get_ir_functions(ctx);
         let runner = wisp.runner_mut();
         runner.context_add_or_update_functions(ir_functions);
-        runner.context_update();
+        runner.context_update().expect("Failed to update context");
     }
 
     #[func]
@@ -208,11 +208,13 @@ impl TwistedWispFlow {
 
         flow.add_buffer(&name, path.clone());
 
-        wisp.runner_mut().context_load_wave_file(
-            self.name.clone(),
-            name.clone(),
-            path.to_str().unwrap().to_owned(),
-        );
+        wisp.runner_mut()
+            .context_load_wave_file(
+                self.name.clone(),
+                name.clone(),
+                path.to_str().unwrap().to_owned(),
+            )
+            .expect("Failed to load a wave file");
         name.into()
     }
 }
