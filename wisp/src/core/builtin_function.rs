@@ -1,6 +1,7 @@
-use twisted_wisp_ir::{IRFunction, IRFunctionInput, IRFunctionOutput};
-
-use crate::core::{FunctionInput, FunctionOutput, WispContext, WispFunction};
+use crate::{
+    core::{FunctionInput, FunctionOutput, WispContext, WispFunction},
+    ir::{IRFunction, IRFunctionInput, IRFunctionOutput},
+};
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct BuiltinFunction {

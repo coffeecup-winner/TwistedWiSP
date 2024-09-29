@@ -5,11 +5,12 @@ use std::{
     process::{Child, ChildStdout, Command, Stdio},
 };
 
-use twisted_wisp_ir::{CallId, IRFunction};
-
 use crate::{
-    CommandResponse, DataIndex, SystemInfo, WatchIndex, WatchedDataValues, WispCommand,
-    WispCommandResponse,
+    ir::{CallId, IRFunction},
+    protocol::{
+        CommandResponse, DataIndex, SystemInfo, WatchIndex, WatchedDataValues, WispCommand,
+        WispCommandResponse,
+    },
 };
 
 pub struct WispRunnerClient {

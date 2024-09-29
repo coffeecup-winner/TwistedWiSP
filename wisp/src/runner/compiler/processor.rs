@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 
 use ringbuffer::{AllocRingBuffer, RingBuffer};
-use twisted_wisp_ir::CallId;
-use twisted_wisp_protocol::{DataIndex, WatchIndex, WatchedDataValues};
 
-use crate::runner::compiler::DataArrayHandle;
+use crate::{
+    ir::CallId,
+    protocol::{DataIndex, WatchIndex, WatchedDataValues},
+    runner::compiler::DataArrayHandle,
+};
 
 use super::data_layout::{DataLayout, DataValue};
 

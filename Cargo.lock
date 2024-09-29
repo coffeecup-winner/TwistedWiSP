@@ -1399,11 +1399,10 @@ dependencies = [
  "rand",
  "ringbuffer",
  "serde",
+ "serde_json",
  "string-error",
  "thiserror",
  "toml",
- "twisted-wisp-ir",
- "twisted-wisp-protocol",
 ]
 
 [[package]]
@@ -1415,25 +1414,6 @@ dependencies = [
  "serde",
  "toml",
  "twisted-wisp",
- "twisted-wisp-ir",
- "twisted-wisp-protocol",
-]
-
-[[package]]
-name = "twisted-wisp-ir"
-version = "0.1.0"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "twisted-wisp-protocol"
-version = "0.1.0"
-dependencies = [
- "log",
- "serde",
- "serde_json",
- "twisted-wisp-ir",
 ]
 
 [[package]]

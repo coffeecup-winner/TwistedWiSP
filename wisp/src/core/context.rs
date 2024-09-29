@@ -4,13 +4,16 @@ use std::{
     path::Path,
 };
 
-use crate::core::{
-    BuiltinFunction, CodeFunction, CodeFunctionParseResult, CodeFunctionParser, DataType,
-    DefaultInputValue, FlowFunction, FlowNodeIndex, FunctionInput, FunctionOutput, WispFunction,
+use crate::{
+    core::{
+        BuiltinFunction, CodeFunction, CodeFunctionParseResult, CodeFunctionParser, DataType,
+        DefaultInputValue, FlowFunction, FlowNodeIndex, FunctionInput, FunctionOutput,
+        WispFunction,
+    },
+    ir::{Instruction, Operand, SignalOutputIndex, TargetLocation},
 };
 
 use log::info;
-use twisted_wisp_ir::{Instruction, Operand, SignalOutputIndex, TargetLocation};
 
 #[derive(Debug)]
 pub struct WispContext {

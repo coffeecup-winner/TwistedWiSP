@@ -4,13 +4,13 @@ use pest::{
     Parser,
 };
 use pest_derive::Parser;
-use twisted_wisp_ir::{
-    BinaryOpType, ComparisonOpType, Constant, FunctionOutputIndex, IRFunction, IRFunctionInput,
-    IRFunctionOutput, Instruction, Operand, TargetLocation, VarRef,
-};
 
-use crate::core::{
-    DataType, DefaultInputValue, FunctionInput, FunctionOutput, WispContext, WispFunction,
+use crate::{
+    core::{DataType, DefaultInputValue, FunctionInput, FunctionOutput, WispContext, WispFunction},
+    ir::{
+        BinaryOpType, ComparisonOpType, Constant, FunctionOutputIndex, IRFunction, IRFunctionInput,
+        IRFunctionOutput, Instruction, Operand, TargetLocation, VarRef,
+    },
 };
 
 #[derive(Debug, Clone)]

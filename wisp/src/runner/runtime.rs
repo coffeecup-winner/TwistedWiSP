@@ -10,16 +10,18 @@ use midly::{
     num::{u4, u7},
     MidiMessage,
 };
-use twisted_wisp_ir::CallId;
-use twisted_wisp_protocol::{DataIndex, WatchIndex, WatchedDataValues};
 
-use crate::runner::{
-    audio::device::ConfiguredAudioDevice,
-    compiler::{
-        DataArrayHandle, SignalProcessCreationError, SignalProcessor, SignalProcessorBuilder,
+use crate::{
+    ir::CallId,
+    protocol::{DataIndex, WatchIndex, WatchedDataValues},
+    runner::{
+        audio::device::ConfiguredAudioDevice,
+        compiler::{
+            DataArrayHandle, SignalProcessCreationError, SignalProcessor, SignalProcessorBuilder,
+        },
+        context::{WispContext, WispExecutionContext},
+        midi::WispMidiIn,
     },
-    context::{WispContext, WispExecutionContext},
-    midi::WispMidiIn,
 };
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]

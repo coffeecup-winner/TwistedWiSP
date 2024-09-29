@@ -7,9 +7,8 @@ use std::{
 use inkwell::context::Context;
 use log::info;
 use string_error::into_err;
-use twisted_wisp_ir::IRFunction;
 
-use crate::runner::compiler::DataArrayHandle;
+use crate::{ir::IRFunction, runner::compiler::DataArrayHandle};
 
 pub struct WispExecutionContext {
     context: Context,

@@ -11,9 +11,12 @@ use inkwell::{
 use log::debug;
 use rand::Rng;
 
-use crate::runner::{
-    compiler::data_layout::DataLayout,
-    context::{WispContext, WispExecutionContext},
+use crate::{
+    ir::{IRFunction, IRFunctionDataType, Instruction, Operand},
+    runner::{
+        compiler::data_layout::DataLayout,
+        context::{WispContext, WispExecutionContext},
+    },
 };
 
 use super::{
@@ -22,8 +25,6 @@ use super::{
     module_context::ModuleContext,
     processor::{SignalProcessor, SignalProcessorContext},
 };
-
-use twisted_wisp_ir::{IRFunction, IRFunctionDataType, Instruction, Operand};
 
 pub struct SignalProcessorBuilder {
     id_gen: u64,
@@ -252,7 +253,7 @@ impl SignalProcessorBuilder {
         let start_block = current_block;
 
         for insn in instructions {
-            use twisted_wisp_ir::Instruction::*;
+            use crate::ir::Instruction::*;
             match insn {
                 AllocLocal(lref) => {
                     let local = mctx.build("alloc_local", |b, _| {
@@ -261,7 +262,7 @@ impl SignalProcessorBuilder {
                     fctx.locals.insert(*lref, local);
                 }
                 Load(vref, loc) => {
-                    use twisted_wisp_ir::SourceLocation::*;
+                    use crate::ir::SourceLocation::*;
                     let value = match loc {
                         Local(lref) => {
                             let local = fctx.get_local(lref)?;
@@ -331,7 +332,7 @@ impl SignalProcessorBuilder {
                 }
                 Store(loc, op) => {
                     let value = Self::resolve_operand(mctx, fctx, op)?;
-                    use twisted_wisp_ir::TargetLocation::*;
+                    use crate::ir::TargetLocation::*;
                     match loc {
                         Local(lref) => {
                             let local = fctx.get_local(lref)?;
@@ -432,7 +433,7 @@ impl SignalProcessorBuilder {
                 }
                 UnaryOp(vref, type_, op) => {
                     let operand = Self::resolve_operand(mctx, fctx, op)?.into_float_value();
-                    use twisted_wisp_ir::UnaryOpType::*;
+                    use crate::ir::UnaryOpType::*;
                     let res = match type_ {
                         Truncate => mctx.build("unop_trunc", |b, n| {
                             let trunc = Intrinsic::find("llvm.trunc").unwrap();
@@ -458,7 +459,7 @@ impl SignalProcessorBuilder {
                 BinaryOp(vref, type_, op1, op2) => {
                     let left = Self::resolve_operand(mctx, fctx, op1)?.into_float_value();
                     let right = Self::resolve_operand(mctx, fctx, op2)?.into_float_value();
-                    use twisted_wisp_ir::BinaryOpType::*;
+                    use crate::ir::BinaryOpType::*;
                     let res = match type_ {
                         Add => mctx.build("binop_add", |b, n| b.build_float_add(left, right, n)),
                         Subtract => {
@@ -477,7 +478,7 @@ impl SignalProcessorBuilder {
                 ComparisonOp(vref, type_, op1, op2) => {
                     let left = Self::resolve_operand(mctx, fctx, op1)?.into_float_value();
                     let right = Self::resolve_operand(mctx, fctx, op2)?.into_float_value();
-                    use twisted_wisp_ir::ComparisonOpType::*;
+                    use crate::ir::ComparisonOpType::*;
                     let res = mctx.build("compop_eq", |b, n| {
                         b.build_float_compare(
                             match type_ {
@@ -626,10 +627,10 @@ impl SignalProcessorBuilder {
         fctx: &FunctionContext<'ectx, '_>,
         op: &Operand,
     ) -> Result<BasicValueEnum<'ectx>, SignalProcessCreationError> {
-        use twisted_wisp_ir::Operand::*;
+        use crate::ir::Operand::*;
         Ok(match op {
             Constant(c) => {
-                use twisted_wisp_ir::Constant::*;
+                use crate::ir::Constant::*;
                 match c {
                     SampleRate => mctx
                         .types

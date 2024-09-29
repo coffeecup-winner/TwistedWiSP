@@ -1,8 +1,6 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use twisted_wisp_ir::{
-    CallId, DataRef, IRFunction, IRFunctionDataType, Instruction, SourceLocation,
-};
+use crate::ir::{CallId, DataRef, IRFunction, IRFunctionDataType, Instruction, SourceLocation};
 
 use crate::runner::context::WispContext;
 

@@ -1,9 +1,12 @@
 use std::str::FromStr;
 
 use godot::prelude::*;
-use twisted_wisp::core::{FlowNodeExtraData, FlowNodeIndex, WispFunction};
-use twisted_wisp_ir::CallId;
-use twisted_wisp_protocol::{DataIndex, WatchIndex};
+
+use twisted_wisp::{
+    core::{FlowNodeExtraData, FlowNodeIndex, WispFunction},
+    ir::CallId,
+    protocol::{DataIndex, WatchIndex},
+};
 
 use crate::{TwistedWisp, TwistedWispFlow};
 

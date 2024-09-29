@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue};
 
-use twisted_wisp_ir::{IRFunction, LocalRef, VarRef};
+use crate::ir::{IRFunction, LocalRef, VarRef};
 
 use super::error::SignalProcessCreationError;
 
