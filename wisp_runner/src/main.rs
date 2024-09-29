@@ -88,7 +88,7 @@ fn run_file(
     device: ConfiguredAudioDevice,
     midi_in: WispMidiIn,
 ) -> Result<(), Box<dyn Error>> {
-    let mut core_context = twisted_wisp::WispContext::new(wisp.num_outputs());
+    let mut core_context = twisted_wisp::core::WispContext::new(wisp.num_outputs());
     core_context.add_builtin_functions();
     core_context.load_core_functions(core_lib_path)?;
     let flow_name = core_context.load_function(file_path)?;

@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use crate::{context::WispContext, FlowFunction};
+use crate::core::{context::WispContext, FlowFunction};
 
 use twisted_wisp_ir::{DataRef, IRFunction, IRFunctionDataType};
 

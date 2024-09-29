@@ -9,7 +9,7 @@ use twisted_wisp_ir::{
     IRFunctionOutput, Instruction, Operand, TargetLocation, VarRef,
 };
 
-use crate::{
+use crate::core::{
     DataType, DefaultInputValue, FunctionInput, FunctionOutput, WispContext, WispFunction,
 };
 
@@ -158,7 +158,7 @@ impl MathFunction {
 }
 
 #[derive(Parser)]
-#[grammar = "math_function.pest"]
+#[grammar = "core/math_function.pest"]
 pub struct MathFunctionParser;
 
 #[derive(Debug, Clone, PartialEq)]
