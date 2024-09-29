@@ -27,7 +27,7 @@ impl<'ectx> ModuleTypes<'ectx> {
             void: context.void_type(),
             i32: context.i32_type(),
             f32: context.f32_type(),
-            pf32: context.f32_type().ptr_type(AddressSpace::default()),
+            pf32: context.ptr_type(AddressSpace::default()),
             data: context.i64_type(),
         }
     }
