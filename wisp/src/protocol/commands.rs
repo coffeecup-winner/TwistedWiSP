@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::ir::{CallId, IRFunction};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SystemInfo {
@@ -43,42 +43,23 @@ pub enum WispCommand {
     ContextUpdate,
 }
 
-impl WispCommand {
-    pub fn from_json(json: &str) -> WispCommand {
-        serde_json::from_str(json).expect("Failed to deserialize a WiSP command")
-    }
-
-    pub fn to_json(&self) -> String {
-        serde_json::to_string(self).expect("Failed to serialize a WiSP command")
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
-pub enum WispCommandResponse<T> {
-    Ok(T),
+#[derive(Debug, Serialize, Deserialize)]
+pub enum WispCommandResponse {
+    Ok(CommandResponse),
     NonFatalFailure,
     FatalFailure,
 }
 
-pub trait CommandResponse: Serialize + DeserializeOwned {}
-impl CommandResponse for () {}
-impl CommandResponse for SystemInfo {}
-impl CommandResponse for Option<WatchIndex> {}
-impl CommandResponse for WatchedDataValues {}
+#[derive(Debug, Serialize, Deserialize)]
+pub enum CommandResponse {
+    Ack,
+    SystemInfo(SystemInfo),
+    WatchIndex(Option<WatchIndex>),
+    WatchedDataValues(WatchedDataValues),
+}
 
-impl<T> WispCommandResponse<T>
-where
-    T: CommandResponse,
-{
-    pub fn from_json(json: &str) -> WispCommandResponse<T> {
-        serde_json::from_str(json).expect("Failed to deserialize a WiSP command response")
-    }
-
-    pub fn to_json(&self) -> String {
-        serde_json::to_string(self).expect("Failed to serialize a WiSP command response")
-    }
-
-    pub fn unwrap(self) -> T {
+impl WispCommandResponse {
+    pub fn unwrap(self) -> CommandResponse {
         match self {
             WispCommandResponse::Ok(v) => v,
             WispCommandResponse::NonFatalFailure => {

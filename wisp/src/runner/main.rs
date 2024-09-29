@@ -1,51 +1,27 @@
-// TODO: Extract this into a separate crate?
+use std::error::Error;
 
-use std::{
-    error::Error,
-    path::{Path, PathBuf},
-};
+use crate::protocol::{WispCommand, WispCommandResponse};
 
-use clap::Parser;
-use crate::runner::context::{WispContext, WispExecutionContext};
-use midi::WispMidiIn;
-use runtime::WispRuntime;
+use super::{audio::device::ConfiguredAudioDevice, context::WispContext, midi::WispMidiIn};
 
-use crate::audio::device::ConfiguredAudioDevice;
-
-#[derive(Parser)]
-#[command(author, version, about, long_about = None)]
-struct Args {
-    #[arg(long)]
-    list_audio_devices: bool,
-    #[arg(short, long)]
-    audio_host: Option<String>,
-    #[arg(short = 'd', long)]
-    audio_device: Option<String>,
-    #[arg(short = 'o', long)]
-    audio_output_channels: Option<u16>,
-    #[arg(short = 'b', long)]
-    audio_buffer_size: Option<u32>,
-    #[arg(short = 'r', long)]
-    audio_sample_rate: Option<u32>,
-    #[arg(short = 'm', long)]
-    midi_in_port: Option<String>,
-    #[arg(short, long)]
-    server: bool,
-
-    // Non-server mode
-    #[arg(short, long)]
-    core_lib_path: Option<PathBuf>,
-    #[arg()]
-    file_name: Option<PathBuf>,
+pub struct Args {
+    pub list_audio_devices: bool,
+    pub audio_host: Option<String>,
+    pub audio_device: Option<String>,
+    pub audio_output_channels: Option<u16>,
+    pub audio_buffer_size: Option<u32>,
+    pub audio_sample_rate: Option<u32>,
+    pub midi_in_port: Option<String>,
+    pub server: bool,
+    // pub core_lib_path: Option<PathBuf>,
+    // pub file_name: Option<PathBuf>,
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
-    let mut log_builder = env_logger::Builder::from_default_env();
-    log_builder.target(env_logger::Target::Stderr);
-    log_builder.init();
-
-    let args = Args::parse();
-
+pub fn main(
+    args: Args,
+    command_receiver: crossbeam::channel::Receiver<WispCommand>,
+    response_sender: crossbeam::channel::Sender<WispCommandResponse>,
+) -> Result<(), Box<dyn Error>> {
     if args.list_audio_devices {
         ConfiguredAudioDevice::list_all_devices()?;
         return Ok(());
@@ -62,46 +38,49 @@ fn main() -> Result<(), Box<dyn Error>> {
     let wisp = WispContext::new(device.num_output_channels(), device.sample_rate());
 
     if args.server {
-        crate::server::main(wisp, device, midi_in)
+        super::server::main(wisp, device, midi_in, command_receiver, response_sender)
     } else {
-        run_file(
-            args.core_lib_path
-                .as_ref()
-                .expect("No core library path provided"),
-            args.file_name.as_ref().expect("No file name provided"),
-            wisp,
-            device,
-            midi_in,
-        )
+        // TODO
+        Ok(())
+
+        // run_file(
+        //     args.core_lib_path
+        //         .as_ref()
+        //         .expect("No core library path provided"),
+        //     args.file_name.as_ref().expect("No file name provided"),
+        //     wisp,
+        //     device,
+        //     midi_in,
+        // )
     }
 }
 
-fn run_file(
-    core_lib_path: &Path,
-    file_path: &Path,
-    mut wisp: WispContext,
-    device: ConfiguredAudioDevice,
-    midi_in: WispMidiIn,
-) -> Result<(), Box<dyn Error>> {
-    let mut core_context = twisted_wisp::core::WispContext::new(wisp.num_outputs());
-    core_context.add_builtin_functions();
-    core_context.load_core_functions(core_lib_path)?;
-    let flow_name = core_context.load_function(file_path)?;
+// fn run_file(
+//     core_lib_path: &Path,
+//     file_path: &Path,
+//     mut wisp: WispContext,
+//     device: ConfiguredAudioDevice,
+//     midi_in: WispMidiIn,
+// ) -> Result<(), Box<dyn Error>> {
+//     let mut core_context = twisted_wisp::core::WispContext::new(wisp.num_outputs());
+//     core_context.add_builtin_functions();
+//     core_context.load_core_functions(core_lib_path)?;
+//     let flow_name = core_context.load_function(file_path)?;
 
-    for f in core_context.functions_iter() {
-        for ir_func in f.get_ir_functions(&core_context) {
-            wisp.add_function(ir_func);
-        }
-    }
+//     for f in core_context.functions_iter() {
+//         for ir_func in f.get_ir_functions(&core_context) {
+//             wisp.add_function(ir_func);
+//         }
+//     }
 
-    let execution_context = WispExecutionContext::init();
-    let mut runtime = WispRuntime::init(device, midi_in);
+//     let execution_context = WispExecutionContext::init();
+//     let mut runtime = WispRuntime::init(device, midi_in);
 
-    runtime.switch_to_signal_processor(&execution_context, &wisp, &flow_name)?;
-    runtime.start_dsp();
+//     runtime.switch_to_signal_processor(&execution_context, &wisp, &flow_name)?;
+//     runtime.start_dsp();
 
-    loop {
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        // Wait until Ctrl+C
-    }
-}
+//     loop {
+//         std::thread::sleep(std::time::Duration::from_millis(50));
+//         // Wait until Ctrl+C
+//     }
+// }

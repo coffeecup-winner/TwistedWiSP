@@ -29,7 +29,6 @@ struct TwistedWispConfigFormat {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TwistedWispConfig {
-    pub executable_path: PathBuf,
     pub core_path: PathBuf,
     pub data_paths: Vec<PathBuf>,
     pub midi_in_port: Option<String>,
@@ -65,13 +64,9 @@ impl TwistedWisp {
             .wisp;
         info!("Loaded the config");
 
-        info!("Initializing server: {:?}", config.executable_path);
-        let mut runner = WispRunnerClient::init(
-            &config.executable_path,
-            Some(512),
-            Some(48000),
-            config.midi_in_port.as_deref(),
-        );
+        info!("Initializing server");
+        let mut runner =
+            WispRunnerClient::init(Some(512), Some(48000), config.midi_in_port.as_deref());
         let sys_info = runner.get_system_info();
 
         let mut ctx = WispContext::new(sys_info.num_channels);
@@ -244,7 +239,6 @@ mod tests {
     fn deserialize_config() {
         let config = r#"
             [wisp]
-            executable_path = "path/to/executable"
             core_path = "path/to/core"
             data_paths = [
                 "path/to/data1",
@@ -254,7 +248,6 @@ mod tests {
         let config = toml::from_str::<TwistedWispConfigFormat>(config)
             .unwrap()
             .wisp;
-        assert_eq!(PathBuf::from("path/to/executable"), config.executable_path);
         assert_eq!(PathBuf::from("path/to/core"), config.core_path);
         assert_eq!(
             vec![

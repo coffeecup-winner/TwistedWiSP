@@ -1,4 +1,4 @@
-use std::{error::Error, io::Write};
+use std::error::Error;
 
 use log::info;
 
@@ -16,107 +16,139 @@ pub fn main(
     mut wisp: WispContext,
     device: ConfiguredAudioDevice,
     midi_in: WispMidiIn,
+    command_receiver: crossbeam::channel::Receiver<WispCommand>,
+    mut response_sender: crossbeam::channel::Sender<WispCommandResponse>,
 ) -> Result<(), Box<dyn Error>> {
     let execution_context = WispExecutionContext::init();
     let mut runtime = WispRuntime::init(device, midi_in);
 
     info!("Switching to server mode - waiting for commands now");
-    let input = std::io::stdin();
-    let output = std::io::stdout();
-    let mut line = String::new();
     loop {
-        line.clear();
-        input.read_line(&mut line)?;
-        if line.is_empty() {
-            info!("Client disconnected - exiting");
-            return Ok(());
-        }
-        info!("< {}", line.trim_end());
-        let command = WispCommand::from_json(&line);
+        let command = command_receiver.recv()?;
+        info!("< {:?}", command);
         match command {
             WispCommand::GetSystemInfo => reply(
-                &output,
-                WispCommandResponse::Ok(SystemInfo {
+                &mut response_sender,
+                WispCommandResponse::Ok(CommandResponse::SystemInfo(SystemInfo {
                     num_channels: wisp.num_outputs(),
-                }),
+                })),
             ),
             WispCommand::DspStart => {
                 runtime.start_dsp();
-                reply(&output, WispCommandResponse::Ok(()))
+                reply(
+                    &mut response_sender,
+                    WispCommandResponse::Ok(CommandResponse::Ack),
+                )
             }
             WispCommand::DspStop => {
                 runtime.stop_dsp();
-                reply(&output, WispCommandResponse::Ok(()))
+                reply(
+                    &mut response_sender,
+                    WispCommandResponse::Ok(CommandResponse::Ack),
+                )
             }
             WispCommand::Exit => {
                 info!("Exiting");
-                reply(&output, WispCommandResponse::Ok(()))?;
+                reply(
+                    &mut response_sender,
+                    WispCommandResponse::Ok(CommandResponse::Ack),
+                )?;
                 return Ok(());
             }
             WispCommand::ContextReset => {
                 wisp.reset();
-                reply(&output, WispCommandResponse::Ok(()))
+                reply(
+                    &mut response_sender,
+                    WispCommandResponse::Ok(CommandResponse::Ack),
+                )
             }
             WispCommand::ContextAddOrUpdateFunctions(functions) => {
                 for func in functions {
                     wisp.add_function(func);
                 }
-                reply(&output, WispCommandResponse::Ok(()))
+                reply(
+                    &mut response_sender,
+                    WispCommandResponse::Ok(CommandResponse::Ack),
+                )
             }
             WispCommand::ContextRemoveFunction(name) => {
                 wisp.remove_function(&name);
-                reply(&output, WispCommandResponse::Ok(()))
+                reply(
+                    &mut response_sender,
+                    WispCommandResponse::Ok(CommandResponse::Ack),
+                )
             }
             WispCommand::ContextSetMainFunction(name) => {
                 wisp.set_main_function(&name);
-                reply(&output, WispCommandResponse::Ok(()))
+                reply(
+                    &mut response_sender,
+                    WispCommandResponse::Ok(CommandResponse::Ack),
+                )
             }
             WispCommand::ContextSetDataValue(name, id, idx, value) => {
                 runtime.set_data_value(&name, id, idx, value);
                 // TODO: Async update
-                reply(&output, WispCommandResponse::Ok(()))
+                reply(
+                    &mut response_sender,
+                    WispCommandResponse::Ok(CommandResponse::Ack),
+                )
             }
             WispCommand::ContextSetDataArray(name, id, idx, array_name) => {
                 let resp = match wisp.get_data_array(&name, &array_name) {
                     Some(array) => {
                         runtime.set_data_array(&name, id, idx, array);
-                        WispCommandResponse::Ok(())
+                        WispCommandResponse::Ok(CommandResponse::Ack)
                     }
-                    None => WispCommandResponse::<()>::NonFatalFailure,
+                    None => WispCommandResponse::NonFatalFailure,
                 };
                 // TODO: Async update
-                reply(&output, resp)
+                reply(&mut response_sender, resp)
             }
             WispCommand::ContextLearnMidiCC(name, id, idx) => {
                 runtime.learn_midi_cc(&name, id, idx);
                 let idx = runtime.watch_data_value(&name, id, idx, true);
-                reply(&output, WispCommandResponse::Ok(idx))
+                reply(
+                    &mut response_sender,
+                    WispCommandResponse::Ok(CommandResponse::WatchIndex(idx)),
+                )
             }
             WispCommand::ContextWatchDataValue(name, id, idx) => {
                 let idx = runtime.watch_data_value(&name, id, idx, false);
-                reply(&output, WispCommandResponse::Ok(idx))
+                reply(
+                    &mut response_sender,
+                    WispCommandResponse::Ok(CommandResponse::WatchIndex(idx)),
+                )
             }
             WispCommand::ContextUnwatchDataValue(idx) => {
                 runtime.unwatch_data_value(idx);
-                reply(&output, WispCommandResponse::Ok(()))
+                reply(
+                    &mut response_sender,
+                    WispCommandResponse::Ok(CommandResponse::Ack),
+                )
             }
             WispCommand::ContextQueryWatchedDataValues => {
                 let values = runtime.query_watched_data_values();
-                reply(&output, WispCommandResponse::Ok(values))
+                reply(
+                    &mut response_sender,
+                    WispCommandResponse::Ok(CommandResponse::WatchedDataValues(values)),
+                )
             }
             WispCommand::ContextLoadWaveFile(name, buffer_name, filepath) => {
                 let resp = match wisp.load_wave_file(&name, &buffer_name, &filepath) {
-                    Ok(()) => WispCommandResponse::Ok(()),
+                    Ok(()) => WispCommandResponse::Ok(CommandResponse::Ack),
                     Err(e) => {
                         log::error!("Failed to load wave file: {}", e);
-                        WispCommandResponse::<()>::NonFatalFailure
+                        WispCommandResponse::NonFatalFailure
                     }
                 };
-                reply(&output, resp)
+                reply(&mut response_sender, resp)
             }
             WispCommand::ContextUnloadWaveFile(name, buffer_name) => {
                 wisp.unload_wave_file(&name, &buffer_name);
-                reply(&output, WispCommandResponse::Ok(()))
+                reply(
+                    &mut response_sender,
+                    WispCommandResponse::Ok(CommandResponse::Ack),
+                )
             }
             WispCommand::ContextUpdate => {
                 runtime.switch_to_signal_processor(
@@ -124,22 +156,20 @@ pub fn main(
                     &wisp,
                     wisp.main_function(),
                 )?;
-                reply(&output, WispCommandResponse::Ok(()))
+                reply(
+                    &mut response_sender,
+                    WispCommandResponse::Ok(CommandResponse::Ack),
+                )
             }
         }?;
     }
 }
 
-fn reply<T>(
-    output: &std::io::Stdout,
-    response: WispCommandResponse<T>,
-) -> Result<(), Box<dyn Error>>
-where
-    T: CommandResponse,
-{
-    let mut resp = response.to_json();
-    info!("> {}", resp);
-    resp.push('\n');
-    output.lock().write_all(resp.as_bytes())?;
+fn reply(
+    output: &mut crossbeam::channel::Sender<WispCommandResponse>,
+    response: WispCommandResponse,
+) -> Result<(), Box<dyn Error>> {
+    info!("> {:?}", response);
+    output.send(response)?;
     Ok(())
 }
