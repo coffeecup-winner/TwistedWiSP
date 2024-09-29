@@ -6,7 +6,7 @@ use crate::{
     ir::CallId,
     runner::{
         compiler::DataArrayHandle,
-        server::{DataIndex, WatchIndex, WatchedDataValues},
+        engine::{DataIndex, WatchIndex, WatchedDataValues},
     },
 };
 
