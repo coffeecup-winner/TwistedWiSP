@@ -13,13 +13,11 @@ use rand::Rng;
 
 use crate::{
     ir::{IRFunction, IRFunctionDataType, Instruction, Operand},
-    runner::{
-        compiler::data_layout::DataLayout,
-        context::{WispContext, WispExecutionContext},
-    },
+    runner::context::{WispContext, WispExecutionContext},
 };
 
 use super::{
+    data_layout::DataLayout,
     error::SignalProcessCreationError,
     function_context::FunctionContext,
     module_context::ModuleContext,

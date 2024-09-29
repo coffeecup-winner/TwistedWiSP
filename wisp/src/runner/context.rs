@@ -8,7 +8,7 @@ use inkwell::context::Context;
 use log::info;
 use string_error::into_err;
 
-use crate::{ir::IRFunction, runner::compiler::DataArrayHandle};
+use crate::{compiler::DataArrayHandle, ir::IRFunction};
 
 pub struct WispExecutionContext {
     context: Context,

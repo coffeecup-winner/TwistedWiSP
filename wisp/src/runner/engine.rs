@@ -1,16 +1,15 @@
 use std::collections::HashMap;
 
 use crate::{
+    audio::device::ConfiguredAudioDevice,
+    compiler::SignalProcessCreationError,
     ir::{CallId, IRFunction},
+    midi::WispMidiIn,
     runner::{
-        audio::device::ConfiguredAudioDevice,
         context::{WispContext, WispExecutionContext},
-        midi::WispMidiIn,
         runtime::WispRuntime,
     },
 };
-
-use super::compiler::SignalProcessCreationError;
 
 #[derive(Debug)]
 pub struct SystemInfo {
