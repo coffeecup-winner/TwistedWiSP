@@ -1380,6 +1380,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "twisted-wisp-gui"
+version = "0.1.0"
+
+[[package]]
 name = "twisted-wisp-gui-extension"
 version = "0.1.0"
 dependencies = [
