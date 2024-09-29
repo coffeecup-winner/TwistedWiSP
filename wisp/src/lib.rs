@@ -1,7 +1,7 @@
 mod audio;
 mod compiler;
 pub mod core;
-pub mod ir;
+mod ir;
 mod midi;
 mod runner;
 

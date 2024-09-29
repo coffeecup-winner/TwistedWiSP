@@ -22,9 +22,9 @@ use crate::{
     compiler::{
         DataArrayHandle, SignalProcessCreationError, SignalProcessor, SignalProcessorBuilder,
     },
-    ir::CallId,
     midi::WispMidiIn,
     runner::context::{WispContext, WispExecutionContext},
+    CallIndex,
 };
 
 use super::engine::{DataIndex, WatchIndex, WatchedDataValues};
@@ -36,9 +36,9 @@ struct MidiCC {
 }
 
 struct MidiState {
-    pub mappings: HashMap<MidiCC, (String, CallId, DataIndex)>,
+    pub mappings: HashMap<MidiCC, (String, CallIndex, DataIndex)>,
     pub runtime_tx: Sender<RuntimeStateMessage>,
-    pub learn: Option<(String, CallId, DataIndex)>,
+    pub learn: Option<(String, CallIndex, DataIndex)>,
 }
 
 impl MidiState {
@@ -52,16 +52,16 @@ impl MidiState {
 }
 
 enum MidiStateMessage {
-    LearnCC(String, CallId, DataIndex),
+    LearnCC(String, CallIndex, DataIndex),
 }
 
 enum RuntimeStateMessage {
     StartDsp,
     StopDsp,
     SetProcessor(SignalProcessor),
-    SetDataValue(String, CallId, DataIndex, f32),
-    SetDataArray(String, CallId, DataIndex, DataArrayHandle),
-    WatchDataValue(String, CallId, DataIndex, bool),
+    SetDataValue(String, CallIndex, DataIndex, f32),
+    SetDataArray(String, CallIndex, DataIndex, DataArrayHandle),
+    WatchDataValue(String, CallIndex, DataIndex, bool),
     UnwatchDataValue(WatchIndex),
     QueryWatchedDataValues,
 }
@@ -215,9 +215,9 @@ impl WispRuntime {
                             }
                             runtime_state.processor = Some(sp);
                         }
-                        RuntimeStateMessage::SetDataValue(name, id, idx, value) => {
+                        RuntimeStateMessage::SetDataValue(name, call_idx, data_idx, value) => {
                             if let Some(sp) = runtime_state.processor.as_mut() {
-                                sp.set_data_value(&name, id, idx, value);
+                                sp.set_data_value(&name, call_idx, data_idx, value);
                             }
                         }
                         RuntimeStateMessage::SetDataArray(name, id, idx, array) => {
@@ -308,7 +308,7 @@ impl WispRuntime {
         Ok(())
     }
 
-    pub fn set_data_value(&mut self, name: &str, id: CallId, idx: DataIndex, value: f32) {
+    pub fn set_data_value(&mut self, name: &str, id: CallIndex, idx: DataIndex, value: f32) {
         self.runtime_tx
             .send(RuntimeStateMessage::SetDataValue(
                 name.to_owned(),
@@ -322,38 +322,42 @@ impl WispRuntime {
     pub fn set_data_array(
         &mut self,
         name: &str,
-        id: CallId,
-        idx: DataIndex,
+        call_idx: CallIndex,
+        data_idx: DataIndex,
         array: DataArrayHandle,
     ) {
         self.runtime_tx
             .send(RuntimeStateMessage::SetDataArray(
                 name.to_owned(),
-                id,
-                idx,
+                call_idx,
+                data_idx,
                 array,
             ))
             .expect("The processor channel is disconnected");
     }
 
-    pub fn learn_midi_cc(&mut self, name: &str, id: CallId, idx: DataIndex) {
+    pub fn learn_midi_cc(&mut self, name: &str, call_idx: CallIndex, data_idx: DataIndex) {
         self.midi_state_tx
-            .send(MidiStateMessage::LearnCC(name.to_owned(), id, idx))
+            .send(MidiStateMessage::LearnCC(
+                name.to_owned(),
+                call_idx,
+                data_idx,
+            ))
             .expect("The MIDI channel is disconnected");
     }
 
     pub fn watch_data_value(
         &mut self,
         name: &str,
-        id: CallId,
-        idx: DataIndex,
+        call_idx: CallIndex,
+        data_idx: DataIndex,
         only_last_value: bool,
     ) -> Option<WatchIndex> {
         self.runtime_tx
             .send(RuntimeStateMessage::WatchDataValue(
                 name.to_owned(),
-                id,
-                idx,
+                call_idx,
+                data_idx,
                 only_last_value,
             ))
             .expect("The processor channel is disconnected");

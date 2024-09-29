@@ -4,8 +4,7 @@ use godot::prelude::*;
 
 use twisted_wisp::{
     core::{FlowNodeExtraData, FlowNodeIndex, WispFunction},
-    ir::CallId,
-    DataIndex, WatchIndex,
+    CallIndex, DataIndex, WatchIndex,
 };
 
 use crate::{TwistedWisp, TwistedWispFlow};
@@ -200,7 +199,7 @@ impl TwistedWispFlowNode {
             .runner_mut()
             .context_learn_midi_cc(
                 self.flow.bind().name().to_owned(),
-                CallId(self.idx.index() as u32),
+                CallIndex(self.idx.index() as u32),
                 DataIndex(0),
             )
             .expect("Failed to learn a MIDI CC");
@@ -225,7 +224,7 @@ impl TwistedWispFlowNode {
         let watch_idx = runner
             .context_watch_data_value(
                 self.flow.bind().name().to_owned(),
-                CallId(self.idx.index() as u32),
+                CallIndex(self.idx.index() as u32),
                 DataIndex(0),
             )
             .expect("Failed to watch a data value");
@@ -346,14 +345,14 @@ impl TwistedWispFlowNode {
         match prop {
             TwistedWispFlowNodeProperty::Value => wisp.runner_mut().context_set_data_value(
                 self.flow.bind().name().to_owned(),
-                CallId(self.idx.index() as u32),
+                CallIndex(self.idx.index() as u32),
                 DataIndex(0),
                 value.to::<f32>(),
             ),
             TwistedWispFlowNodeProperty::Buffer => {
                 wisp.runner_mut().context_set_data_array(
                     self.flow.bind().name().to_owned(),
-                    CallId(self.idx.index() as u32),
+                    CallIndex(self.idx.index() as u32),
                     DataIndex(0),
                     value.to::<String>(),
                 );

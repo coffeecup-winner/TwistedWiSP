@@ -1,8 +1,10 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use crate::ir::{CallId, DataRef, IRFunction, IRFunctionDataType, Instruction, SourceLocation};
-
-use crate::runner::context::WispContext;
+use crate::{
+    ir::{DataRef, IRFunction, IRFunctionDataType, Instruction, SourceLocation},
+    runner::context::WispContext,
+    CallIndex,
+};
 
 #[derive(Debug, Clone, Copy)]
 #[allow(dead_code)] // Only used by the JIT-compiled code
@@ -54,7 +56,7 @@ pub struct DataItem {
 #[derive(Debug, Default)]
 pub struct FunctionDataLayout {
     pub own_data_items: BTreeMap<DataRef, DataItem>,
-    pub children_data_items: BTreeMap<CallId, (String, u32)>,
+    pub children_data_items: BTreeMap<CallIndex, (String, u32)>,
     pub total_size: u32,
 }
 
@@ -137,7 +139,7 @@ impl DataLayout {
         wctx: &WispContext,
         data_layout: &mut HashMap<String, FunctionDataLayout>,
         called_functions: &mut HashSet<String>,
-        sizes: &mut BTreeMap<CallId, (String, u32)>,
+        sizes: &mut BTreeMap<CallIndex, (String, u32)>,
     ) {
         for insn in insns {
             match insn {
@@ -145,14 +147,14 @@ impl DataLayout {
                 | Instruction::Load(_, SourceLocation::LastValue(id, name, _)) => {
                     called_functions.insert(name.into());
                     if let Some(child_data_layout) = data_layout.get(name) {
-                        sizes.insert(*id, (name.into(), child_data_layout.total_size));
+                        sizes.insert(CallIndex(id.0), (name.into(), child_data_layout.total_size));
                     } else if let Some(child_data_layout) = Self::calculate_function_data_layout(
                         wctx.get_function(name).unwrap(),
                         wctx,
                         data_layout,
                         called_functions,
                     ) {
-                        sizes.insert(*id, (name.into(), child_data_layout.total_size));
+                        sizes.insert(CallIndex(id.0), (name.into(), child_data_layout.total_size));
                         data_layout.insert(name.into(), child_data_layout);
                     }
                 }

@@ -14,6 +14,7 @@ use rand::Rng;
 use crate::{
     ir::{IRFunction, IRFunctionDataType, Instruction, Operand},
     runner::context::{WispContext, WispExecutionContext},
+    CallIndex,
 };
 
 use super::{
@@ -293,7 +294,7 @@ impl SignalProcessorBuilder {
                             let (_, child_offset) = *mctx
                                 .data_layout
                                 .get(fctx.func.name())
-                                .and_then(|l| l.children_data_items.get(id))
+                                .and_then(|l| l.children_data_items.get(&CallIndex(id.0)))
                                 .ok_or_else(|| {
                                     SignalProcessCreationError::InvalidDataLayout(
                                         fctx.func.name().into(),
@@ -551,7 +552,7 @@ impl SignalProcessorBuilder {
                     if let Some((_, offset)) = mctx
                         .data_layout
                         .get(fctx.func.name())
-                        .and_then(|l| l.children_data_items.get(id))
+                        .and_then(|l| l.children_data_items.get(&CallIndex(id.0)))
                     {
                         let p_func_data = fctx.get_data_argument()?;
                         let p_callee_data = unsafe {
