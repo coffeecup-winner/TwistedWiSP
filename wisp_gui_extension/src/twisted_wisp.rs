@@ -6,7 +6,7 @@ use log::info;
 use serde::{Deserialize, Serialize};
 
 use twisted_wisp::{
-    core::{FlowFunction, WispContext, WispFunction},
+    core::{FlowFunction, Function, WispContext, WispFunction},
     CallIndex, DataIndex, TwistedWispEngine, TwistedWispEngineConfig,
 };
 
@@ -133,7 +133,7 @@ impl TwistedWisp {
             }
             idx += 1;
         }
-        let func = Box::new(FlowFunction::new(name.clone()));
+        let func = Function::Flow(FlowFunction::new(name.clone()));
         ctx.add_function(func);
         let runner = self.runner_mut();
         runner.context_set_main_function(name.clone());

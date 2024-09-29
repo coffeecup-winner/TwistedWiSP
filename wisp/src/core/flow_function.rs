@@ -20,6 +20,8 @@ use crate::{
     },
 };
 
+use super::Function;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum FlowNodeExtraData {
@@ -68,7 +70,7 @@ pub type FlowNodeIndex = NodeIndex;
 pub type FlowConnectionIndex = EdgeIndex;
 type FlowGraph = StableGraph<FlowNode, FlowConnection, Directed>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FlowFunction {
     name: String,
     inputs: Vec<FunctionInput>,
@@ -76,7 +78,7 @@ pub struct FlowFunction {
     graph: FlowGraph,
     ir_function: RefCell<Option<IRFunction>>,
     math_function_id_gen: u32,
-    math_functions: HashMap<String, Box<dyn WispFunction>>,
+    math_functions: HashMap<String, Function>,
     buffers: HashMap<String, Option<PathBuf>>,
 }
 
@@ -149,35 +151,6 @@ impl WispFunction for FlowFunction {
         Some(self)
     }
 
-    fn load(s: &str, _ctx: &WispContext) -> Option<Box<dyn WispFunction>>
-    where
-        Self: Sized,
-    {
-        let format = toml::from_str::<FileFormat>(s).ok()?;
-        let mut flow = FlowFunction::new(format.flow.name);
-        for n in format.flow.nodes {
-            let node_idx = flow.add_node(&n.text);
-            let node = flow.get_node_mut(node_idx).unwrap();
-            node.extra_data = n.extra_data;
-        }
-        for e in format.flow.edges {
-            flow.graph.add_edge(
-                e.from.into(),
-                e.to.into(),
-                FlowConnection {
-                    output_index: e.output_index,
-                    input_index: e.input_index,
-                },
-            );
-        }
-        if let Some(buffers) = format.buffers {
-            for b in buffers {
-                flow.buffers.insert(b.name, b.path);
-            }
-        }
-        Some(Box::new(flow))
-    }
-
     fn save(&self) -> String {
         let mut nodes = vec![];
         let mut node_idx_map = HashMap::new();
@@ -223,25 +196,6 @@ impl WispFunction for FlowFunction {
         })
         .expect("Failed to serialize the flow function")
     }
-
-    fn clone(&self) -> Box<dyn WispFunction> {
-        // Manually clone the math functions since WispFunction doesn't inherit Clone
-        let math_functions = self
-            .math_functions
-            .iter()
-            .map(|(k, v)| (k.clone(), (*v).clone()))
-            .collect::<HashMap<_, _>>();
-        Box::new(FlowFunction {
-            name: self.name.clone(),
-            inputs: self.inputs.clone(),
-            outputs: self.outputs.clone(),
-            graph: self.graph.clone(),
-            ir_function: RefCell::new(None),
-            math_function_id_gen: self.math_function_id_gen,
-            math_functions,
-            buffers: self.buffers.clone(),
-        })
-    }
 }
 
 impl FlowFunction {
@@ -256,6 +210,35 @@ impl FlowFunction {
             math_functions: Default::default(),
             buffers: Default::default(),
         }
+    }
+
+    pub fn load(s: &str, _ctx: &WispContext) -> Option<Function>
+    where
+        Self: Sized,
+    {
+        let format = toml::from_str::<FileFormat>(s).ok()?;
+        let mut flow = FlowFunction::new(format.flow.name);
+        for n in format.flow.nodes {
+            let node_idx = flow.add_node(&n.text);
+            let node = flow.get_node_mut(node_idx).unwrap();
+            node.extra_data = n.extra_data;
+        }
+        for e in format.flow.edges {
+            flow.graph.add_edge(
+                e.from.into(),
+                e.to.into(),
+                FlowConnection {
+                    output_index: e.output_index,
+                    input_index: e.input_index,
+                },
+            );
+        }
+        if let Some(buffers) = format.buffers {
+            for b in buffers {
+                flow.buffers.insert(b.name, b.path);
+            }
+        }
+        Some(Function::Flow(flow))
     }
 
     pub fn add_buffer(&mut self, name: &str, path: PathBuf) {
@@ -282,9 +265,9 @@ impl FlowFunction {
             let math_function =
                 if let Some(mut func) = MathFunctionParser::parse_function(display_text) {
                     *func.name_mut() = format!("{}:math${}", self.name, self.math_function_id_gen);
-                    Box::new(func) as Box<dyn WispFunction>
+                    Function::Math(func)
                 } else {
-                    Box::new(CodeFunction::new(
+                    Function::Code(CodeFunction::new(
                         format!("{}:stub${}", self.name(), self.math_function_id_gen),
                         vec![],
                         vec![],
@@ -329,11 +312,11 @@ impl FlowFunction {
         self.graph.edge_indices()
     }
 
-    pub fn get_function(&self, name: &str) -> Option<&dyn WispFunction> {
-        self.math_functions.get(name).map(|f| &**f)
+    pub fn get_function(&self, name: &str) -> Option<&Function> {
+        self.math_functions.get(name)
     }
 
-    pub fn get_function_mut(&mut self, name: &str) -> Option<&mut Box<dyn WispFunction>> {
+    pub fn get_function_mut(&mut self, name: &str) -> Option<&mut Function> {
         self.math_functions.get_mut(name)
     }
 
@@ -571,8 +554,8 @@ mod tests {
         ctx
     }
 
-    fn lag_function() -> Box<CodeFunction> {
-        Box::new(CodeFunction::new(
+    fn lag_function() -> Function {
+        Function::Code(CodeFunction::new(
             "lag".into(),
             vec![FunctionInput::new(
                 "in".into(),
@@ -586,8 +569,8 @@ mod tests {
         ))
     }
 
-    fn create_function(name: &str, num_inputs: u32, num_outputs: u32) -> Box<CodeFunction> {
-        Box::new(CodeFunction::new(
+    fn create_function(name: &str, num_inputs: u32, num_outputs: u32) -> Function {
+        Function::Code(CodeFunction::new(
             name.into(),
             (0..num_inputs)
                 .map(|i| {

@@ -77,22 +77,6 @@ impl WispFunction for CodeFunction {
         self.lag_value
     }
 
-    fn load(s: &str, ctx: &WispContext) -> Option<Box<dyn WispFunction>>
-    where
-        Self: Sized,
-    {
-        CodeFunctionParser::new(s)
-            .parse_function()
-            .and_then(|r| match r {
-                CodeFunctionParseResult::Function(f) => Some(Box::new(f) as Box<dyn WispFunction>),
-                CodeFunctionParseResult::Alias(alias, name) => {
-                    let mut func = ctx.get_function(&name)?.clone();
-                    *func.name_mut() = alias;
-                    Some(func)
-                }
-            })
-    }
-
     fn save(&self) -> String {
         let mut s = String::new();
         if let Some(lag) = self.lag_value {
@@ -279,10 +263,6 @@ impl WispFunction for CodeFunction {
         }
         s.push_str("end\n");
         s
-    }
-
-    fn clone(&self) -> Box<dyn WispFunction> {
-        Box::new(std::clone::Clone::clone(self))
     }
 }
 

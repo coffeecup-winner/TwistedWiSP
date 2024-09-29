@@ -15,10 +15,12 @@ use crate::{
 
 use log::info;
 
+use super::Function;
+
 #[derive(Debug)]
 pub struct WispContext {
     num_outputs: u32,
-    functions: HashMap<String, Box<dyn WispFunction>>,
+    functions: HashMap<String, Function>,
 }
 
 impl WispContext {
@@ -35,7 +37,7 @@ impl WispContext {
     }
 
     // TODO: Make a BuiltinFunction instead?
-    fn build_function_out(ctx: &WispContext) -> Box<dyn WispFunction> {
+    fn build_function_out(ctx: &WispContext) -> Function {
         assert!(ctx.num_outputs > 0, "Invalid number of output channels");
         let mut out_inputs = vec![FunctionInput::new(
             "ch".into(),
@@ -60,7 +62,7 @@ impl WispContext {
                 Operand::Arg(i),
             ));
         }
-        Box::new(CodeFunction::new(
+        Function::Code(CodeFunction::new(
             "out".into(),
             out_inputs,
             vec![],
@@ -70,8 +72,8 @@ impl WispContext {
         ))
     }
 
-    fn build_function_noise() -> Box<dyn WispFunction> {
-        Box::new(BuiltinFunction::new(
+    fn build_function_noise() -> Function {
+        Function::Builtin(BuiltinFunction::new(
             "noise".into(),
             vec![],
             vec![FunctionOutput::new("out".into(), DataType::Float)],
@@ -95,7 +97,7 @@ impl WispContext {
                 match result {
                     CodeFunctionParseResult::Function(func) => {
                         info!("  - {}", func.name());
-                        self.add_function(Box::new(func));
+                        self.add_function(Function::Code(func));
                     }
                     CodeFunctionParseResult::Alias(alias, target) => {
                         let mut func = self
@@ -126,29 +128,29 @@ impl WispContext {
         self.num_outputs
     }
 
-    pub fn add_function(&mut self, func: Box<dyn WispFunction>) -> Option<Box<dyn WispFunction>> {
+    pub fn add_function(&mut self, func: Function) -> Option<Function> {
         self.functions.insert(func.name().into(), func)
     }
 
-    pub fn remove_function(&mut self, name: &str) -> Option<Box<dyn WispFunction>> {
+    pub fn remove_function(&mut self, name: &str) -> Option<Function> {
         self.functions.remove(name)
     }
 
-    pub fn functions_iter(&self) -> hash_map::Values<'_, String, Box<dyn WispFunction>> {
+    pub fn functions_iter(&self) -> hash_map::Values<'_, String, Function> {
         self.functions.values()
     }
 
-    pub fn get_function(&self, name: &str) -> Option<&dyn WispFunction> {
+    pub fn get_function(&self, name: &str) -> Option<&Function> {
         if let Some((flow_name, _)) = name.split_once(':') {
             self.get_function(flow_name)
                 .and_then(|f| f.as_flow())
                 .and_then(|f| f.get_function(name))
         } else {
-            self.functions.get(name).map(|f| &**f)
+            self.functions.get(name)
         }
     }
 
-    pub fn get_function_mut(&mut self, name: &str) -> Option<&mut Box<dyn WispFunction>> {
+    pub fn get_function_mut(&mut self, name: &str) -> Option<&mut Function> {
         if let Some((flow_name, _)) = name.split_once(':') {
             self.get_function_mut(flow_name)
                 .and_then(|f| f.as_flow_mut())
