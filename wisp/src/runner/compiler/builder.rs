@@ -11,7 +11,7 @@ use inkwell::{
 use log::debug;
 use rand::Rng;
 
-use crate::{
+use crate::runner::{
     compiler::data_layout::DataLayout,
     context::{WispContext, WispExecutionContext},
 };

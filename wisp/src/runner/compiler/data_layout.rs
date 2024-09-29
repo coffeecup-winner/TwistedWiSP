@@ -4,7 +4,7 @@ use twisted_wisp_ir::{
     CallId, DataRef, IRFunction, IRFunctionDataType, Instruction, SourceLocation,
 };
 
-use crate::context::WispContext;
+use crate::runner::context::WispContext;
 
 #[derive(Debug, Clone, Copy)]
 #[allow(dead_code)] // Only used by the JIT-compiled code

@@ -3,7 +3,7 @@ use std::{error::Error, io::Write};
 use log::info;
 use twisted_wisp_protocol::{self, CommandResponse, SystemInfo, WispCommand, WispCommandResponse};
 
-use crate::{
+use crate::runner::{
     audio::device::ConfiguredAudioDevice,
     context::{WispContext, WispExecutionContext},
     midi::WispMidiIn,

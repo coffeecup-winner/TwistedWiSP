@@ -4,7 +4,7 @@ use ringbuffer::{AllocRingBuffer, RingBuffer};
 use twisted_wisp_ir::CallId;
 use twisted_wisp_protocol::{DataIndex, WatchIndex, WatchedDataValues};
 
-use crate::compiler::DataArrayHandle;
+use crate::runner::compiler::DataArrayHandle;
 
 use super::data_layout::{DataLayout, DataValue};
 
