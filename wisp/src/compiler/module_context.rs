@@ -6,7 +6,7 @@ use inkwell::{
     AddressSpace,
 };
 
-use crate::{ir::IRFunction, runner::context::WispContext};
+use crate::{ir::IRFunction, runner::context::WispEngineContext};
 
 use super::{data_layout::DataLayout, error::SignalProcessCreationError};
 
@@ -34,7 +34,7 @@ impl<'ectx> ModuleTypes<'ectx> {
 
 #[derive(Debug)]
 pub(super) struct ModuleContext<'ectx, 'temp> {
-    pub wctx: &'temp WispContext,
+    pub wctx: &'temp WispEngineContext,
     pub types: ModuleTypes<'ectx>,
     pub module: &'temp Module<'ectx>,
     pub builder: Builder<'ectx>,
@@ -44,7 +44,7 @@ pub(super) struct ModuleContext<'ectx, 'temp> {
 impl<'ectx, 'temp> ModuleContext<'ectx, 'temp> {
     pub fn new(
         context: &'ectx Context,
-        wctx: &'temp WispContext,
+        wctx: &'temp WispEngineContext,
         module: &'temp Module<'ectx>,
         data_layout: &'temp DataLayout,
     ) -> Self {

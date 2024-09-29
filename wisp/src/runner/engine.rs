@@ -6,7 +6,7 @@ use crate::{
     ir::IRFunction,
     midi::WispMidiIn,
     runner::{
-        context::{WispContext, WispExecutionContext},
+        context::{WispEngineContext, WispExecutionContext},
         runtime::WispRuntime,
     },
 };
@@ -40,7 +40,7 @@ pub struct TwistedWispEngineConfig<'a> {
 }
 
 pub struct TwistedWispEngine {
-    wisp: WispContext,
+    wisp: WispEngineContext,
     execution_context: WispExecutionContext,
     runtime: WispRuntime,
 }
@@ -55,7 +55,7 @@ impl TwistedWispEngine {
             config.audio_sample_rate,
         )?;
         let midi_in = WispMidiIn::open(config.midi_in_port)?;
-        let wisp = WispContext::new(device.num_output_channels(), device.sample_rate());
+        let wisp = WispEngineContext::new(device.num_output_channels(), device.sample_rate());
 
         let execution_context = WispExecutionContext::init();
         let runtime = WispRuntime::init(device, midi_in);

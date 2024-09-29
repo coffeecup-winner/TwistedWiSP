@@ -13,7 +13,7 @@ use rand::Rng;
 
 use crate::{
     ir::{IRFunction, IRFunctionDataType, Instruction, Operand},
-    runner::context::{WispContext, WispExecutionContext},
+    runner::context::{WispEngineContext, WispExecutionContext},
     CallIndex,
 };
 
@@ -37,7 +37,7 @@ impl SignalProcessorBuilder {
     pub fn create_signal_processor<'ectx>(
         &mut self,
         ectx: &'ectx WispExecutionContext,
-        wctx: &WispContext,
+        wctx: &WispEngineContext,
         top_level: &str,
     ) -> Result<(SignalProcessor, ExecutionEngine<'ectx>), SignalProcessCreationError> {
         self.id_gen += 1;

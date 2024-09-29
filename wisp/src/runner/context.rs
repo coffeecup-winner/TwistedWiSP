@@ -34,7 +34,7 @@ struct WispDataArray {
 }
 
 #[derive(Debug, Default)]
-pub struct WispContext {
+pub struct WispEngineContext {
     num_outputs: u32,
     sample_rate: u32,
     functions: HashMap<String, IRFunction>,
@@ -42,9 +42,9 @@ pub struct WispContext {
     data_arrays: HashMap<String, HashMap<String, WispDataArray>>,
 }
 
-impl WispContext {
+impl WispEngineContext {
     pub fn new(num_outputs: u32, sample_rate: u32) -> Self {
-        WispContext {
+        WispEngineContext {
             num_outputs,
             sample_rate,
             ..Default::default()
