@@ -1,25 +1,24 @@
 use std::collections::HashMap;
 
 use crate::ir::{CallId, IRFunction};
-use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct SystemInfo {
     pub num_channels: u32,
 }
 
-#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct DataIndex(pub u32);
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct WatchIndex(pub u32);
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default)]
 pub struct WatchedDataValues {
     pub values: HashMap<WatchIndex, Vec<f32>>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub enum WispCommand {
     // System commands
     GetSystemInfo, // -> SystemInfo
@@ -43,14 +42,14 @@ pub enum WispCommand {
     ContextUpdate,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub enum WispCommandResponse {
     Ok(CommandResponse),
     NonFatalFailure,
     FatalFailure,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub enum CommandResponse {
     Ack,
     SystemInfo(SystemInfo),
