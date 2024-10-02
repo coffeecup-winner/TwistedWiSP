@@ -12,6 +12,7 @@ use log::debug;
 use rand::Rng;
 
 use crate::{
+    core::WispContext,
     ir::{IRFunction, IRFunctionDataType, Instruction, Operand},
     runner::context::{WispEngineContext, WispExecutionContext},
     CallIndex,
@@ -36,6 +37,7 @@ impl SignalProcessorBuilder {
 
     pub fn create_signal_processor<'ectx>(
         &mut self,
+        ctx: &WispContext,
         ectx: &'ectx WispExecutionContext,
         wctx: &WispEngineContext,
         top_level: &str,
@@ -48,7 +50,7 @@ impl SignalProcessorBuilder {
             .map_err(|_| SignalProcessCreationError::InitEE)?;
 
         let data_layout = DataLayout::calculate(wctx.get_function(top_level).unwrap(), wctx);
-        let mut mctx = ModuleContext::new(ectx.llvm(), wctx, &module, &data_layout);
+        let mut mctx = ModuleContext::new(ectx.llvm(), ctx, wctx, &module, &data_layout);
 
         let g_output = module.add_global(mctx.types.pf32, None, "wisp_global_output");
         let g_empty_array = module.add_global(mctx.types.pf32, None, "wisp_global_empty_array");
@@ -180,7 +182,7 @@ impl SignalProcessorBuilder {
                 top_level,
                 unsafe { function.into_raw() },
                 data_layout,
-                wctx.num_outputs(),
+                ctx.num_outputs(),
             ),
             execution_engine,
         ))
@@ -634,7 +636,7 @@ impl SignalProcessorBuilder {
                     SampleRate => mctx
                         .types
                         .f32
-                        .const_float(mctx.wctx.sample_rate() as f64)
+                        .const_float(mctx.ctx.sample_rate() as f64)
                         .as_basic_value_enum(),
                     EmptyArray => mctx
                         .module

@@ -44,7 +44,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let mut wisp = TwistedWispEngine::create(config)?;
 
-    let mut ctx = twisted_wisp::core::WispContext::new(wisp.get_system_info().num_channels);
+    let mut ctx = twisted_wisp::core::WispContext::new(wisp.get_system_info().num_channels, wisp.get_system_info().sample_rate);
 
     ctx.add_builtin_functions();
     ctx.load_core_functions(args.core_lib_path.as_ref().unwrap())

@@ -549,7 +549,7 @@ mod tests {
     use super::*;
 
     fn test_ctx() -> WispContext {
-        let mut ctx = WispContext::new(2);
+        let mut ctx = WispContext::new(2, 44100);
         ctx.add_builtin_functions();
         ctx
     }

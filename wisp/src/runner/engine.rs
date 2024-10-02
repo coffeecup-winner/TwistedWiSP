@@ -67,17 +67,17 @@ impl TwistedWispEngine {
             config.audio_buffer_size,
             config.audio_sample_rate,
         )?;
-        let midi_in = WispMidiIn::open(config.midi_in_port)?;
-        let mut wisp = WispEngineContext::new(device.num_output_channels(), device.sample_rate());
+        let mut ctx = WispContext::new(device.num_output_channels(), device.sample_rate());
+        let mut wisp = WispEngineContext::new();
 
-        let execution_context = WispExecutionContext::init();
-        let runtime = WispRuntime::init(device, midi_in);
-
-        let mut ctx = WispContext::new(wisp.num_outputs());
         ctx.add_builtin_functions();
         if let Some(core_path) = config.core_path {
             ctx.load_core_functions(core_path)?;
         }
+
+        let midi_in = WispMidiIn::open(config.midi_in_port)?;
+        let execution_context = WispExecutionContext::init();
+        let runtime = WispRuntime::init(device, midi_in);
 
         for f in ctx.functions_iter() {
             for func in f.get_ir_functions(&ctx) {
@@ -95,7 +95,7 @@ impl TwistedWispEngine {
 
     pub fn get_system_info(&mut self) -> SystemInfo {
         SystemInfo {
-            num_channels: self.wisp.num_outputs(),
+            num_channels: self.ctx.num_outputs(),
         }
     }
 
@@ -250,6 +250,7 @@ impl TwistedWispEngine {
 
     pub fn context_update(&mut self) -> Result<(), SignalProcessCreationError> {
         self.runtime.switch_to_signal_processor(
+            &self.ctx,
             &self.execution_context,
             &self.wisp,
             self.wisp.main_function(),

@@ -22,6 +22,7 @@ use crate::{
     compiler::{
         DataArrayHandle, SignalProcessCreationError, SignalProcessor, SignalProcessorBuilder,
     },
+    core::WispContext,
     midi::WispMidiIn,
     runner::context::{WispEngineContext, WispExecutionContext},
     CallIndex,
@@ -296,11 +297,14 @@ impl WispRuntime {
 
     pub fn switch_to_signal_processor(
         &mut self,
+        ctx: &WispContext,
         ectx: &WispExecutionContext,
-        ctx: &WispEngineContext,
+        wctx: &WispEngineContext,
         top_level: &str,
     ) -> Result<(), SignalProcessCreationError> {
-        let (sp, ee) = self.builder.create_signal_processor(ectx, ctx, top_level)?;
+        let (sp, ee) = self
+            .builder
+            .create_signal_processor(ctx, ectx, wctx, top_level)?;
         self.runtime_tx
             .send(RuntimeStateMessage::SetProcessor(sp))
             .expect("The processor channel is disconnected");
