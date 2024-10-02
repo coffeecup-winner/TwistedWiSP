@@ -15,11 +15,6 @@ use crate::{
     },
 };
 
-#[derive(Debug)]
-pub struct SystemInfo {
-    pub num_channels: u32,
-}
-
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct CallIndex(pub u32);
 
@@ -91,12 +86,6 @@ impl TwistedWispEngine {
             execution_context,
             runtime,
         })
-    }
-
-    pub fn get_system_info(&mut self) -> SystemInfo {
-        SystemInfo {
-            num_channels: self.ctx.num_outputs(),
-        }
     }
 
     pub fn dsp_start(&mut self) {
