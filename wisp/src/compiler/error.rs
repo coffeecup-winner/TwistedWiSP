@@ -34,4 +34,7 @@ pub enum SignalProcessCreationError {
 
     #[error("Logical error: {0}")]
     CustomLogicalError(String),
+
+    #[error("Main function not set")]
+    NoMainFunction,
 }

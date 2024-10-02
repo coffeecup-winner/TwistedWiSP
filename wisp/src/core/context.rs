@@ -22,6 +22,7 @@ pub struct WispContext {
     num_outputs: u32,
     sample_rate: u32,
     functions: HashMap<String, Function>,
+    main_function: Option<String>,
 }
 
 impl WispContext {
@@ -30,6 +31,7 @@ impl WispContext {
             num_outputs,
             sample_rate,
             functions: HashMap::new(),
+            main_function: None,
         }
     }
 
@@ -164,6 +166,14 @@ impl WispContext {
         } else {
             self.functions.get_mut(name)
         }
+    }
+
+    pub fn set_main_function(&mut self, name: &str) {
+        self.main_function = Some(name.into());
+    }
+
+    pub fn main_function(&self) -> Option<&str> {
+        self.main_function.as_deref()
     }
 
     pub fn flow_add_node(&mut self, flow_name: &str, node_text: &str) -> (FlowNodeIndex, String) {

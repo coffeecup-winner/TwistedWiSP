@@ -165,7 +165,7 @@ impl TwistedWispEngine {
     }
 
     pub fn context_set_main_function(&mut self, name: String) {
-        self.wisp.set_main_function(&name);
+        self.ctx.set_main_function(&name);
     }
 
     pub fn context_set_data_value(
@@ -238,11 +238,15 @@ impl TwistedWispEngine {
     }
 
     pub fn context_update(&mut self) -> Result<(), SignalProcessCreationError> {
-        self.runtime.switch_to_signal_processor(
-            &self.ctx,
-            &self.execution_context,
-            &self.wisp,
-            self.wisp.main_function(),
-        )
+        if let Some(main_function) = self.ctx.main_function() {
+            self.runtime.switch_to_signal_processor(
+                &self.ctx,
+                &self.execution_context,
+                &self.wisp,
+                main_function,
+            )
+        } else {
+            Err(SignalProcessCreationError::NoMainFunction)
+        }
     }
 }
