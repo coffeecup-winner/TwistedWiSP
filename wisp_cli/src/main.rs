@@ -34,13 +34,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
     let config = TwistedWispEngineConfig {
-        audio_host: args.audio_host.as_ref().map(|x| x.as_str()),
-        audio_device: args.audio_device.as_ref().map(|s| s.as_str()),
+        audio_host: args.audio_host.as_deref(),
+        audio_device: args.audio_device.as_deref(),
         audio_output_channels: args.audio_output_channels,
         audio_buffer_size: args.audio_buffer_size,
         audio_sample_rate: args.audio_sample_rate,
-        midi_in_port: args.midi_in_port.as_ref().map(|s| s.as_str()),
-        core_path: args.core_lib_path.as_ref().map(|p| p.as_path()),
+        midi_in_port: args.midi_in_port.as_deref(),
+        core_path: args.core_lib_path.as_deref(),
     };
     let mut wisp = TwistedWispEngine::create(config)?;
 
