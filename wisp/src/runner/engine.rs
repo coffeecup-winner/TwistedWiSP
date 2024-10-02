@@ -1,8 +1,12 @@
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use crate::{
     audio::device::ConfiguredAudioDevice,
     compiler::SignalProcessCreationError,
+    core::{FlowFunction, WispContext, WispFunction},
     ir::IRFunction,
     midi::WispMidiIn,
     runner::{
@@ -30,7 +34,13 @@ pub struct WatchedDataValues {
     pub values: HashMap<WatchIndex, Vec<f32>>,
 }
 
-#[derive(Default)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct FunctionRef(*const dyn WispFunction);
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct FlowFunctionRef(*const FlowFunction);
+
+#[derive(Debug, Default)]
 pub struct TwistedWispEngineConfig<'a> {
     pub audio_host: Option<&'a str>,
     pub audio_device: Option<&'a str>,
@@ -38,9 +48,11 @@ pub struct TwistedWispEngineConfig<'a> {
     pub audio_buffer_size: Option<u32>,
     pub audio_sample_rate: Option<u32>,
     pub midi_in_port: Option<&'a str>,
+    pub core_path: Option<&'a Path>,
 }
 
 pub struct TwistedWispEngine {
+    ctx: WispContext,
     wisp: WispEngineContext,
     execution_context: WispExecutionContext,
     runtime: WispRuntime,
@@ -56,12 +68,25 @@ impl TwistedWispEngine {
             config.audio_sample_rate,
         )?;
         let midi_in = WispMidiIn::open(config.midi_in_port)?;
-        let wisp = WispEngineContext::new(device.num_output_channels(), device.sample_rate());
+        let mut wisp = WispEngineContext::new(device.num_output_channels(), device.sample_rate());
 
         let execution_context = WispExecutionContext::init();
         let runtime = WispRuntime::init(device, midi_in);
 
+        let mut ctx = WispContext::new(wisp.num_outputs());
+        ctx.add_builtin_functions();
+        if let Some(core_path) = config.core_path {
+            ctx.load_core_functions(core_path)?;
+        }
+
+        for f in ctx.functions_iter() {
+            for func in f.get_ir_functions(&ctx) {
+                wisp.add_function(func);
+            }
+        }
+
         Ok(TwistedWispEngine {
+            ctx,
             wisp,
             execution_context,
             runtime,
@@ -84,6 +109,60 @@ impl TwistedWispEngine {
 
     pub fn context_reset(&mut self) {
         self.wisp.reset();
+    }
+
+    pub fn ctx_list_functions(&self) -> Vec<String> {
+        self.ctx
+            .functions_iter()
+            .map(|f| f.name().to_owned())
+            .collect()
+    }
+
+    pub fn ctx_load_flow_from_file(
+        &mut self,
+        path: &str,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        self.ctx.load_function(&PathBuf::from(path))
+    }
+
+    pub fn ctx_get_flow(&self, name: &str) -> Option<FlowFunctionRef> {
+        self.ctx
+            .get_function(name)?
+            .as_flow()
+            .map(|f| FlowFunctionRef(f))
+    }
+
+    pub fn ctx_remove_function(&mut self, name: &str) {
+        self.ctx.remove_function(name);
+    }
+
+    pub fn ctx_get_function_metadata(&self, _name: &str) -> Option<FunctionRef> {
+        // let f = self.ctx.get_function(name)?;
+        // Some(FunctionRef(&*f as *const _))
+        todo!()
+    }
+
+    pub fn flow_get_ir_functions(&self, flow: FlowFunctionRef) -> Vec<IRFunction> {
+        unsafe { (*flow.0).get_ir_functions(&self.ctx) }
+    }
+
+    pub fn flow_get_buffers(&self, flow: FlowFunctionRef) -> &HashMap<String, Option<PathBuf>> {
+        unsafe { (*flow.0).buffers() }
+    }
+
+    pub fn flow_get_node_indices(
+        &self,
+        flow: FlowFunctionRef,
+    ) -> petgraph::stable_graph::NodeIndices<'_, crate::core::FlowNode> {
+        unsafe { (*flow.0).node_indices() }
+    }
+
+    pub fn flow_get_node(
+        &self,
+        flow: FlowFunctionRef,
+        idx: petgraph::graph::NodeIndex,
+    ) -> Option<&crate::core::FlowNode> {
+        unsafe { (*flow.0).get_node(idx) }
     }
 
     pub fn context_add_or_update_functions(&mut self, functions: Vec<IRFunction>) {

@@ -6,8 +6,7 @@ use log::info;
 use serde::{Deserialize, Serialize};
 
 use twisted_wisp::{
-    core::{FlowFunction, Function, WispContext, WispFunction},
-    CallIndex, DataIndex, TwistedWispEngine, TwistedWispEngineConfig,
+    core::FlowFunction, CallIndex, DataIndex, TwistedWispEngine, TwistedWispEngineConfig,
 };
 
 use crate::{logger::GodotLogger, TwistedWispFlow};
@@ -17,8 +16,7 @@ use crate::{logger::GodotLogger, TwistedWispFlow};
 pub struct TwistedWisp {
     base: Base<RefCounted>,
     config: TwistedWispConfig,
-    runner: Option<TwistedWispEngine>,
-    ctx: Option<WispContext>,
+    engine: Option<TwistedWispEngine>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -71,27 +69,17 @@ impl TwistedWisp {
             audio_buffer_size: Some(512),
             audio_sample_rate: Some(48000),
             midi_in_port: config.midi_in_port.as_deref(),
+            core_path: &config.core_path,
         };
-        let mut runner = TwistedWispEngine::create(engine_config)
+        let engine = TwistedWispEngine::create(engine_config)
             .expect("Failed to create the Twisted WiSP engine");
-        let sys_info = runner.get_system_info();
-
-        let mut ctx = WispContext::new(sys_info.num_channels);
-        ctx.add_builtin_functions();
-        ctx.load_core_functions(&config.core_path)
-            .expect("Failed to load core functions");
-
-        for f in ctx.functions_iter() {
-            runner.context_add_or_update_functions(f.get_ir_functions(&ctx));
-        }
 
         info!("TwistedWiSP extension initialized");
 
         Gd::from_init_fn(|base| Self {
             base,
             config,
-            runner: Some(runner),
-            ctx: Some(ctx),
+            engine: Some(engine),
         })
     }
 
@@ -99,26 +87,22 @@ impl TwistedWisp {
         &self.config
     }
 
-    pub fn runner_mut(&mut self) -> &mut TwistedWispEngine {
-        self.runner.as_mut().unwrap()
+    pub fn engine(&self) -> &TwistedWispEngine {
+        self.engine.as_ref().unwrap()
     }
 
-    pub fn ctx(&self) -> &WispContext {
-        self.ctx.as_ref().unwrap()
-    }
-
-    pub fn ctx_mut(&mut self) -> &mut WispContext {
-        self.ctx.as_mut().unwrap()
+    pub fn engine_mut(&mut self) -> &mut TwistedWispEngine {
+        self.engine.as_mut().unwrap()
     }
 
     #[func]
     fn start_dsp(&mut self) {
-        self.runner_mut().dsp_start();
+        self.engine_mut().dsp_start();
     }
 
     #[func]
     fn stop_dsp(&mut self) {
-        self.runner_mut().dsp_stop();
+        self.engine_mut().dsp_stop();
     }
 
     #[func]
@@ -135,7 +119,7 @@ impl TwistedWisp {
         }
         let func = Function::Flow(FlowFunction::new(name.clone()));
         ctx.add_function(func);
-        let runner = self.runner_mut();
+        let runner = self.engine_mut();
         runner.context_set_main_function(name.clone());
         TwistedWispFlow::create(self.to_gd(), name)
     }
@@ -143,14 +127,13 @@ impl TwistedWisp {
     #[func]
     fn load_flow_from_file(&mut self, path: String) -> Gd<TwistedWispFlow> {
         let flow_name = self
-            .ctx_mut()
-            .load_function(&PathBuf::from(path))
+            .engine_mut()
+            .ctx_load_flow_from_file(&path)
             .expect("Failed to load the flow function");
-        let ctx = self.ctx();
-        let flow = ctx.get_function(&flow_name).unwrap().as_flow().unwrap();
-        let ir_functions = flow.get_ir_functions(ctx);
+        let flow = self.engine().ctx_get_flow(&flow_name).unwrap();
+        let ir_functions = self.engine().flow_get_ir_functions(flow);
         let mut buffers = vec![];
-        for (name, path) in flow.buffers() {
+        for (name, path) in self.engine().flow_get_buffers(flow) {
             let full_path = if let Some(path) = path {
                 self.config
                     .resolve_data_path(path)
@@ -165,30 +148,30 @@ impl TwistedWisp {
             buffers.push((name.clone(), full_path));
         }
         let mut buffer_nodes = vec![];
-        for idx in flow.node_indices() {
-            let node = flow.get_node(idx).unwrap();
+        for idx in self.engine().flow_get_node_indices(flow) {
+            let node = self.engine().flow_get_node(flow, idx).unwrap();
             if let Some(buffer_name) = node.extra_data.get("buffer") {
                 buffer_nodes.push((idx, buffer_name.as_string().unwrap().to_owned()));
             }
         }
         let mut value_nodes = vec![];
-        for idx in flow.node_indices() {
-            let node = flow.get_node(idx).unwrap();
+        for idx in self.engine().flow_get_node_indices(flow) {
+            let node = self.engine().flow_get_node(flow, idx).unwrap();
             if let Some(value) = node.extra_data.get("value") {
                 value_nodes.push((idx, value.as_float().unwrap()));
             }
         }
-        let runner = self.runner_mut();
-        runner.context_add_or_update_functions(ir_functions);
+        let engine = self.engine_mut();
+        engine.context_add_or_update_functions(ir_functions);
         for (name, path) in buffers {
-            runner
+            engine
                 .context_load_wave_file(flow_name.clone(), name, path)
                 .expect("Failed to load a wave file");
         }
-        runner.context_set_main_function(flow_name.clone());
-        runner.context_update().expect("Failed to update context");
+        engine.context_set_main_function(flow_name.clone());
+        engine.context_update().expect("Failed to update context");
         for (idx, buffer_name) in buffer_nodes {
-            runner.context_set_data_array(
+            engine.context_set_data_array(
                 flow_name.clone(),
                 CallIndex(idx.index() as u32),
                 DataIndex(0),
@@ -196,7 +179,7 @@ impl TwistedWisp {
             );
         }
         for (idx, value) in value_nodes {
-            runner.context_set_data_value(
+            engine.context_set_data_value(
                 flow_name.clone(),
                 CallIndex(idx.index() as u32),
                 DataIndex(0),
@@ -208,15 +191,14 @@ impl TwistedWisp {
 
     #[func]
     fn remove_function(&mut self, name: String) {
-        // TODO: Handle this on the runner side
-        self.ctx_mut().remove_function(&name);
+        self.engine_mut().ctx_remove_function(&name);
     }
 
     #[func]
     fn list_functions(&mut self) -> Array<GString> {
         let mut array = Array::new();
-        for f in self.ctx_mut().functions_iter() {
-            array.push(f.name().to_godot());
+        for name in self.engine().ctx_list_functions() {
+            array.push(name.to_godot());
         }
         array
     }

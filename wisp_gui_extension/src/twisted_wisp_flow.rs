@@ -54,7 +54,7 @@ impl TwistedWispFlow {
         if func_name.starts_with("$math") {
             let func = ctx.get_function(&func_name).unwrap();
             let ir_functions = func.get_ir_functions(ctx);
-            wisp.runner_mut()
+            wisp.engine_mut()
                 .context_add_or_update_functions(ir_functions);
         }
         std::mem::drop(wisp);
@@ -72,7 +72,7 @@ impl TwistedWispFlow {
         // during the data layout update and will stop being sent
         let flow = ctx.get_function(&self.name).unwrap();
         let ir_functions = flow.get_ir_functions(ctx);
-        let runner = wisp.runner_mut();
+        let runner = wisp.engine_mut();
         if node_name.starts_with("$math") {
             runner.context_remove_function(node_name);
         }
@@ -122,7 +122,7 @@ impl TwistedWispFlow {
         let ctx = wisp.ctx();
         let func = ctx.get_function(&self.name).unwrap();
         let ir_functions = func.get_ir_functions(ctx);
-        let runner = wisp.runner_mut();
+        let runner = wisp.engine_mut();
         runner.context_add_or_update_functions(ir_functions);
         runner.context_update().expect("Failed to update context");
     }
@@ -150,7 +150,7 @@ impl TwistedWispFlow {
         let ctx = wisp.ctx();
         let func = ctx.get_function(&self.name).unwrap();
         let ir_functions = func.get_ir_functions(ctx);
-        let runner = wisp.runner_mut();
+        let runner = wisp.engine_mut();
         runner.context_add_or_update_functions(ir_functions);
         runner.context_update().expect("Failed to update context");
     }
@@ -180,13 +180,13 @@ impl TwistedWispFlow {
     fn fetch_watch_updates(&mut self) {
         let mut wisp = self.wisp.bind_mut();
         // TODO: Take a flow name as an argument and return updates only for that flow
-        self.watches = wisp.runner_mut().context_query_watched_data_values().values;
+        self.watches = wisp.engine_mut().context_query_watched_data_values().values;
     }
 
     #[func]
     fn set_as_main(&mut self) {
         let mut wisp = self.wisp.bind_mut();
-        wisp.runner_mut()
+        wisp.engine_mut()
             .context_set_main_function(self.name.clone());
     }
 
@@ -208,7 +208,7 @@ impl TwistedWispFlow {
 
         flow.add_buffer(&name, path.clone());
 
-        wisp.runner_mut()
+        wisp.engine_mut()
             .context_load_wave_file(
                 self.name.clone(),
                 name.clone(),

@@ -40,6 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         audio_buffer_size: args.audio_buffer_size,
         audio_sample_rate: args.audio_sample_rate,
         midi_in_port: args.midi_in_port.as_ref().map(|s| s.as_str()),
+        core_path: args.core_lib_path.as_ref().map(|p| p.as_path()),
     };
     let mut wisp = TwistedWispEngine::create(config)?;
 
