@@ -106,6 +106,7 @@ pub struct WispRuntime {
     _device: ConfiguredAudioDevice,
     _stream: Stream,
     _midi_in_connection: MidiInputConnection<(MidiState, Receiver<MidiStateMessage>)>,
+    ectx: WispExecutionContext,
     ee_ref: Option<ExecutionEngineRef>,
     builder: SignalProcessorBuilder,
     midi_state_tx: Sender<MidiStateMessage>,
@@ -275,6 +276,7 @@ impl WispRuntime {
             _device: device,
             _stream: stream,
             _midi_in_connection: midi_in_connection,
+            ectx: WispExecutionContext::init(),
             ee_ref: None,
             builder: SignalProcessorBuilder::new(),
             midi_state_tx,
@@ -298,13 +300,12 @@ impl WispRuntime {
     pub fn switch_to_signal_processor(
         &mut self,
         ctx: &WispContext,
-        ectx: &WispExecutionContext,
         wctx: &WispEngineContext,
         top_level: &str,
     ) -> Result<(), SignalProcessCreationError> {
         let (sp, ee) = self
             .builder
-            .create_signal_processor(ctx, ectx, wctx, top_level)?;
+            .create_signal_processor(ctx, &self.ectx, wctx, top_level)?;
         self.runtime_tx
             .send(RuntimeStateMessage::SetProcessor(sp))
             .expect("The processor channel is disconnected");
