@@ -30,6 +30,7 @@ pub struct WatchedDataValues {
     pub values: HashMap<WatchIndex, Vec<f32>>,
 }
 
+#[derive(Default)]
 pub struct TwistedWispEngineConfig<'a> {
     pub audio_host: Option<&'a str>,
     pub audio_device: Option<&'a str>,

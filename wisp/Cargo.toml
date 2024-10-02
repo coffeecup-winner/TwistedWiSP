@@ -33,3 +33,6 @@ log = "0.4"
 ringbuffer = "0.15.0"
 string-error = "0.1.0"
 thiserror = "1"
+
+[build-dependencies]
+cbindgen = "0.27"
