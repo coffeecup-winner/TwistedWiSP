@@ -9,6 +9,8 @@ use inkwell::{
         execution_engine::{LLVMDisposeExecutionEngine, LLVMExecutionEngineRef},
         target::{LLVMDisposeTargetData, LLVMTargetDataRef},
     },
+    types::{FloatType, IntType, PointerType, VoidType},
+    AddressSpace,
 };
 use log::{error, info};
 use midir::MidiInputConnection;
@@ -86,6 +88,27 @@ impl WispExecutionContext {
 
     pub fn llvm(&self) -> &Context {
         &self.context
+    }
+
+    pub fn void_t(&self) -> VoidType<'_> {
+        self.context.void_type()
+    }
+
+    pub fn i32_t(&self) -> IntType<'_> {
+        self.context.i32_type()
+    }
+
+    pub fn f32_t(&self) -> FloatType<'_> {
+        self.context.f32_type()
+    }
+
+    pub fn pf32_t(&self) -> PointerType<'_> {
+        self.context.ptr_type(AddressSpace::default())
+    }
+
+    // Data-wide type
+    pub fn data_t(&self) -> IntType<'_> {
+        self.context.i64_type()
     }
 }
 

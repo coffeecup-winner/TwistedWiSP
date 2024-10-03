@@ -1,11 +1,16 @@
 use std::collections::{hash_map, BTreeSet, HashMap};
 
-use crate::{ir::IRFunction, utils::dep_prop::Property};
+use crate::{
+    compiler::{DataLayout, FunctionDataLayout},
+    ir::IRFunction,
+    utils::dep_prop::Property,
+};
 
 #[derive(Debug)]
 pub struct RuntimeFunction {
     ir_function: Property<IRFunction>,
     dependencies: Property<BTreeSet<String>>,
+    data_layout: Property<Option<FunctionDataLayout>>,
 }
 
 impl RuntimeFunction {
@@ -13,6 +18,7 @@ impl RuntimeFunction {
         RuntimeFunction {
             ir_function: Property::new(ir_function),
             dependencies: Property::new(BTreeSet::new()),
+            data_layout: Property::new(None),
         }
     }
 
@@ -23,12 +29,17 @@ impl RuntimeFunction {
     pub fn dependencies(&self) -> &Property<BTreeSet<String>> {
         &self.dependencies
     }
+
+    pub fn data_layout(&self) -> &Property<Option<FunctionDataLayout>> {
+        &self.data_layout
+    }
 }
 
 #[derive(Debug)]
 pub struct WispRuntimeContext {
     functions: HashMap<String, RuntimeFunction>,
     active_set: Property<Vec<String>>,
+    data_layout: Property<DataLayout>,
 }
 
 impl WispRuntimeContext {
@@ -36,6 +47,7 @@ impl WispRuntimeContext {
         WispRuntimeContext {
             functions: HashMap::new(),
             active_set: Property::new(Vec::new()),
+            data_layout: Property::new(DataLayout::default()),
         }
     }
 
@@ -67,5 +79,9 @@ impl WispRuntimeContext {
 
     pub fn active_set(&self) -> &Property<Vec<String>> {
         &self.active_set
+    }
+
+    pub fn data_layout(&self) -> &Property<DataLayout> {
+        &self.data_layout
     }
 }

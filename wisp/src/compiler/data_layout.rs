@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, HashMap};
 use crate::{
     ir::{DataRef, IRFunction, IRFunctionDataType, Instruction, SourceLocation},
     runner::context::WispRuntimeContext,
+    utils::dep_prop::DependencyHandle,
     CallIndex,
 };
 
@@ -53,42 +54,45 @@ pub struct DataItem {
     pub type_: IRFunctionDataType,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct FunctionDataLayout {
     pub own_data_items: BTreeMap<DataRef, DataItem>,
     pub children_data_items: BTreeMap<CallIndex, (String, u32)>,
     pub total_size: u32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default, Clone)]
 pub struct DataLayout {
     data_layout: HashMap<String, FunctionDataLayout>,
 }
 
 impl DataLayout {
-    pub fn calculate(top_level_func: &IRFunction, rctx: &WispRuntimeContext) -> Self {
+    pub fn new(rctx: &WispRuntimeContext, dep_handle: DependencyHandle) -> Self {
         let mut data_layout = HashMap::new();
-        if let Some(function_data_layout) =
-            Self::calculate_function_data_layout(top_level_func, rctx, &mut data_layout)
-        {
-            data_layout.insert(top_level_func.name().into(), function_data_layout);
-        } else {
-            data_layout.insert(top_level_func.name().into(), FunctionDataLayout::default());
+        let active_set = rctx.active_set().get(dep_handle.clone());
+        for name in active_set.iter() {
+            let func = rctx.get_function(name).unwrap();
+            let func_layout = func.data_layout().get(dep_handle.clone());
+            if let Some(func_layout) = func_layout.as_ref() {
+                data_layout.insert(name.clone(), func_layout.clone());
+            } else {
+                data_layout.insert(name.clone(), FunctionDataLayout::default());
+            }
         }
         DataLayout { data_layout }
     }
 
-    fn calculate_function_data_layout(
+    pub fn calculate_function_data_layout(
         func: &IRFunction,
         rctx: &WispRuntimeContext,
-        data_layout: &mut HashMap<String, FunctionDataLayout>,
+        dep_handle: DependencyHandle,
     ) -> Option<FunctionDataLayout> {
         let mut children_data_sizes = BTreeMap::new();
 
         Self::calculate_children_data_sizes(
             func.instructions(),
             rctx,
-            data_layout,
+            dep_handle,
             &mut children_data_sizes,
         );
 
@@ -125,31 +129,24 @@ impl DataLayout {
     fn calculate_children_data_sizes(
         insns: &[Instruction],
         rctx: &WispRuntimeContext,
-        data_layout: &mut HashMap<String, FunctionDataLayout>,
+        dep_handle: DependencyHandle,
         sizes: &mut BTreeMap<CallIndex, (String, u32)>,
     ) {
         for insn in insns {
             match insn {
                 Instruction::Call(id, name, _, _)
                 | Instruction::Load(_, SourceLocation::LastValue(id, name, _)) => {
-                    if let Some(child_data_layout) = data_layout.get(name) {
+                    let child_data_layout = rctx.get_function(name).unwrap().data_layout();
+                    assert!(child_data_layout.is_valid(), "Programmer error - wrong calculation order, data layout for {} is not valid", name);
+                    if let Some(child_data_layout) =
+                        child_data_layout.get(dep_handle.clone()).as_ref()
+                    {
                         sizes.insert(CallIndex(id.0), (name.into(), child_data_layout.total_size));
-                    } else if let Some(child_data_layout) = Self::calculate_function_data_layout(
-                        &rctx
-                            .get_function(name)
-                            .unwrap()
-                            .ir_function()
-                            .get_untracked(),
-                        rctx,
-                        data_layout,
-                    ) {
-                        sizes.insert(CallIndex(id.0), (name.into(), child_data_layout.total_size));
-                        data_layout.insert(name.into(), child_data_layout);
                     }
                 }
                 Instruction::Conditional(_, then, else_) => {
-                    Self::calculate_children_data_sizes(then, rctx, data_layout, sizes);
-                    Self::calculate_children_data_sizes(else_, rctx, data_layout, sizes);
+                    Self::calculate_children_data_sizes(then, rctx, dep_handle.clone(), sizes);
+                    Self::calculate_children_data_sizes(else_, rctx, dep_handle.clone(), sizes);
                 }
                 _ => (),
             }
