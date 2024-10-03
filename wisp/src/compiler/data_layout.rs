@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 
 use crate::{
     ir::{DataRef, IRFunction, IRFunctionDataType, Instruction, SourceLocation},
@@ -63,36 +63,25 @@ pub struct FunctionDataLayout {
 #[derive(Debug)]
 pub struct DataLayout {
     data_layout: HashMap<String, FunctionDataLayout>,
-    called_functions: HashSet<String>,
 }
 
 impl DataLayout {
     pub fn calculate(top_level_func: &IRFunction, rctx: &WispRuntimeContext) -> Self {
         let mut data_layout = HashMap::new();
-        let mut called_functions = HashSet::new();
-        if let Some(function_data_layout) = Self::calculate_function_data_layout(
-            top_level_func,
-            rctx,
-            &mut data_layout,
-            &mut called_functions,
-        ) {
+        if let Some(function_data_layout) =
+            Self::calculate_function_data_layout(top_level_func, rctx, &mut data_layout)
+        {
             data_layout.insert(top_level_func.name().into(), function_data_layout);
-            called_functions.insert(top_level_func.name().into());
         } else {
             data_layout.insert(top_level_func.name().into(), FunctionDataLayout::default());
-            called_functions.insert(top_level_func.name().into());
         }
-        DataLayout {
-            data_layout,
-            called_functions,
-        }
+        DataLayout { data_layout }
     }
 
     fn calculate_function_data_layout(
         func: &IRFunction,
         rctx: &WispRuntimeContext,
         data_layout: &mut HashMap<String, FunctionDataLayout>,
-        called_functions: &mut HashSet<String>,
     ) -> Option<FunctionDataLayout> {
         let mut children_data_sizes = BTreeMap::new();
 
@@ -100,7 +89,6 @@ impl DataLayout {
             func.instructions(),
             rctx,
             data_layout,
-            called_functions,
             &mut children_data_sizes,
         );
 
@@ -138,14 +126,12 @@ impl DataLayout {
         insns: &[Instruction],
         rctx: &WispRuntimeContext,
         data_layout: &mut HashMap<String, FunctionDataLayout>,
-        called_functions: &mut HashSet<String>,
         sizes: &mut BTreeMap<CallIndex, (String, u32)>,
     ) {
         for insn in insns {
             match insn {
                 Instruction::Call(id, name, _, _)
                 | Instruction::Load(_, SourceLocation::LastValue(id, name, _)) => {
-                    called_functions.insert(name.into());
                     if let Some(child_data_layout) = data_layout.get(name) {
                         sizes.insert(CallIndex(id.0), (name.into(), child_data_layout.total_size));
                     } else if let Some(child_data_layout) = Self::calculate_function_data_layout(
@@ -156,27 +142,14 @@ impl DataLayout {
                             .get_untracked(),
                         rctx,
                         data_layout,
-                        called_functions,
                     ) {
                         sizes.insert(CallIndex(id.0), (name.into(), child_data_layout.total_size));
                         data_layout.insert(name.into(), child_data_layout);
                     }
                 }
                 Instruction::Conditional(_, then, else_) => {
-                    Self::calculate_children_data_sizes(
-                        then,
-                        rctx,
-                        data_layout,
-                        called_functions,
-                        sizes,
-                    );
-                    Self::calculate_children_data_sizes(
-                        else_,
-                        rctx,
-                        data_layout,
-                        called_functions,
-                        sizes,
-                    );
+                    Self::calculate_children_data_sizes(then, rctx, data_layout, sizes);
+                    Self::calculate_children_data_sizes(else_, rctx, data_layout, sizes);
                 }
                 _ => (),
             }
@@ -185,10 +158,6 @@ impl DataLayout {
 
     pub fn get(&self, name: &str) -> Option<&FunctionDataLayout> {
         self.data_layout.get(name)
-    }
-
-    pub fn was_called(&self, name: &str) -> bool {
-        self.called_functions.contains(name)
     }
 
     pub fn create_data(&self, name: &str) -> Vec<DataValue> {

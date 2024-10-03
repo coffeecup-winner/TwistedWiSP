@@ -103,12 +103,12 @@ impl SignalProcessorBuilder {
         }
         execution_engine.add_global_mapping(&g_noise, noise as usize);
 
-        for (name, func) in rctx.functions_iter() {
-            let ir_func = func.ir_function().get_untracked();
-
-            if !data_layout.was_called(name) {
-                continue;
-            }
+        for name in rctx.active_set().get_untracked().iter() {
+            let ir_func = rctx
+                .get_function(name)
+                .unwrap()
+                .ir_function()
+                .get_untracked();
 
             // >1 returns is currently not supported
             assert!(ir_func.outputs().len() < 2);
@@ -137,12 +137,9 @@ impl SignalProcessorBuilder {
             module.add_function(name, fn_type, None);
         }
 
-        for (_, func) in rctx.functions_iter() {
+        for name in rctx.active_set().get_untracked().iter() {
+            let func = rctx.get_function(name).unwrap();
             let ir_func = func.ir_function().get_untracked();
-
-            if !data_layout.was_called(ir_func.name()) {
-                continue;
-            }
 
             // TODO: Instead, check explicitly for builtin functions using a function attribute
             if !ir_func.ir.is_empty() {
