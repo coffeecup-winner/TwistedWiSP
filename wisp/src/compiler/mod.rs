@@ -1,5 +1,6 @@
 mod builder;
 mod data_layout;
+mod dependency_calculator;
 mod error;
 mod function_context;
 mod module_context;

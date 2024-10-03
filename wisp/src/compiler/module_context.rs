@@ -1,3 +1,5 @@
+use std::cell::Ref;
+
 use inkwell::{
     builder::{Builder, BuilderError},
     context::Context,
@@ -6,7 +8,7 @@ use inkwell::{
     AddressSpace,
 };
 
-use crate::{core::WispContext, ir::IRFunction, runner::context::WispEngineContext};
+use crate::{core::WispContext, ir::IRFunction, runner::context::WispRuntimeContext};
 
 use super::{data_layout::DataLayout, error::SignalProcessCreationError};
 
@@ -35,7 +37,7 @@ impl<'ectx> ModuleTypes<'ectx> {
 #[derive(Debug)]
 pub(super) struct ModuleContext<'ectx, 'temp> {
     pub ctx: &'temp WispContext,
-    pub wctx: &'temp WispEngineContext,
+    pub rctx: &'temp WispRuntimeContext,
     pub types: ModuleTypes<'ectx>,
     pub module: &'temp Module<'ectx>,
     pub builder: Builder<'ectx>,
@@ -46,13 +48,13 @@ impl<'ectx, 'temp> ModuleContext<'ectx, 'temp> {
     pub fn new(
         context: &'ectx Context,
         ctx: &'temp WispContext,
-        wctx: &'temp WispEngineContext,
+        rctx: &'temp WispRuntimeContext,
         module: &'temp Module<'ectx>,
         data_layout: &'temp DataLayout,
     ) -> Self {
         ModuleContext {
             ctx,
-            wctx,
+            rctx,
             types: ModuleTypes::new(context),
             module,
             builder: context.create_builder(),
@@ -63,9 +65,10 @@ impl<'ectx, 'temp> ModuleContext<'ectx, 'temp> {
     pub fn get_function(
         &self,
         name: &str,
-    ) -> Result<&'temp IRFunction, SignalProcessCreationError> {
-        self.wctx
+    ) -> Result<Ref<'temp, IRFunction>, SignalProcessCreationError> {
+        self.rctx
             .get_function(name)
+            .map(|f| f.ir_function().get(None))
             .ok_or_else(|| SignalProcessCreationError::UnknownFunction(name.into()))
     }
 

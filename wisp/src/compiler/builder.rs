@@ -12,9 +12,10 @@ use log::debug;
 use rand::Rng;
 
 use crate::{
+    compiler::dependency_calculator,
     core::WispContext,
     ir::{IRFunction, IRFunctionDataType, Instruction, Operand},
-    runner::context::{WispEngineContext, WispExecutionContext},
+    runner::{context::WispRuntimeContext, runtime::WispExecutionContext},
     CallIndex,
 };
 
@@ -35,22 +36,50 @@ impl SignalProcessorBuilder {
         SignalProcessorBuilder { id_gen: 0 }
     }
 
-    pub fn create_signal_processor<'ectx>(
+    pub fn build_signal_processor<'ectx>(
         &mut self,
         ctx: &WispContext,
         ectx: &'ectx WispExecutionContext,
-        wctx: &WispEngineContext,
+        rctx: &mut WispRuntimeContext,
         top_level: &str,
     ) -> Result<(SignalProcessor, ExecutionEngine<'ectx>), SignalProcessCreationError> {
         self.id_gen += 1;
+
+        // Signal processor compilation is done in phases. Every next phase is dependent on the previous one.
+        // The intermediate results of each phase are stored in the runtime context and reused when possible.
+
+        // Phase 1: Calculate the dependencies of each function
+
+        for (_, func) in rctx.functions_iter() {
+            func.dependencies().update(|dep_handle| {
+                let ir_func = func.ir_function().get(dep_handle);
+                dependency_calculator::calculate_dependencies(&ir_func)
+            });
+        }
+
+        // Phase 2: Calculate the active set of functions to compile
+
+        rctx.active_set().update(|dep_handle| {
+            dependency_calculator::calculate_active_set(rctx, top_level, dep_handle)
+        });
+
+        // Phase 3: Calculate the data layout
+
+        let data_layout = DataLayout::calculate(
+            &rctx
+                .get_function(top_level)
+                .unwrap()
+                .ir_function()
+                .get(None),
+            rctx,
+        );
 
         let module = ectx.llvm().create_module(&format!("wisp_{}", self.id_gen));
         let execution_engine = module
             .create_jit_execution_engine(OptimizationLevel::None)
             .map_err(|_| SignalProcessCreationError::InitEE)?;
 
-        let data_layout = DataLayout::calculate(wctx.get_function(top_level).unwrap(), wctx);
-        let mut mctx = ModuleContext::new(ectx.llvm(), ctx, wctx, &module, &data_layout);
+        let mut mctx = ModuleContext::new(ectx.llvm(), ctx, rctx, &module, &data_layout);
 
         let g_output = module.add_global(mctx.types.pf32, None, "wisp_global_output");
         let g_empty_array = module.add_global(mctx.types.pf32, None, "wisp_global_empty_array");
@@ -74,19 +103,22 @@ impl SignalProcessorBuilder {
         }
         execution_engine.add_global_mapping(&g_noise, noise as usize);
 
-        for (name, func) in wctx.functions_iter() {
+        for (name, func) in rctx.functions_iter() {
+            let ir_func = func.ir_function().get(None);
+
             if !data_layout.was_called(name) {
                 continue;
             }
 
             // >1 returns is currently not supported
-            assert!(func.outputs().len() < 2);
+            assert!(ir_func.outputs().len() < 2);
             let mut arg_types: Vec<BasicMetadataTypeEnum> = vec![];
             if mctx.data_layout.get(name).is_some() {
                 arg_types.push(mctx.types.pf32.into());
             }
             arg_types.extend(
-                func.inputs()
+                ir_func
+                    .inputs()
                     .iter()
                     .map(|i| match i.type_ {
                         IRFunctionDataType::Float => mctx.types.f32.into(),
@@ -94,8 +126,8 @@ impl SignalProcessorBuilder {
                     })
                     .collect::<Vec<BasicMetadataTypeEnum>>(),
             );
-            let fn_type = if func.outputs().len() == 1 {
-                match func.outputs()[0].type_ {
+            let fn_type = if ir_func.outputs().len() == 1 {
+                match ir_func.outputs()[0].type_ {
                     IRFunctionDataType::Float => mctx.types.f32.fn_type(&arg_types, false),
                     IRFunctionDataType::Array => mctx.types.pf32.fn_type(&arg_types, false),
                 }
@@ -105,14 +137,16 @@ impl SignalProcessorBuilder {
             module.add_function(name, fn_type, None);
         }
 
-        for (_, func) in wctx.functions_iter() {
-            if !data_layout.was_called(func.name()) {
+        for (_, func) in rctx.functions_iter() {
+            let ir_func = func.ir_function().get(None);
+
+            if !data_layout.was_called(ir_func.name()) {
                 continue;
             }
 
             // TODO: Instead, check explicitly for builtin functions using a function attribute
-            if !func.ir.is_empty() {
-                self.build_function(ectx, &mut mctx, func)?;
+            if !ir_func.ir.is_empty() {
+                self.build_function(ectx, &mut mctx, &ir_func)?;
             }
         }
 
