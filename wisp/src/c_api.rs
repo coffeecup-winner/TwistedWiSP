@@ -1,6 +1,8 @@
 use std::ffi::c_char;
 
-use crate::runner::engine::*;
+use crate::{compiler::SignalProcessor, runner::engine::*};
+
+/// Engine API
 
 #[no_mangle]
 pub extern "C" fn wisp_engine_create() -> *mut TwistedWispEngine {
@@ -15,6 +17,23 @@ pub unsafe extern "C" fn wisp_engine_destroy(engine: *mut TwistedWispEngine) {
     if !engine.is_null() {
         drop(unsafe { Box::from_raw(engine) })
     }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn wisp_engine_compile_signal_processor(
+    engine: *mut TwistedWispEngine,
+    function: *const c_char,
+) -> *mut SignalProcessor {
+    if let Some(engine) = unsafe { engine.as_mut() } {
+        if let Ok(sp) = engine.context_compile_signal_processor(
+            unsafe { std::ffi::CStr::from_ptr(function) }
+                .to_string_lossy()
+                .into_owned(),
+        ) {
+            return Box::into_raw(Box::new(sp));
+        }
+    }
+    std::ptr::null_mut()
 }
 
 #[no_mangle]
@@ -36,5 +55,36 @@ pub unsafe extern "C" fn wisp_context_update(engine: *mut TwistedWispEngine) {
     if let Some(engine) = unsafe { engine.as_mut() } {
         // TODO: Expose errors to the caller
         engine.context_update().expect("Failed to update context");
+    }
+}
+
+/// Processor API
+
+#[no_mangle]
+pub unsafe extern "C" fn wisp_processor_destroy(processor: *mut SignalProcessor) {
+    if !processor.is_null() {
+        drop(unsafe { Box::from_raw(processor) })
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn wisp_processor_process_one(
+    processor: *mut SignalProcessor,
+    output: *mut f32,
+    size: usize,
+) {
+    if let Some(processor) = unsafe { processor.as_mut() } {
+        unsafe { processor.process_one(std::slice::from_raw_parts_mut(output, size)) }
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn wisp_processor_process_all(
+    processor: *mut SignalProcessor,
+    output: *mut f32,
+    size: usize,
+) {
+    if let Some(processor) = unsafe { processor.as_mut() } {
+        unsafe { processor.process_all(std::slice::from_raw_parts_mut(output, size)) }
     }
 }

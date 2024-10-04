@@ -43,6 +43,7 @@ pub struct WispRuntimeContext {
 }
 
 impl WispRuntimeContext {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         WispRuntimeContext {
             functions: HashMap::new(),

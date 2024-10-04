@@ -257,7 +257,7 @@ impl WispRuntime {
 
                 if runtime_state.is_running {
                     if let Some(sp) = runtime_state.processor.as_mut() {
-                        sp.process(buffer);
+                        sp.process_all(buffer);
                         // Clip the output to safe levels
                         for b in buffer.iter_mut() {
                             if b.is_nan() {
@@ -298,6 +298,16 @@ impl WispRuntime {
         self.runtime_tx
             .send(RuntimeStateMessage::StopDsp)
             .expect("The processor channel is disconnected");
+    }
+
+    pub fn compile(
+        &mut self,
+        ctx: &WispContext,
+        rctx: &mut WispRuntimeContext,
+        top_level: &str,
+    ) -> Result<SignalProcessor, SignalProcessCreationError> {
+        self.builder
+            .build_signal_processor(ctx, &self.ectx, rctx, top_level)
     }
 
     pub fn switch_to_signal_processor(
