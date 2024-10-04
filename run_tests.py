@@ -19,5 +19,5 @@ if __name__ == '__main__':
         target_dir = 'target/debug'
 
     os.system(f'cargo build {cargo_arg}')
-    os.chdir('../tests')
+    os.chdir('tests')
     os.system(f'LD_LIBRARY_PATH=../{target_dir} python -m pytest {" ".join(pytest_args)}')
