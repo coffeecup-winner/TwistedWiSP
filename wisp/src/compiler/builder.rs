@@ -1,6 +1,5 @@
 use inkwell::{
     basic_block::BasicBlock,
-    execution_engine::ExecutionEngine,
     intrinsics::Intrinsic,
     passes::PassBuilderOptions,
     targets::{CodeModel, RelocMode, Target, TargetMachine},
@@ -36,13 +35,13 @@ impl SignalProcessorBuilder {
         SignalProcessorBuilder { id_gen: 0 }
     }
 
-    pub fn build_signal_processor<'ectx>(
+    pub fn build_signal_processor(
         &mut self,
         ctx: &WispContext,
-        ectx: &'ectx WispExecutionContext,
+        ectx: &WispExecutionContext,
         rctx: &mut WispRuntimeContext,
         top_level: &str,
-    ) -> Result<(SignalProcessor, ExecutionEngine<'ectx>), SignalProcessCreationError> {
+    ) -> Result<SignalProcessor, SignalProcessCreationError> {
         self.id_gen += 1;
 
         // Signal processor compilation is done in phases. Every next phase is dependent on the previous one.
@@ -217,15 +216,13 @@ impl SignalProcessorBuilder {
 
         let function = unsafe { execution_engine.get_function("wisp_entry") }
             .map_err(|_| SignalProcessCreationError::LoadFunction)?;
-        Ok((
-            SignalProcessor::new(
-                spctx,
-                top_level,
-                unsafe { function.into_raw() },
-                rctx.data_layout().get_untracked().clone(),
-                ctx.num_outputs(),
-            ),
+        Ok(SignalProcessor::new(
             execution_engine,
+            spctx,
+            top_level,
+            unsafe { function.into_raw() },
+            rctx.data_layout().get_untracked().clone(),
+            ctx.num_outputs(),
         ))
     }
 

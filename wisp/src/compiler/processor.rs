@@ -1,5 +1,12 @@
 use std::collections::HashMap;
 
+use inkwell::{
+    execution_engine::ExecutionEngine,
+    llvm_sys::{
+        execution_engine::{LLVMDisposeExecutionEngine, LLVMExecutionEngineRef},
+        target::{LLVMDisposeTargetData, LLVMTargetDataRef},
+    },
+};
 use ringbuffer::{AllocRingBuffer, RingBuffer};
 
 use crate::{
@@ -29,7 +36,40 @@ enum WatchedData {
     Buffer(AllocRingBuffer<f32>),
 }
 
+// We need this separate holder for the EE reference because inkwell's ExecutionEngine
+// has a lifetime parameter to ensure that the context is not dropped before the EE,
+// but we're doing it ourselves and having this lifetime parameter makes things
+// unnecessarily complicated for the users.
+struct ExecutionEngineRef {
+    ee: LLVMExecutionEngineRef,
+    target_data: LLVMTargetDataRef,
+}
+
+impl ExecutionEngineRef {
+    pub fn new(ee: ExecutionEngine) -> Self {
+        let ee_ref = ee.as_mut_ptr();
+        let target_data = ee.get_target_data().as_mut_ptr();
+        std::mem::forget(ee);
+        ExecutionEngineRef {
+            ee: ee_ref,
+            target_data,
+        }
+    }
+}
+
+unsafe impl Send for ExecutionEngineRef {}
+
+impl Drop for ExecutionEngineRef {
+    fn drop(&mut self) {
+        unsafe {
+            LLVMDisposeExecutionEngine(self.ee);
+            LLVMDisposeTargetData(self.target_data);
+        }
+    }
+}
+
 pub struct SignalProcessor {
+    _ee: ExecutionEngineRef,
     ctx: Box<SignalProcessorContext>,
     function: ProcessFn,
     name: String,
@@ -44,6 +84,7 @@ pub struct SignalProcessor {
 
 impl SignalProcessor {
     pub fn new(
+        ee: ExecutionEngine,
         ctx: Box<SignalProcessorContext>,
         name: &str,
         function: ProcessFn,
@@ -52,6 +93,7 @@ impl SignalProcessor {
     ) -> Self {
         let data = data_layout.create_data(name);
         SignalProcessor {
+            _ee: ExecutionEngineRef::new(ee),
             ctx,
             function,
             name: name.to_string(),
