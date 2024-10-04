@@ -82,6 +82,22 @@ impl TwistedWispEngine {
         })
     }
 
+    pub fn enable_logging() -> bool {
+        let mut builder = env_logger::Builder::new();
+        let result = builder
+            .filter_level(log::LevelFilter::Info)
+            .parse_env("TWISTED_WISP_LOG")
+            .try_init()
+            .is_ok();
+
+        if result {
+            log::info!("Logging enabled");
+        } else {
+            log::warn!("Failed to enable logging");
+        }
+        result
+    }
+
     pub fn dsp_start(&mut self) {
         self.runtime.start_dsp();
     }
