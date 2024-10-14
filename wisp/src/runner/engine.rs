@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-};
+use std::{collections::HashMap, path::PathBuf};
 
 use crate::{
     audio::device::ConfiguredAudioDevice,
@@ -33,14 +30,14 @@ pub struct FunctionRef(*const dyn WispFunction);
 pub struct FlowFunctionRef(*const FlowFunction);
 
 #[derive(Debug, Default)]
-pub struct TwistedWispEngineConfig<'a> {
-    pub audio_host: Option<&'a str>,
-    pub audio_device: Option<&'a str>,
+pub struct TwistedWispEngineConfig {
+    pub audio_host: Option<String>,
+    pub audio_device: Option<String>,
     pub audio_output_channels: Option<u16>,
     pub audio_buffer_size: Option<u32>,
     pub audio_sample_rate: Option<u32>,
-    pub midi_in_port: Option<&'a str>,
-    pub core_path: Option<&'a Path>,
+    pub midi_in_port: Option<String>,
+    pub core_path: Option<PathBuf>,
 }
 
 pub struct TwistedWispEngine {
@@ -50,10 +47,10 @@ pub struct TwistedWispEngine {
 }
 
 impl TwistedWispEngine {
-    pub fn create(config: TwistedWispEngineConfig) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn create(config: &TwistedWispEngineConfig) -> Result<Self, Box<dyn std::error::Error>> {
         let device = ConfiguredAudioDevice::open(
-            config.audio_host,
-            config.audio_device,
+            config.audio_host.as_deref(),
+            config.audio_device.as_deref(),
             config.audio_output_channels,
             config.audio_buffer_size,
             config.audio_sample_rate,
@@ -62,11 +59,11 @@ impl TwistedWispEngine {
         let mut wisp = WispRuntimeContext::new();
 
         ctx.add_builtin_functions();
-        if let Some(core_path) = config.core_path {
+        if let Some(core_path) = config.core_path.as_deref() {
             ctx.load_core_functions(core_path)?;
         }
 
-        let midi_in = WispMidiIn::open(config.midi_in_port)?;
+        let midi_in = WispMidiIn::open(config.midi_in_port.as_deref())?;
         let runtime = WispRuntime::init(device, midi_in);
 
         for f in ctx.functions_iter() {

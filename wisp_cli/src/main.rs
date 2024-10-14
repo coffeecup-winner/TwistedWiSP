@@ -34,15 +34,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
     let config = TwistedWispEngineConfig {
-        audio_host: args.audio_host.as_deref(),
-        audio_device: args.audio_device.as_deref(),
+        audio_host: args.audio_host,
+        audio_device: args.audio_device,
         audio_output_channels: args.audio_output_channels,
         audio_buffer_size: args.audio_buffer_size,
         audio_sample_rate: args.audio_sample_rate,
-        midi_in_port: args.midi_in_port.as_deref(),
-        core_path: args.core_lib_path.as_deref(),
+        midi_in_port: args.midi_in_port,
+        core_path: args.core_lib_path,
     };
-    let mut wisp = TwistedWispEngine::create(config)?;
+    let mut wisp = TwistedWispEngine::create(&config)?;
 
     wisp.context_set_main_function("phasor".to_string());
     wisp.context_update().expect("Failed to update context");
