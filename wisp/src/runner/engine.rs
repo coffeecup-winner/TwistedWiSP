@@ -56,7 +56,7 @@ impl TwistedWispEngine {
             config.audio_sample_rate,
         )?;
         let mut ctx = WispContext::new(device.num_output_channels(), device.sample_rate());
-        let mut wisp = WispRuntimeContext::new();
+        let mut rctx = WispRuntimeContext::new();
 
         ctx.add_builtin_functions();
         if let Some(core_path) = config.core_path.as_deref() {
@@ -68,15 +68,11 @@ impl TwistedWispEngine {
 
         for f in ctx.functions_iter() {
             for func in f.get_ir_functions(&ctx) {
-                wisp.add_function(func);
+                rctx.add_function(func);
             }
         }
 
-        Ok(TwistedWispEngine {
-            ctx,
-            rctx: wisp,
-            runtime,
-        })
+        Ok(TwistedWispEngine { ctx, rctx, runtime })
     }
 
     pub fn enable_logging() -> bool {
@@ -95,13 +91,38 @@ impl TwistedWispEngine {
         result
     }
 
-    pub fn dsp_start(&mut self) {
+    // ===== Context API =====
+
+    pub fn ctx_load_flow_from_file(
+        &mut self,
+        path: &str,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        self.ctx.load_function(&PathBuf::from(path))
+    }
+
+    // ===== Runtime API =====
+
+    pub fn runtime_dsp_start(&mut self) {
         self.runtime.start_dsp();
     }
 
-    pub fn dsp_stop(&mut self) {
+    pub fn runtime_dsp_stop(&mut self) {
         self.runtime.stop_dsp();
     }
+
+    pub fn runtime_compile_signal_processor(
+        &mut self,
+        main_function: String,
+    ) -> Result<SignalProcessor, SignalProcessCreationError> {
+        self.runtime
+            .compile(&self.ctx, &mut self.rctx, &main_function)
+    }
+
+    pub fn runtime_switch_to_signal_processor(&mut self, sp: SignalProcessor) {
+        self.runtime.switch_to_signal_processor(sp)
+    }
+
+    // ===== TODO: Move/remove these =====
 
     pub fn context_reset(&mut self) {
         self.rctx.reset();
@@ -112,13 +133,6 @@ impl TwistedWispEngine {
             .functions_iter()
             .map(|f| f.name().to_owned())
             .collect()
-    }
-
-    pub fn ctx_load_flow_from_file(
-        &mut self,
-        path: &str,
-    ) -> Result<String, Box<dyn std::error::Error>> {
-        self.ctx.load_function(&PathBuf::from(path))
     }
 
     pub fn ctx_get_flow(&self, name: &str) -> Option<FlowFunctionRef> {
@@ -238,17 +252,5 @@ impl TwistedWispEngine {
 
     pub fn context_unload_wave_file(&mut self, name: String, buffer_name: String) {
         self.ctx.unload_wave_file(&name, &buffer_name);
-    }
-
-    pub fn runtime_compile_signal_processor(
-        &mut self,
-        main_function: String,
-    ) -> Result<SignalProcessor, SignalProcessCreationError> {
-        self.runtime
-            .compile(&self.ctx, &mut self.rctx, &main_function)
-    }
-
-    pub fn runtime_switch_to_signal_processor(&mut self, sp: SignalProcessor) {
-        self.runtime.switch_to_signal_processor(sp)
     }
 }

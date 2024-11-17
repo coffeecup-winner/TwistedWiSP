@@ -86,6 +86,20 @@ pub unsafe extern "C" fn wisp_context_load_flow_from_file(
 /// Engine Runtime API
 
 #[no_mangle]
+pub unsafe extern "C" fn wisp_engine_dsp_start(engine: *mut TwistedWispEngine) {
+    if let Some(engine) = unsafe { engine.as_mut() } {
+        engine.runtime_dsp_start();
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn wisp_engine_dsp_stop(engine: *mut TwistedWispEngine) {
+    if let Some(engine) = unsafe { engine.as_mut() } {
+        engine.runtime_dsp_stop();
+    }
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn wisp_engine_compile_signal_processor(
     engine: *mut TwistedWispEngine,
     function: *const c_char,
