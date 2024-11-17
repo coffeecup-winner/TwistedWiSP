@@ -102,6 +102,7 @@ pub trait WispFunction: Debug {
     fn save(&self) -> String;
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum Function {
     Builtin(super::BuiltinFunction),
