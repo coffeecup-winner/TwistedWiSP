@@ -5,8 +5,8 @@ use std::{
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 enum PropertyState {
-    Outdated,
     #[default]
+    Outdated,
     Valid,
 }
 

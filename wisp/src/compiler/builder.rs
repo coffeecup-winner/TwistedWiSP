@@ -339,12 +339,12 @@ impl SignalProcessorBuilder {
                             })?
                         }
                         LastValue(id, name, dref) => {
-                            let data_layout = rctx
-                                .get_function(name)
+                            let own_data_layout = rctx
+                                .get_function(fctx.func.name())
                                 .unwrap()
                                 .data_layout()
                                 .get_untracked();
-                            let (_, child_offset) = *data_layout
+                            let (_, child_offset) = *own_data_layout
                                 .as_ref()
                                 .and_then(|l| l.children_data_items.get(&CallIndex(id.0)))
                                 .ok_or_else(|| {
@@ -353,7 +353,12 @@ impl SignalProcessorBuilder {
                                     )
                                 })?;
 
-                            let child_data_item = *data_layout
+                            let child_data_layout = rctx
+                                .get_function(name)
+                                .unwrap()
+                                .data_layout()
+                                .get_untracked();
+                            let child_data_item = *child_data_layout
                                 .as_ref()
                                 .and_then(|l| l.own_data_items.get(dref))
                                 .ok_or_else(|| {
@@ -607,7 +612,7 @@ impl SignalProcessorBuilder {
                     }
 
                     if let Some((_, offset)) = rctx
-                        .get_function(name)
+                        .get_function(fctx.func.name())
                         .unwrap()
                         .data_layout()
                         .get_untracked()
