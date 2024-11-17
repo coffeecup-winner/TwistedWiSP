@@ -171,10 +171,6 @@ impl TwistedWispEngine {
         self.rctx.remove_function(&name);
     }
 
-    pub fn context_set_main_function(&mut self, name: String) {
-        self.ctx.set_main_function(&name);
-    }
-
     pub fn context_set_data_value(
         &mut self,
         name: String,
@@ -252,12 +248,7 @@ impl TwistedWispEngine {
             .compile(&self.ctx, &mut self.rctx, &main_function)
     }
 
-    pub fn runtime_update(&mut self) -> Result<(), SignalProcessCreationError> {
-        if let Some(main_function) = self.ctx.main_function() {
-            self.runtime
-                .switch_to_signal_processor(&self.ctx, &mut self.rctx, main_function)
-        } else {
-            Err(SignalProcessCreationError::NoMainFunction)
-        }
+    pub fn runtime_switch_to_signal_processor(&mut self, sp: SignalProcessor) {
+        self.runtime.switch_to_signal_processor(sp)
     }
 }
