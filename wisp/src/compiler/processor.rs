@@ -2,10 +2,7 @@ use std::collections::HashMap;
 
 use inkwell::{
     execution_engine::ExecutionEngine,
-    llvm_sys::{
-        execution_engine::{LLVMDisposeExecutionEngine, LLVMExecutionEngineRef},
-        target::{LLVMDisposeTargetData, LLVMTargetDataRef},
-    },
+    llvm_sys::execution_engine::{LLVMDisposeExecutionEngine, LLVMExecutionEngineRef},
 };
 use ringbuffer::{AllocRingBuffer, RingBuffer};
 
@@ -42,18 +39,13 @@ enum WatchedData {
 // unnecessarily complicated for the users.
 struct ExecutionEngineRef {
     ee: LLVMExecutionEngineRef,
-    target_data: LLVMTargetDataRef,
 }
 
 impl ExecutionEngineRef {
     pub fn new(ee: ExecutionEngine) -> Self {
         let ee_ref = ee.as_mut_ptr();
-        let target_data = ee.get_target_data().as_mut_ptr();
         std::mem::forget(ee);
-        ExecutionEngineRef {
-            ee: ee_ref,
-            target_data,
-        }
+        ExecutionEngineRef { ee: ee_ref }
     }
 }
 
@@ -63,7 +55,6 @@ impl Drop for ExecutionEngineRef {
     fn drop(&mut self) {
         unsafe {
             LLVMDisposeExecutionEngine(self.ee);
-            LLVMDisposeTargetData(self.target_data);
         }
     }
 }
