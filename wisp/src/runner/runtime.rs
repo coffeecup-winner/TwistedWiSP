@@ -316,10 +316,7 @@ impl WispRuntime {
             .build_signal_processor(ctx, &self.ectx, rctx, top_level)
     }
 
-    pub fn switch_to_signal_processor(
-        &mut self,
-        sp: SignalProcessor,
-    ) {
+    pub fn switch_to_signal_processor(&mut self, sp: SignalProcessor) {
         self.runtime_tx
             .send(RuntimeStateMessage::SetProcessor(sp))
             .expect("The processor channel is disconnected");
