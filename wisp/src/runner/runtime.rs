@@ -307,7 +307,7 @@ impl WispRuntime {
         top_level: &str,
     ) -> Result<SignalProcessor, SignalProcessCreationError> {
         for func in ctx.functions_iter() {
-            let ir_funcs = func.get_ir_functions(ctx);
+            let ir_funcs = func.borrow().get_ir_functions(ctx);
             for ir_func in ir_funcs {
                 rctx.add_function(ir_func);
             }

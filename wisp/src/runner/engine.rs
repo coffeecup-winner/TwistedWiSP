@@ -67,7 +67,7 @@ impl TwistedWispEngine {
         let runtime = WispRuntime::init(device, midi_in);
 
         for f in ctx.functions_iter() {
-            for func in f.get_ir_functions(&ctx) {
+            for func in f.borrow().get_ir_functions(&ctx) {
                 rctx.add_function(func);
             }
         }
@@ -131,16 +131,16 @@ impl TwistedWispEngine {
     pub fn ctx_list_functions(&self) -> Vec<String> {
         self.ctx
             .functions_iter()
-            .map(|f| f.name().to_owned())
+            .map(|f| f.borrow().name().to_owned())
             .collect()
     }
 
-    pub fn ctx_get_flow(&self, name: &str) -> Option<FlowFunctionRef> {
-        self.ctx
-            .get_function(name)?
-            .as_flow()
-            .map(|f| FlowFunctionRef(f))
-    }
+    // pub fn ctx_get_flow(&self, name: &str) -> Option<FlowFunctionRef> {
+    //     self.ctx
+    //         .get_function(name)?
+    //         .as_flow()
+    //         .map(|f| FlowFunctionRef(f.borrow()))
+    // }
 
     pub fn ctx_remove_function(&mut self, name: &str) {
         self.ctx.remove_function(name);
