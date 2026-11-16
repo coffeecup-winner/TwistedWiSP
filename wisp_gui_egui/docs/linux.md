@@ -33,7 +33,8 @@ Benchmark: `cargo run --release -p wisp_gui_egui --example benchmark -- wisp/cor
 Fixed valid fixtures are generated before timing; each scenario warms 50 frames
 and measures 300 at 1280×800 / 1×. Output is UI CPU time, not presentation/GPU
 latency. It covers 100/200, 1000/2000 nodes/wires, 16 scopes, idle and scripted
-wheel input. Interactive multi-selection drag/GPU/vsync, 2× DPI and sustained
+wheel input. Scopes receive changing histories at 30 Hz. See `performance.md` for
+the measured environment/results and pending gates. Interactive multi-selection drag/GPU/vsync, 2× DPI and sustained
 physical playback still require desktop acceptance. Do not compare this headless
 number directly to the 16.7 ms presentation target.
 
@@ -44,3 +45,9 @@ code. Preserve its notices if redistributing that tool/source. Unicode data/code
 notices are included. System libraries such as ALSA/LLVM have separate distribution
 terms; this package records dynamically required libraries rather than bundling
 them. MIT/Apache project notices are included for both workspace crates.
+
+Expression nodes have highlighted multiline drafts. Enter inserts a newline;
+Apply or Ctrl/Cmd+Enter validates and commits one edit. Escape restores accepted
+source. Invalid text stays in the draft; external/undo changes require an explicit
+reload/keep decision when a draft diverges. Existing affected-wire validation
+still rejects port changes that would invalidate connections.
