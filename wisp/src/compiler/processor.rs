@@ -339,8 +339,11 @@ impl SignalProcessor {
             return None;
         }
         let child_offset = base + item.offset;
+        if self.watches.len() >= 128 {
+            return None;
+        }
         let idx = WatchIndex(self.watch_id_gen);
-        self.watch_id_gen += 1;
+        self.watch_id_gen = self.watch_id_gen.checked_add(1)?;
         self.watches.insert(
             idx,
             Watch {

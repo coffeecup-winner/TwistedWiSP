@@ -108,6 +108,43 @@ impl TwistedWispEngine {
         self.runtime.scalar_checked(name, call, data, value)
     }
 
+    pub fn midi_available(&self) -> bool {
+        self.runtime.midi_available()
+    }
+    pub fn midi_learn(&self, target: u64) -> Result<(), String> {
+        self.runtime.midi_learn(target)
+    }
+    pub fn midi_targets(&self) -> Vec<u64> {
+        self.runtime.midi_targets()
+    }
+    pub fn midi_cancel(&self) {
+        self.runtime.midi_cancel();
+    }
+    pub fn midi_remove(&self, target: u64) {
+        self.runtime.midi_remove(target);
+    }
+    pub fn midi_poll(&self) -> Vec<crate::MidiObservation> {
+        self.runtime.midi_poll()
+    }
+    pub fn runtime_scalar_try(
+        &self,
+        root: &str,
+        call: CallIndex,
+        value: f32,
+    ) -> Result<(), String> {
+        self.runtime.scalar_try(root, call, DataIndex(0), value)
+    }
+    pub fn runtime_watch_checked(
+        &self,
+        root: &str,
+        call: CallIndex,
+        last: bool,
+    ) -> Result<WatchIndex, String> {
+        self.runtime.watch_checked(root, call, DataIndex(0), last)
+    }
+    pub fn runtime_query_checked(&self) -> Result<WatchedDataValues, String> {
+        self.runtime.query_checked()
+    }
     pub fn enable_logging() -> bool {
         let mut builder = env_logger::Builder::new();
         let result = builder

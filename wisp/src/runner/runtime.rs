@@ -17,11 +17,7 @@ use inkwell::{
     AddressSpace,
 };
 use midir::MidiInputConnection;
-use midly::{
-    live::LiveEvent,
-    num::{u4, u7},
-    MidiMessage,
-};
+use midly::{live::LiveEvent, MidiMessage};
 use std::{
     collections::{HashMap, HashSet},
     sync::{
@@ -30,16 +26,6 @@ use std::{
     },
     time::Duration,
 };
-
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-struct MidiCC {
-    channel: u4,
-    controller: u7,
-}
-
-enum MidiStateMessage {
-    LearnCC(String, CallIndex, DataIndex),
-}
 
 enum RuntimeStateMessage {
     StartDsp,
@@ -262,7 +248,9 @@ pub struct WispRuntime {
     _stream: Stream,
     _midi: Option<MidiInputConnection<()>>,
     _device: ConfiguredAudioDevice,
-    midi_tx: Sender<MidiStateMessage>,
+    midi: Arc<crate::MidiMailbox>,
+    legacy_midi: HashMap<u64, (String, CallIndex, DataIndex)>,
+    legacy_pending: HashMap<u64, f32>,
     transport: RuntimeTransport,
 }
 
@@ -272,7 +260,7 @@ impl WispRuntime {
         midi: Option<WispMidiIn>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let (tx, rx) = bounded(64);
-        let (midi_tx, midi_rx) = bounded(64);
+        let mailbox = Arc::new(crate::MidiMailbox::default());
         let failed = Arc::new(AtomicBool::new(false));
         let stream_failed = failed.clone();
         let mut state = RuntimeState {
@@ -291,48 +279,18 @@ impl WispRuntime {
         // The callback must consume commands even when DSP is stopped.
         stream.play()?;
         let midi_connection = midi.and_then(|midi| {
-            let tx = tx.clone();
-            let mut mappings = HashMap::<MidiCC, (String, CallIndex, DataIndex)>::new();
-            let mut pending = HashMap::<MidiCC, (String, CallIndex, DataIndex, f32)>::new();
-            let mut learn = None;
+            let mailbox = mailbox.clone();
             match midi.midi_in.connect(
                 &midi.port,
                 "wisp-midi-in",
                 move |_, bytes, _| {
-                    while let Ok(MidiStateMessage::LearnCC(name, call, data)) = midi_rx.try_recv() {
-                        learn = Some((name, call, data));
-                    }
                     if let Ok(LiveEvent::Midi {
                         channel,
                         message: MidiMessage::Controller { controller, value },
                     }) = LiveEvent::parse(bytes)
                     {
-                        let key = MidiCC {
-                            channel,
-                            controller,
-                        };
-                        if let Some(binding) = learn.take() {
-                            mappings.insert(key, binding);
-                        }
-                        if let Some((name, call, data)) = mappings.get(&key) {
-                            pending.insert(
-                                key,
-                                (name.clone(), *call, *data, value.as_int() as f32 / 127.0),
-                            );
-                        }
+                        mailbox.cc(channel.as_int(), controller.as_int(), value.as_int());
                     }
-                    pending.retain(|_, (name, call, data, value)| {
-                        tx.try_send(RuntimeRequest {
-                            message: RuntimeStateMessage::SetDataValue(
-                                name.clone(),
-                                *call,
-                                *data,
-                                *value,
-                            ),
-                            reply: None,
-                        })
-                        .is_err()
-                    });
                 },
                 (),
             ) {
@@ -347,7 +305,9 @@ impl WispRuntime {
             _stream: stream,
             _midi: midi_connection,
             _device: device,
-            midi_tx,
+            midi: mailbox,
+            legacy_midi: HashMap::new(),
+            legacy_pending: HashMap::new(),
             transport: RuntimeTransport { tx, failed },
         })
     }
@@ -449,15 +409,85 @@ impl WispRuntime {
         }
     }
 
-    pub fn learn_midi_cc(&mut self, name: &str, call: CallIndex, data: DataIndex) {
-        if self._midi.is_some() {
-            let _ = self.midi_tx.send_timeout(
-                MidiStateMessage::LearnCC(name.into(), call, data),
-                Duration::from_millis(250),
-            );
+    pub fn midi_available(&self) -> bool {
+        self._midi.is_some()
+    }
+    pub fn midi_learn(&self, target: u64) -> Result<(), String> {
+        if !self.midi_available() {
+            return Err("MIDI unavailable".into());
+        }
+        if self.midi.learn(target) {
+            Ok(())
+        } else {
+            Err("MIDI target limit (128) or invalid token".into())
         }
     }
+    pub fn midi_targets(&self) -> Vec<u64> {
+        self.midi.targets()
+    }
+    pub fn midi_cancel(&self) {
+        self.midi.cancel();
+    }
+    pub fn midi_remove(&self, target: u64) {
+        self.midi.remove(target);
+    }
+    pub fn midi_poll(&self) -> Vec<crate::MidiObservation> {
+        self.midi.poll()
+    }
+    pub fn scalar_try(
+        &self,
+        name: &str,
+        call: CallIndex,
+        data: DataIndex,
+        value: f32,
+    ) -> Result<(), String> {
+        if !self.healthy() {
+            return Err("Audio device failed".into());
+        }
+        self.transport
+            .tx
+            .try_send(RuntimeRequest {
+                message: RuntimeStateMessage::SetDataValue(name.into(), call, data, value),
+                reply: None,
+            })
+            .map_err(|_| "Audio queue full".into())
+    }
+    pub fn learn_midi_cc(&mut self, name: &str, call: CallIndex, data: DataIndex) {
+        // Legacy callers already poll watches; use the same mailbox, with reserved tokens.
+        if self.legacy_midi.len() >= 128 {
+            return;
+        }
+        let token = (1u64 << 55) | (self.legacy_midi.len() as u64 + 1);
+        self.legacy_midi.insert(token, (name.into(), call, data));
+        let _ = self.midi_learn(token);
+    }
 
+    pub fn watch_checked(
+        &self,
+        name: &str,
+        call: CallIndex,
+        data: DataIndex,
+        last: bool,
+    ) -> Result<WatchIndex, String> {
+        match self.transport.request(RuntimeStateMessage::WatchDataValue(
+            name.into(),
+            call,
+            data,
+            last,
+        ))? {
+            SignalProcessorResponse::Watch(Some(id)) => Ok(id),
+            _ => Err("Invalid watch or watch limit (128)".into()),
+        }
+    }
+    pub fn query_checked(&self) -> Result<WatchedDataValues, String> {
+        match self
+            .transport
+            .request(RuntimeStateMessage::QueryWatchedDataValues)?
+        {
+            SignalProcessorResponse::WatchData(data) => Ok(data),
+            _ => Err("Unexpected watch reply".into()),
+        }
+    }
     pub fn watch_data_value(
         &mut self,
         name: &str,
@@ -487,6 +517,23 @@ impl WispRuntime {
     }
 
     pub fn query_watched_data_values(&mut self) -> WatchedDataValues {
+        for v in self.midi_poll() {
+            if self.legacy_midi.contains_key(&v.target) {
+                self.legacy_pending.insert(v.target, v.value);
+            }
+        }
+        self.legacy_pending.retain(|token, value| {
+            let Some((name, call, data)) = self.legacy_midi.get(token) else {
+                return false;
+            };
+            self.transport
+                .tx
+                .try_send(RuntimeRequest {
+                    message: RuntimeStateMessage::SetDataValue(name.clone(), *call, *data, *value),
+                    reply: None,
+                })
+                .is_err()
+        });
         match self
             .transport
             .request(RuntimeStateMessage::QueryWatchedDataValues)

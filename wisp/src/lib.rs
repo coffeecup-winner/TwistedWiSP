@@ -17,3 +17,5 @@ pub use offline::OfflineSession;
 
 pub mod buffer;
 pub use compiler::DataArrayHandle;
+
+pub use midi::mailbox::{MidiMailbox, MidiObservation};
