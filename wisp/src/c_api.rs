@@ -1,4 +1,4 @@
-use std::ffi::c_char;
+use std::{borrow::Borrow, ffi::c_char};
 
 use crate::{compiler::SignalProcessor, runner::engine::*};
 
@@ -64,18 +64,20 @@ pub unsafe extern "C" fn wisp_engine_destroy(engine: *mut TwistedWispEngine) {
     }
 }
 
+/// Engine Context API
+
 #[no_mangle]
-pub unsafe extern "C" fn wisp_engine_compile_signal_processor(
+pub unsafe extern "C" fn wisp_context_load_flow_from_file(
     engine: *mut TwistedWispEngine,
-    function: *const c_char,
-) -> *mut SignalProcessor {
+    file_name: *const c_char,
+) -> *mut c_char {
     if let Some(engine) = unsafe { engine.as_mut() } {
-        if let Ok(sp) = engine.context_compile_signal_processor(
-            unsafe { std::ffi::CStr::from_ptr(function) }
+        if let Ok(name) = engine.ctx_load_flow_from_file(
+            unsafe { std::ffi::CStr::from_ptr(file_name) }
                 .to_string_lossy()
-                .into_owned(),
+                .borrow(),
         ) {
-            return Box::into_raw(Box::new(sp));
+            return std::ffi::CString::new(name).unwrap().into_raw();
         }
     }
     std::ptr::null_mut()
@@ -95,11 +97,30 @@ pub unsafe extern "C" fn wisp_context_set_main_function(
     }
 }
 
+/// Engine Runtime API
+
+#[no_mangle]
+pub unsafe extern "C" fn wisp_engine_compile_signal_processor(
+    engine: *mut TwistedWispEngine,
+    function: *const c_char,
+) -> *mut SignalProcessor {
+    if let Some(engine) = unsafe { engine.as_mut() } {
+        if let Ok(sp) = engine.runtime_compile_signal_processor(
+            unsafe { std::ffi::CStr::from_ptr(function) }
+                .to_string_lossy()
+                .into_owned(),
+        ) {
+            return Box::into_raw(Box::new(sp));
+        }
+    }
+    std::ptr::null_mut()
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn wisp_context_update(engine: *mut TwistedWispEngine) {
     if let Some(engine) = unsafe { engine.as_mut() } {
         // TODO: Expose errors to the caller
-        engine.context_update().expect("Failed to update context");
+        engine.runtime_update().expect("Failed to update context");
     }
 }
 

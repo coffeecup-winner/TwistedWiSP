@@ -244,7 +244,7 @@ impl TwistedWispEngine {
         self.ctx.unload_wave_file(&name, &buffer_name);
     }
 
-    pub fn context_compile_signal_processor(
+    pub fn runtime_compile_signal_processor(
         &mut self,
         main_function: String,
     ) -> Result<SignalProcessor, SignalProcessCreationError> {
@@ -252,7 +252,7 @@ impl TwistedWispEngine {
             .compile(&self.ctx, &mut self.rctx, &main_function)
     }
 
-    pub fn context_update(&mut self) -> Result<(), SignalProcessCreationError> {
+    pub fn runtime_update(&mut self) -> Result<(), SignalProcessCreationError> {
         if let Some(main_function) = self.ctx.main_function() {
             self.runtime
                 .switch_to_signal_processor(&self.ctx, &mut self.rctx, main_function)

@@ -49,7 +49,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let name = wisp.ctx_load_flow_from_file(args.file_name.to_str().unwrap())?;
 
     let mut sp = wisp
-        .context_compile_signal_processor(name)
+        .runtime_compile_signal_processor(name)
         .expect("Failed to compile signal processor");
     let mut data = [0.0; 2];
     sp.process_one(&mut data);
