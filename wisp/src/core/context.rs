@@ -1,7 +1,6 @@
 use std::{
     collections::{hash_map, HashMap},
     error::Error,
-    io::BufReader,
     path::Path,
 };
 
@@ -203,71 +202,13 @@ impl WispContext {
         buffer_name: &str,
         filepath: &str,
     ) -> Result<(), Box<dyn Error>> {
-        let data = if filepath.is_empty() {
-            Self::get_builtin_data_array(buffer_name)
-                .ok_or(into_err(format!("Unknown buffer: {}", buffer_name)))?
+        let audio = if filepath.is_empty() {
+            crate::buffer::DecodedAudio::builtin(buffer_name)?
         } else {
-            let wav = hound::WavReader::open(filepath)?;
-            info!("Loaded wave file {}:\n{:?}", buffer_name, wav.spec());
-            let data = Self::convert_wav_samples(wav);
-            Self::mix_to_mono(&data)
+            crate::buffer::DecodedAudio::load(std::path::Path::new(filepath))?
         };
-        self.add_data_array(name, buffer_name.into(), data);
+        self.add_data_array(name, buffer_name.into(), audio.samples.to_vec());
         Ok(())
-    }
-
-    fn get_builtin_data_array(name: &str) -> Option<Vec<f32>> {
-        match name {
-            "sine" => {
-                const LENGTH: usize = 1024;
-                let mut data = vec![0.0; LENGTH];
-                const STEP: f32 = 2.0 * std::f32::consts::PI / (LENGTH as f32);
-                for (i, value) in data.iter_mut().enumerate() {
-                    *value = (i as f32 * STEP).sin();
-                }
-                Some(data)
-            }
-            _ => None,
-        }
-    }
-
-    fn convert_wav_samples(wav: hound::WavReader<BufReader<std::fs::File>>) -> Vec<f32> {
-        let spec = wav.spec();
-        if spec.sample_format == hound::SampleFormat::Float {
-            return wav.into_samples::<f32>().map(|s| s.unwrap()).collect();
-        }
-        let mut data = Vec::new();
-        if spec.bits_per_sample > 16 {
-            let samples = wav.into_samples::<i32>();
-            let max = (1i32 << (spec.bits_per_sample - 1)) as f32;
-            for sample in samples {
-                data.push(sample.unwrap() as f32 / max);
-            }
-        } else if spec.bits_per_sample > 8 {
-            let samples = wav.into_samples::<i16>();
-            let max = (1i16 << (spec.bits_per_sample - 1)) as f32;
-            for sample in samples {
-                data.push(sample.unwrap() as f32 / max);
-            }
-        } else {
-            let samples = wav.into_samples::<i8>();
-            let max = (1i8 << (spec.bits_per_sample - 1)) as f32;
-            for sample in samples {
-                data.push(sample.unwrap() as f32 / max);
-            }
-        }
-        data
-    }
-
-    // TODO: Ideally provide several channels from the buffer node instead
-    fn mix_to_mono(data: &[f32]) -> Vec<f32> {
-        let mut i = 0;
-        let mut result = Vec::with_capacity(data.len() / 2);
-        while i < data.len() {
-            result.push((data[i] + data[i + 1]) * 0.5);
-            i += 2;
-        }
-        result
     }
 
     pub fn unload_wave_file(&mut self, name: &str, buffer_name: &str) {
