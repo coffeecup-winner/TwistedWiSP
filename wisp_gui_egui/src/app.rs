@@ -25,7 +25,8 @@ pub struct Options {
     pub audio_device: Option<String>,
     #[arg(long, value_parser = clap::value_parser!(u16).range(1..))]
     pub audio_output_channels: Option<u16>,
-    #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
+    /// Requested audio block size; devices may clamp this to their supported range.
+    #[arg(long, default_value = "256", value_parser = clap::value_parser!(u32).range(1..))]
     pub audio_buffer_size: Option<u32>,
     #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
     pub audio_sample_rate: Option<u32>,
@@ -161,11 +162,16 @@ impl WispGuiApp {
             }
         }
     }
-    fn poll(&mut self, _ctx: &egui::Context) {
+    fn poll(&mut self, ctx: &egui::Context) {
         while let Ok(event) = self.service.rx.try_recv() {
             match event {
                 EditorEvent::Response { req_id, result } => {
                     self.awaiting.remove(&req_id.0);
+                    if self.canvas.acknowledge_control(req_id) {
+                        // The worker publishes before acknowledging the fence. Reapply
+                        // even an already-seen revision now that the local edit is accepted.
+                        self.canvas_revision = None;
+                    }
                     if self.operation == Some(req_id) {
                         self.operation = None;
                         self.canvas.edit_result(result.is_ok());
@@ -183,7 +189,7 @@ impl WispGuiApp {
         if let Some(snapshot) = self.service.take_snapshot() {
             self.snapshot = Some(snapshot);
         }
-        // Do not overwrite local slider state with older service snapshots during a drag.
+        // The canvas protects active and unacknowledged local control values.
         if let Some(snapshot) = &self.snapshot {
             let revision = (snapshot.id, snapshot.revision);
             if self.canvas_revision != Some(revision) {
@@ -191,6 +197,9 @@ impl WispGuiApp {
                 self.canvas_revision = Some(revision);
             }
         }
+        self.flush_commands(ctx);
+    }
+    fn flush_commands(&mut self, ctx: &egui::Context) {
         let queued = std::mem::take(&mut self.queued);
         let mut commands = queued.into_iter();
         while let Some(command) = commands.next() {
@@ -208,7 +217,7 @@ impl WispGuiApp {
             }
         }
         if !self.queued.is_empty() {
-            _ctx.request_repaint_after(std::time::Duration::from_millis(16));
+            ctx.request_repaint_after(std::time::Duration::from_millis(16));
         }
     }
     fn queue(&mut self, command: EditorCommand) {
@@ -220,18 +229,38 @@ impl WispGuiApp {
             *req_id = self.request();
             self.operation = Some(*req_id);
         }
-        // Keep the newest value/position per node while the bounded worker queue is busy.
-        if self
-            .queued
-            .last()
-            .is_some_and(|old| same_edit(old, &command))
+        // Replace only an unsent control/fence pair in this active gesture.
+        // Never coalesce across a history, document, or gesture boundary.
+        let n = self.queued.len();
+        if self.canvas.gesture_active()
+            && n >= 2
+            && same_edit(&self.queued[n - 2], &command)
+            && let EditorCommand::ControlFence { req_id, .. } = &self.queued[n - 1]
         {
-            self.queued.pop();
+            self.awaiting.remove(&req_id.0);
+            self.queued.truncate(n - 2);
         }
+        let control = match &command {
+            EditorCommand::SetControlValue {
+                document_id,
+                node_id,
+                ..
+            } => Some((*document_id, *node_id)),
+            _ => None,
+        };
         self.queued.push(command);
         let req_id = self.request();
         self.awaiting.insert(req_id.0);
-        self.queued.push(EditorCommand::Barrier { req_id });
+        if let Some((document_id, node_id)) = control {
+            self.canvas.track_control(document_id, node_id, req_id);
+            self.queued.push(EditorCommand::ControlFence {
+                document_id,
+                node_id,
+                req_id,
+            });
+        } else {
+            self.queued.push(EditorCommand::Barrier { req_id });
+        }
     }
 }
 impl eframe::App for WispGuiApp {
@@ -432,9 +461,8 @@ impl eframe::App for WispGuiApp {
                     });
                 });
         }
-        // Flush new intents next frame even when the graph is otherwise idle.
-        if !self.queued.is_empty() {
-            ctx.request_repaint();
-        }
+        // Send this frame's input immediately instead of adding a repaint's
+        // worth of latency before it can reach the audio callback.
+        self.flush_commands(&ctx);
     }
 }

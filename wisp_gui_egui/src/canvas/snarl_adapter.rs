@@ -18,6 +18,7 @@ pub struct GraphCanvas {
     ids: BTreeMap<EditorNodeId, NodeId>,
     document_id: Option<DocumentId>,
     accepted_wires: Vec<(OutPinId, InPinId)>,
+    pending_controls: BTreeMap<EditorNodeId, RequestId>,
     revision: u64,
     catalog: Vec<crate::editor::document::FunctionChoice>,
     pub snap: bool,
@@ -28,6 +29,28 @@ pub struct GraphCanvas {
     view: super::state::CanvasViewState,
 }
 impl GraphCanvas {
+    pub fn gesture_active(&self) -> bool {
+        self.gesture
+    }
+
+    /// Retain each control's local value until its newest service fence arrives.
+    pub fn track_control(
+        &mut self,
+        document_id: DocumentId,
+        node_id: EditorNodeId,
+        req_id: RequestId,
+    ) {
+        if self.document_id == Some(document_id) {
+            self.pending_controls.insert(node_id, req_id);
+        }
+    }
+    pub fn acknowledge_control(&mut self, req_id: RequestId) -> bool {
+        let before = self.pending_controls.len();
+        self.pending_controls
+            .retain(|_, pending| *pending != req_id);
+        self.pending_controls.len() != before
+    }
+
     pub fn finish_gesture(&mut self) -> Option<EditorCommand> {
         if !self.gesture {
             return None;
@@ -51,6 +74,7 @@ impl GraphCanvas {
         if self.document_id != Some(snapshot.id) {
             self.snarl = Snarl::new();
             self.ids.clear();
+            self.pending_controls.clear();
             self.document_id = Some(snapshot.id);
             self.picker = None;
             self.gesture = false;
@@ -60,6 +84,7 @@ impl GraphCanvas {
         self.catalog = snapshot.catalog.clone();
         let desired: BTreeSet<_> = snapshot.nodes.iter().map(|(id, _)| *id).collect();
         self.view.selected.retain(|id| desired.contains(id));
+        self.pending_controls.retain(|id, _| desired.contains(id));
         let stale: Vec<_> = self
             .ids
             .keys()
@@ -80,7 +105,7 @@ impl GraphCanvas {
                     info.pos = node.position.to_pos2();
                 }
                 info.value = node.clone();
-                if self.gesture {
+                if self.gesture || self.pending_controls.contains_key(id) {
                     info.value.control_values = values;
                 }
             } else {
@@ -120,12 +145,7 @@ impl GraphCanvas {
         };
         let enabled = ui.is_enabled();
         let pointer_down = ui.input(|i| i.pointer.any_down() && i.focused);
-        let begin =
-            enabled && pointer_down && !self.gesture && ui.rect_contains_pointer(ui.max_rect());
         let end = !pointer_down && self.gesture;
-        if begin {
-            self.gesture = true;
-        }
         if end {
             self.gesture = false;
         }
@@ -137,15 +157,23 @@ impl GraphCanvas {
             draft: &mut self.draft,
             transform: &mut self.transform,
         };
-        if begin {
-            viewer.commands.push(EditorCommand::Gesture {
-                document_id,
-                begin: true,
-            });
+        let response = SnarlWidget::new().id_salt(("flow", document_id.0)).show(
+            &mut self.snarl,
+            &mut viewer,
+            ui,
+        );
+        // Node controls live on snarl's transformed sublayer. Testing the parent
+        // Ui's hover misses them, so use the widget response to start gestures.
+        if enabled && pointer_down && !self.gesture && response.contains_pointer() {
+            self.gesture = true;
+            viewer.commands.insert(
+                0,
+                EditorCommand::Gesture {
+                    document_id,
+                    begin: true,
+                },
+            );
         }
-        SnarlWidget::new()
-            .id_salt(("flow", document_id.0))
-            .show(&mut self.snarl, &mut viewer, ui);
         // Snarl's command-drag branch bypasses viewer callbacks and removes canvas wires.
         // Restore the accepted projection every frame, including canceled wire drags.
         for &(a, b) in &self.accepted_wires {
@@ -160,7 +188,7 @@ impl GraphCanvas {
             .collect();
         let canvas_focus = enabled
             && viewer.picker.is_none()
-            && ui.rect_contains_pointer(ui.max_rect())
+            && response.contains_pointer()
             && !ui.ctx().egui_wants_keyboard_input();
         if canvas_focus && ui.input(|i| i.key_pressed(egui::Key::N)) {
             let p = ui
@@ -443,6 +471,102 @@ mod tests {
         let mut canvas = GraphCanvas::default();
         canvas.sync(&doc.snapshot());
         (doc, canvas)
+    }
+    #[test]
+    fn pointer_on_node_sublayer_starts_and_ends_a_gesture() {
+        let (_, mut canvas) = fixture();
+        let ctx = egui::Context::default();
+        let input = |events| egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1200., 900.),
+            )),
+            events,
+            ..Default::default()
+        };
+        for _ in 0..3 {
+            let mut out = ctx.run_ui(input(vec![]), |ui| {
+                canvas.show(ui);
+            });
+            out.textures_delta.clear();
+        }
+        let node = &canvas.snarl[canvas.ids[&EditorNodeId(2)]];
+        let position = canvas
+            .transform
+            .mul_pos((node.position + egui::vec2(30., 40.)).to_pos2());
+        let mut out = ctx.run_ui(input(vec![egui::Event::PointerMoved(position)]), |ui| {
+            canvas.show(ui);
+        });
+        out.textures_delta.clear();
+        let mut commands = vec![];
+        let mut out = ctx.run_ui(
+            input(vec![egui::Event::PointerButton {
+                pos: position,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: Default::default(),
+            }]),
+            |ui| commands = canvas.show(ui),
+        );
+        out.textures_delta.clear();
+        assert!(canvas.gesture_active());
+        assert!(
+            matches!(
+                commands.first(),
+                Some(EditorCommand::Gesture { begin: true, .. })
+            ),
+            "{commands:?}"
+        );
+        assert!(
+            commands
+                .iter()
+                .any(|c| matches!(c, EditorCommand::SetControlValue { .. })),
+            "Expected slider edit: {commands:?}"
+        );
+        let mut out = ctx.run_ui(
+            input(vec![egui::Event::PointerButton {
+                pos: position,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: Default::default(),
+            }]),
+            |ui| commands = canvas.show(ui),
+        );
+        out.textures_delta.clear();
+        assert!(!canvas.gesture_active());
+        assert!(
+            matches!(
+                commands.last(),
+                Some(EditorCommand::Gesture { begin: false, .. })
+            ),
+            "{commands:?}"
+        );
+    }
+    #[test]
+    fn released_slider_keeps_final_value_until_latest_edit_is_acknowledged() {
+        let (mut doc, mut canvas) = fixture();
+        let control = doc.snapshot().nodes[1].0;
+        let native = canvas.ids[&control];
+        // The pointer has already been released; older accepted drag values are
+        // still arriving from the worker. They must not replay the drag on screen.
+        canvas.snarl[native].control_values.insert(0, 0.8);
+        canvas.track_control(DocumentId(1), control, RequestId(10));
+        canvas.track_control(DocumentId(1), control, RequestId(11));
+        assert!(!canvas.acknowledge_control(RequestId(10)));
+        for value in [0.2, 0.4, 0.6] {
+            doc.set_value(control, value).unwrap();
+            canvas.sync(&doc.snapshot());
+            assert_eq!(canvas.snarl[native].control_values[&0], 0.8);
+        }
+        doc.set_value(control, 0.8).unwrap();
+        assert!(canvas.acknowledge_control(RequestId(11)));
+        canvas.sync(&doc.snapshot());
+        assert_eq!(canvas.snarl[native].control_values[&0], 0.8f32 as f64);
+        // Once acknowledged, subsequent authoritative edits (including Undo)
+        // must still update the displayed value.
+        doc.edit(doc.snapshot().revision, Edit::Undo).unwrap();
+        canvas.sync(&doc.snapshot());
+        assert_eq!(canvas.snarl[native].control_values[&0], 0.6f32 as f64);
     }
     #[test]
     fn service_slider_snapshots_do_not_generate_edits_without_input() {

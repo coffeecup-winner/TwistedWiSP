@@ -7,7 +7,7 @@ cargo run -p wisp_gui_egui -- --flow wisp_gui/control.twf
 cargo run -p wisp_gui_egui -- --flow wisp_gui/control.twf --offline
 ```
 
-Startup is stopped and does not open audio/MIDI. **Start DSP** lazily opens audio, compiles the authoritative flow, installs it, restores saved scalar values, then starts playback. Sliders update DSP without recompilation. Stop outputs silence while keeping the callback available for commands. Audio failures are shown in the editor; offline edits remain available. MIDI is optional.
+Startup is stopped and does not open audio/MIDI. **Start DSP** lazily opens audio, compiles the authoritative flow, installs it, restores saved scalar values, then starts playback. Sliders update DSP without recompilation. During a drag, outdated queued values collapse to the newest value instead of trailing behind the pointer. The GUI requests a 256-frame audio buffer by default (about 5.8 ms per block at 44.1 kHz), clamped to device support; `--audio-buffer-size` overrides it. Actual response also depends on the device/driver output buffering. Stop outputs silence while keeping the callback available for commands. Audio failures are shown in the editor; offline edits remain available. MIDI is optional.
 
 `--offline` forbids device initialization. `--help` lists core, audio host/device/channel/buffer/rate and MIDI options. `--core-lib-path PATH` selects another core directory. Repeatable `--data-path` is reserved for milestone 4; WAV binding is not implemented. Flows needing arrays/buffers remain viewable but cannot start DSP.
 

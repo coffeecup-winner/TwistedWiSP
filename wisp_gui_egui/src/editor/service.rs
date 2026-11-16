@@ -77,6 +77,7 @@ pub fn spawn_configured_service(
             RuntimeStatus::Stopped
         };
         let mut pending_command = None;
+        let mut control_gesture = None;
         while !worker_stop.load(Ordering::Acquire) {
             let mut command = match pending_command
                 .take()
@@ -107,29 +108,28 @@ pub fn spawn_configured_service(
                 }
                 Err(_) => break,
             };
-            // Collapse adjacent edits; loads and DSP requests remain ordering barriers.
-            for _ in 0..127 {
-                match commands.try_recv() {
-                    Ok(next) if same_edit(&command, &next) => command = next,
-                    Ok(next) => {
-                        pending_command = Some(next);
-                        break;
-                    }
-                    Err(_) => break,
-                }
-            }
+            let control_fences = coalesce_edits(
+                &mut command,
+                &commands,
+                &mut pending_command,
+                control_gesture,
+            );
             let event = match command {
-                EditorCommand::Barrier { req_id } => EditorEvent::Response {
-                    req_id,
-                    result: Ok(()),
-                },
+                EditorCommand::ControlFence { req_id, .. } | EditorCommand::Barrier { req_id } => {
+                    EditorEvent::Response {
+                        req_id,
+                        result: Ok(()),
+                    }
+                }
                 EditorCommand::Gesture { document_id, begin } => {
                     match document.as_mut().filter(|d| d.id() == document_id) {
                         Some(doc) => {
                             if begin {
                                 doc.begin_gesture();
+                                control_gesture = Some(document_id);
                             } else {
                                 doc.end_gesture();
+                                control_gesture = None;
                             }
                             publish_doc(doc, &worker_snapshots, &repaint);
                             continue;
@@ -142,6 +142,7 @@ pub fn spawn_configured_service(
                         EditorDocument::new_flow(&name, &core_path, DocumentId(next_document)).map(
                             |doc| {
                                 runtime = None;
+                                control_gesture = None;
                                 desired_running = false;
                                 next_document += 1;
                                 generation += 1;
@@ -161,6 +162,7 @@ pub fn spawn_configured_service(
                     edit,
                     req_id,
                 } => {
+                    control_gesture = None;
                     let result = (|| {
                         let doc = document
                             .as_mut()
@@ -242,6 +244,7 @@ pub fn spawn_configured_service(
                     let result = EditorDocument::load(&path, &core_path, DocumentId(next_document))
                         .map(|doc| {
                             runtime = None;
+                            control_gesture = None;
                             desired_running = false;
                             generation += 1;
                             status = if offline {
@@ -267,9 +270,8 @@ pub fn spawn_configured_service(
                             .ok_or("Stale document")?;
                         doc.set_value(node_id, value)?;
                         if let Some(live) = runtime.as_mut().filter(|_| runtime_current) {
-                            let snapshot = doc.snapshot();
                             let result = live.scalar(
-                                &snapshot.flow_name,
+                                doc.flow_name(),
                                 doc.runtime_call_index(node_id)?,
                                 value.clamp(0.0, 1.0) as f32,
                             );
@@ -285,7 +287,6 @@ pub fn spawn_configured_service(
                         }
                         deliver(EditorEvent::Error(error), &events, &worker_stop, &repaint);
                     }
-                    publish(&document, &worker_snapshots, &repaint);
                     runtime_event(&document, generation, status)
                 }
                 EditorCommand::MoveNode {
@@ -397,7 +398,19 @@ pub fn spawn_configured_service(
             if !deliver(event, &events, &worker_stop, &repaint) {
                 break;
             }
-            publish(&document, &worker_snapshots, &repaint);
+            for req_id in control_fences {
+                if !deliver(
+                    EditorEvent::Response {
+                        req_id,
+                        result: Ok(()),
+                    },
+                    &events,
+                    &worker_stop,
+                    &repaint,
+                ) {
+                    break;
+                }
+            }
             deliver(
                 runtime_event(&document, generation, status),
                 &events,
@@ -414,6 +427,36 @@ pub fn spawn_configured_service(
         thread: Some(thread),
     }
 }
+/// Collapse queued drag values even when their acknowledgement fences intervene.
+/// Fences are replied to only after the retained value reaches the callback.
+fn coalesce_edits(
+    command: &mut EditorCommand,
+    commands: &Receiver<EditorCommand>,
+    pending: &mut Option<EditorCommand>,
+    gesture: Option<DocumentId>,
+) -> Vec<super::commands::RequestId> {
+    let mut fences = vec![];
+    for _ in 0..127 {
+        match commands.try_recv() {
+            Ok(next) if same_edit(command, &next) => *command = next,
+            Ok(EditorCommand::ControlFence {
+                document_id,
+                node_id,
+                req_id,
+            }) if gesture == Some(document_id)
+                && matches!(command,EditorCommand::SetControlValue{document_id:d,node_id:n,..} if *d==document_id && *n==node_id) =>
+            {
+                fences.push(req_id);
+            }
+            Ok(next) => {
+                *pending = Some(next);
+                break;
+            }
+            Err(_) => break,
+        }
+    }
+    fences
+}
 fn runtime_event(
     document: &Option<EditorDocument>,
     generation: u64,
@@ -423,7 +466,7 @@ fn runtime_event(
         document_id: document.as_ref().map(|d| d.id()),
         generation,
         semantic_revision: if status == RuntimeStatus::Running {
-            document.as_ref().map(|d| d.snapshot().semantic_revision)
+            document.as_ref().map(|d| d.semantic_revision())
         } else {
             None
         },
@@ -968,6 +1011,202 @@ mod tests {
                 EditorEvent::Response { result: Ok(()), .. }
             ));
         }
+    }
+    struct GatedScalar {
+        values: Arc<Mutex<Vec<f32>>>,
+        gate: Arc<AtomicBool>,
+        entered: Sender<()>,
+        resume: Receiver<()>,
+    }
+    impl super::super::runtime::EditorRuntime for GatedScalar {
+        fn configuration(&self) -> (u32, u32) {
+            (44100, 2)
+        }
+        fn prepare(&mut self, _: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn install_prepared(&mut self) -> Result<(), String> {
+            Ok(())
+        }
+        fn scalar(&mut self, _: &str, _: u32, value: f32) -> Result<(), String> {
+            self.values.lock().unwrap().push(value);
+            if self.gate.swap(false, Ordering::AcqRel) {
+                self.entered.send(()).unwrap();
+                self.resume
+                    .recv_timeout(Duration::from_secs(3))
+                    .map_err(|e| e.to_string())?;
+            }
+            Ok(())
+        }
+        fn start(&mut self) -> Result<(), String> {
+            Ok(())
+        }
+        fn stop(&mut self) -> Result<(), String> {
+            Ok(())
+        }
+        fn healthy(&self) -> bool {
+            true
+        }
+    }
+    #[test]
+    fn drag_uses_latest_value_after_callback_instead_of_replaying_backlog() {
+        use super::super::document::{Edit, EditorNodeId};
+        let values = Arc::new(Mutex::new(vec![]));
+        let gate = Arc::new(AtomicBool::new(false));
+        let (entered_tx, entered) = bounded(1);
+        let (resume_tx, resume) = bounded(1);
+        let v = values.clone();
+        let g = gate.clone();
+        let service = spawn_configured_service(
+            core(),
+            egui::Context::default(),
+            false,
+            Default::default(),
+            Box::new(move |_| {
+                Ok(Box::new(GatedScalar {
+                    values: v.clone(),
+                    gate: g.clone(),
+                    entered: entered_tx.clone(),
+                    resume: resume.clone(),
+                }))
+            }),
+        );
+        service
+            .submit(EditorCommand::LoadFlow {
+                path: core().join("../../wisp_gui/control.twf"),
+                req_id: RequestId(1),
+            })
+            .unwrap();
+        response(&service);
+        service
+            .submit(EditorCommand::DspStart {
+                req_id: RequestId(2),
+            })
+            .unwrap();
+        response(&service);
+        values.lock().unwrap().clear();
+        gate.store(true, Ordering::Release);
+        service
+            .submit(EditorCommand::Gesture {
+                document_id: DocumentId(1),
+                begin: true,
+            })
+            .unwrap();
+        service
+            .submit(EditorCommand::SetControlValue {
+                document_id: DocumentId(1),
+                node_id: EditorNodeId(2),
+                value: 0.1,
+            })
+            .unwrap();
+        entered.recv_timeout(Duration::from_secs(3)).unwrap();
+        service
+            .submit(EditorCommand::ControlFence {
+                document_id: DocumentId(1),
+                node_id: EditorNodeId(2),
+                req_id: RequestId(100),
+            })
+            .unwrap();
+        // Model fast UI input while one audio callback is still outstanding.
+        for i in 0..40 {
+            service
+                .submit(EditorCommand::SetControlValue {
+                    document_id: DocumentId(1),
+                    node_id: EditorNodeId(2),
+                    value: (20 + i) as f64 / 100.,
+                })
+                .unwrap();
+            service
+                .submit(EditorCommand::ControlFence {
+                    document_id: DocumentId(1),
+                    node_id: EditorNodeId(2),
+                    req_id: RequestId(200 + i),
+                })
+                .unwrap();
+        }
+        service
+            .submit(EditorCommand::Gesture {
+                document_id: DocumentId(1),
+                begin: false,
+            })
+            .unwrap();
+        service
+            .submit(EditorCommand::Barrier {
+                req_id: RequestId(999),
+            })
+            .unwrap();
+        resume_tx.send(()).unwrap();
+        let mut replies = std::collections::BTreeSet::new();
+        loop {
+            if let EditorEvent::Response { req_id, result } =
+                service.rx.recv_timeout(Duration::from_secs(3)).unwrap()
+            {
+                result.unwrap();
+                if req_id == RequestId(999) {
+                    break;
+                }
+                replies.insert(req_id.0);
+            }
+        }
+        assert_eq!(replies.len(), 41);
+        assert!(replies.contains(&239));
+        assert_eq!(*values.lock().unwrap(), [0.1f32, 0.59f32]);
+        assert_eq!(
+            service.snapshots.lock().unwrap().as_ref().unwrap().nodes[1]
+                .1
+                .control_values[&0],
+            0.59f32 as f64
+        );
+        service_edit(&service, Edit::Undo).unwrap();
+        let snapshot = service.snapshots.lock().unwrap().as_ref().unwrap().clone();
+        assert!(!snapshot.can_undo);
+        assert!(!snapshot.dirty);
+        assert!((snapshot.nodes[1].1.control_values[&0] - 0.103).abs() < 1e-6);
+    }
+    #[test]
+    fn control_coalescing_respects_fences_outside_gestures_and_explicit_barriers() {
+        use super::super::document::EditorNodeId;
+        let value = || EditorCommand::SetControlValue {
+            document_id: DocumentId(1),
+            node_id: EditorNodeId(2),
+            value: 0.7,
+        };
+        for boundary in [
+            EditorCommand::Gesture {
+                document_id: DocumentId(1),
+                begin: false,
+            },
+            EditorCommand::Barrier {
+                req_id: RequestId(1),
+            },
+            EditorCommand::DspStop {
+                req_id: RequestId(2),
+            },
+        ] {
+            let (tx, rx) = bounded(4);
+            tx.send(boundary).unwrap();
+            tx.send(value()).unwrap();
+            let mut command = value();
+            let mut pending = None;
+            assert!(
+                coalesce_edits(&mut command, &rx, &mut pending, Some(DocumentId(1))).is_empty()
+            );
+            assert!(pending.is_some());
+            assert_eq!(rx.len(), 1);
+        }
+        let (tx, rx) = bounded(4);
+        tx.send(EditorCommand::ControlFence {
+            document_id: DocumentId(1),
+            node_id: EditorNodeId(2),
+            req_id: RequestId(3),
+        })
+        .unwrap();
+        tx.send(value()).unwrap();
+        let mut command = value();
+        let mut pending = None;
+        assert!(coalesce_edits(&mut command, &rx, &mut pending, None).is_empty());
+        assert!(matches!(pending, Some(EditorCommand::ControlFence { .. })));
+        assert_eq!(rx.len(), 1);
     }
     #[test]
     fn saturated_queue_preserves_gesture_end_and_final_values() {

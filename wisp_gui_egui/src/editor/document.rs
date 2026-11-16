@@ -383,6 +383,12 @@ impl EditorDocument {
     pub fn mark_saved(&mut self, state: u64) {
         self.checkpoint = Some(state);
     }
+    pub fn flow_name(&self) -> &str {
+        &self.snapshot.flow_name
+    }
+    pub fn semantic_revision(&self) -> u64 {
+        self.snapshot.semantic_revision
+    }
     pub fn id(&self) -> DocumentId {
         self.snapshot.id
     }
@@ -403,7 +409,7 @@ impl EditorDocument {
         if node.1.control_values.get(&0) == Some(&(value as f64)) {
             return Ok(());
         }
-        let previous = self.memento();
+        let previous = self.gesture.is_none().then(|| self.memento());
         let node = self
             .snapshot
             .nodes
@@ -418,7 +424,14 @@ impl EditorDocument {
             .ok_or("Missing node")?
             .extra_data
             .insert("value".into(), FlowNodeExtraData::Float(value));
-        self.record(previous);
+        if let Some(previous) = previous {
+            self.record(previous);
+        } else {
+            // The gesture already owns its original memento; live samples need
+            // only a new state ID, not a full-flow serialization per mouse move.
+            self.state = self.next_state;
+            self.next_state += 1;
+        }
         self.changed();
         self.snapshot.semantic_revision += 1;
         Ok(())

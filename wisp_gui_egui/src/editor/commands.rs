@@ -7,6 +7,13 @@ use std::path::PathBuf;
 pub struct RequestId(pub u64);
 #[derive(Clone, Debug)]
 pub enum EditorCommand {
+    /// A control acknowledgement can move with a newer value in the same gesture.
+    /// Ordinary barriers and gesture boundaries always retain their ordering.
+    ControlFence {
+        document_id: DocumentId,
+        node_id: EditorNodeId,
+        req_id: RequestId,
+    },
     Barrier {
         req_id: RequestId,
     },
