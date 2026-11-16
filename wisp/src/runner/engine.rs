@@ -185,7 +185,7 @@ impl TwistedWispEngine {
         data_idx: DataIndex,
         array_name: String,
     ) -> Option<()> {
-        match self.wisp.get_data_array(&name, &array_name) {
+        match self.ctx.get_data_array(&name, &array_name) {
             Some(array) => {
                 self.runtime
                     .set_data_array(&name, call_idx, data_idx, array);
@@ -230,11 +230,11 @@ impl TwistedWispEngine {
         buffer_name: String,
         path: String,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.wisp.load_wave_file(&name, &buffer_name, &path)
+        self.ctx.load_wave_file(&name, &buffer_name, &path)
     }
 
     pub fn context_unload_wave_file(&mut self, name: String, buffer_name: String) {
-        self.wisp.unload_wave_file(&name, &buffer_name);
+        self.ctx.unload_wave_file(&name, &buffer_name);
     }
 
     pub fn context_update(&mut self) -> Result<(), SignalProcessCreationError> {
