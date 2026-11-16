@@ -1,52 +1,37 @@
-# Linux build and distribution
+# Linux build and packaging
 
-Build with stable Rust, LLVM 18 (`LLVM_SYS_180_PREFIX` for a custom installation),
-C/C++ tools, pkg-config, ALSA and Linux windowing/udev development libraries.
-Use the repository Dockerfile as the versioned development environment reference.
-The application uses WGPU with native X11/Wayland support and XDG portal dialogs;
-portal-free path entry remains available. No web runtime is required.
+Build with the repository's Rust toolchain, LLVM 18, C/C++ tools, pkg-config,
+ALSA and Linux windowing/udev development libraries. Set `LLVM_SYS_180_PREFIX`
+for a custom LLVM installation. The GUI uses native WGPU, X11/Wayland and XDG
+portal dialogs; manual path entry is also available.
 
-Run `python3 scripts/package-linux.py /tmp/twistedwisp-linux` to build a release
-installation containing `bin/wisp_gui`, `share/twistedwisp/core`, examples,
-maintained docs, dependency notices/license sources and `ldd` inspection results.
-`--debug` produces a development smoke artifact, not a release distribution.
-The destination must be new. Review `THIRD-PARTY.md` and license files before
-redistribution; build-time and transitive licenses are included. No sample audio
-with unreviewed provenance is bundled. The package is dynamically linked, not a
-universal/static binary: inspect `shared-libraries.txt` on the target machine.
+From the repository root:
 
-Core lookup: explicit `--core-lib-path`, then `WISP_CORE_PATH`, then the executable's
-`../share/twistedwisp/core`, then development checkout locations. Launch from any
-working directory, including after moving the whole installation. Verify with
-`bin/wisp_gui --check-resources` (no display/devices). Examples live in
-`share/twistedwisp/examples`. To run the repository beat example, add
-`--flow wisp_gui/examples/beat3.twf --data-path data` from the checkout root.
+```sh
+cargo build --release -p wisp_gui
+python3 scripts/package-linux.py /tmp/twistedwisp-linux
+```
 
-Run `cargo test --workspace` for device-free tests. Backend public-API integration
-tests live in `wisp/tests/offline.rs` and `wisp/tests/runtime.rs`; the latter's
-native lifecycle test is ignored by default and runs in a subprocess. Run it with
-`cargo test -p twisted-wisp --test runtime -- --ignored` on a machine with audio
-output, or use the ALSA null configuration described in the GUI README. No Python
-test packages or generated C headers are needed. The packaging script still uses
-Python's standard library.
+The packaging script uses Python's standard library and cached Cargo dependencies
+(`--locked --offline`). Its destination must be new; `--debug` selects a debug build.
+The installation includes:
 
-Benchmark: `cargo run --release -p wisp_gui --example benchmark -- wisp/core`.
-Fixed valid fixtures are generated before timing; each scenario warms 50 frames
-and measures 300 at 1280×800 / 1×. Output is UI CPU time, not presentation/GPU
-latency. It covers 100/200, 1000/2000 nodes/wires, 16 scopes, idle and scripted
-wheel input. Scopes receive changing histories at 30 Hz. See `performance.md` for
-the measured environment/results and pending gates. Interactive multi-selection drag/GPU/vsync, 2× DPI and sustained
-physical playback still require desktop acceptance. Do not compare this headless
-number directly to the 16.7 ms presentation target.
+- `bin/wisp_gui`
+- `share/twistedwisp/core`, examples and documentation
+- Project/dependency license notices and `shared-libraries.txt` from `ldd`
 
-License review of the locked Linux GUI graph: native dependencies are generally
-MIT/Apache/BSD/ISC/Zlib/Unicode licensed. `self_cell` offers Apache-2.0 OR GPL;
-choose Apache-2.0. Unicode data/code notices are included. System libraries such as ALSA/LLVM have separate distribution
-terms; this package records dynamically required libraries rather than bundling
-them. MIT/Apache project notices are included for both workspace crates.
+The package is dynamically linked. Check its shared-library requirements on the
+target machine and review `THIRD-PARTY.md` and bundled notices before distribution.
+Sample WAV assets are not packaged.
 
-Expression nodes have highlighted multiline drafts. Enter inserts a newline;
-Apply or Ctrl/Cmd+Enter validates and commits one edit. Escape restores accepted
-source. Invalid text stays in the draft; external/undo changes require an explicit
-reload/keep decision when a draft diverges. Existing affected-wire validation
-still rejects port changes that would invalidate connections.
+Core lookup uses `--core-lib-path`, then `WISP_CORE_PATH`, then the executable's
+`../share/twistedwisp/core`, followed by development checkout locations. Verify a
+moved installation from another working directory with:
+
+```sh
+/path/to/installation/bin/wisp_gui --check-resources
+```
+
+See the [GUI README](../README.md) for usage and test commands. Physical audio/MIDI,
+portal behavior and display scaling need testing on the target desktop;
+resource checks and headless tests do not cover them.
