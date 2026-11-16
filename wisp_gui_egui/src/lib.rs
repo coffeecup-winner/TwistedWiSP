@@ -4,4 +4,6 @@ pub mod canvas;
 pub mod editor;
 
 pub mod dialog;
+
+pub mod inspector;
 pub mod workflow;

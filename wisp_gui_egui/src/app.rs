@@ -4,7 +4,7 @@ use crate::{
     editor::{
         commands::{EditorCommand, EditorEvent, RequestId, RuntimeStatus, same_edit},
         document::DocumentSnapshot,
-        service::{EditorServiceHandle, spawn_configured_service},
+        service::{EditorServiceHandle, spawn_service_with_paths},
     },
 };
 use std::path::PathBuf;
@@ -32,15 +32,15 @@ pub struct Options {
     pub audio_sample_rate: Option<u32>,
     #[arg(long)]
     pub midi_in_port: Option<String>,
-    /// Reserved search paths for milestone 4 buffer binding.
+    /// Search paths for buffer references (playback remains gated).
     #[arg(long)]
     pub data_path: Vec<PathBuf>,
 }
-enum PendingAction {
-    Open(PathBuf),
-    New(String),
-    Close,
-}
+use crate::{
+    dialog::{DialogKind, DialogRequest, DialogWorker},
+    inspector::Inspector,
+    workflow::{Action as PendingAction, FileWorkflow, Phase},
+};
 pub struct WispGuiApp {
     service: EditorServiceHandle,
     runtime_status: RuntimeStatus,
@@ -54,7 +54,10 @@ pub struct WispGuiApp {
     load_path: String,
     errors: Vec<String>,
     next_req: u64,
-    pending: Option<PendingAction>,
+    file: FileWorkflow,
+    dialogs: DialogWorker,
+    inspector: Inspector,
+    entry_path: String,
     allow_close: bool,
     new_name: String,
     awaiting: std::collections::BTreeSet<u64>,
@@ -71,12 +74,23 @@ impl WispGuiApp {
             midi_in_port: options.midi_in_port,
             core_path: Some(options.core_lib_path.clone()),
         };
-        let service = spawn_configured_service(
+        let service = spawn_service_with_paths(
             options.core_lib_path,
             cc.egui_ctx.clone(),
             options.offline,
             config,
             crate::editor::runtime::live_factory(),
+            options
+                .data_path
+                .into_iter()
+                .map(|p| {
+                    if p.is_absolute() {
+                        p
+                    } else {
+                        std::env::current_dir().unwrap_or_default().join(p)
+                    }
+                })
+                .collect(),
         );
         let mut app = Self {
             service,
@@ -98,7 +112,10 @@ impl WispGuiApp {
                 .map_or_else(String::new, |p| p.to_string_lossy().into_owned()),
             errors: vec![],
             next_req: 1,
-            pending: None,
+            file: FileWorkflow::default(),
+            dialogs: DialogWorker::spawn(cc.egui_ctx.clone()),
+            inspector: Inspector::default(),
+            entry_path: String::new(),
             allow_close: false,
             new_name: "untitled".into(),
             awaiting: Default::default(),
@@ -123,6 +140,7 @@ impl WispGuiApp {
             self.error(e);
         } else {
             self.operation = Some(req_id);
+            self.file.phase = Phase::Loading { request: req_id };
         }
     }
     fn error(&mut self, message: String) {
@@ -140,20 +158,26 @@ impl WispGuiApp {
         })
     }
     fn action(&mut self, action: PendingAction, ctx: &egui::Context) {
-        if self.dirty() || !self.queued.is_empty() {
-            self.pending = Some(action);
-        } else {
+        let dirty = self.dirty();
+        if let Some(action) = self.file.request_action(action, dirty) {
             self.perform(action, ctx);
         }
     }
     fn perform(&mut self, action: PendingAction, ctx: &egui::Context) {
+        self.file.deferred = None;
         match action {
             PendingAction::Open(path) => self.open(path),
             PendingAction::New(name) => {
                 let req_id = self.request();
                 match self.service.submit(EditorCommand::NewFlow { name, req_id }) {
-                    Ok(()) => self.operation = Some(req_id),
-                    Err(e) => self.error(e),
+                    Ok(()) => {
+                        self.operation = Some(req_id);
+                        self.file.phase = Phase::Loading { request: req_id };
+                    }
+                    Err(e) => {
+                        self.file.cancel();
+                        self.error(e);
+                    }
                 }
             }
             PendingAction::Close => {
@@ -162,12 +186,156 @@ impl WispGuiApp {
             }
         }
     }
+    fn choose_path(&mut self, kind: DialogKind) {
+        let id = self.request();
+        let document_id = self.snapshot.as_ref().map(|s| s.id);
+        let initial = self
+            .snapshot
+            .as_ref()
+            .and_then(|s| s.source_file.clone())
+            .or_else(|| (!self.load_path.is_empty()).then(|| PathBuf::from(&self.load_path)));
+        match self.dialogs.tx.try_send(DialogRequest {
+            id,
+            document_id,
+            kind,
+            initial,
+        }) {
+            Ok(()) => {
+                self.file.phase = Phase::Choosing {
+                    request: id,
+                    document: document_id,
+                    kind,
+                }
+            }
+            Err(_) => {
+                self.file.cancel();
+                self.error("File dialog busy; use path entry instead".into());
+            }
+        }
+    }
+    fn finish_for_save(&mut self, ctx: &egui::Context) {
+        for command in self.canvas.finish_for_file_action() {
+            self.queue(command);
+        }
+        if let Some(command) = self.inspector.finish_gesture() {
+            self.queue(command);
+        }
+        ctx.memory_mut(|m| {
+            if let Some(id) = m.focused() {
+                m.surrender_focus(id);
+            }
+        });
+    }
+    fn request_save(&mut self, save_as: bool, ctx: &egui::Context) {
+        self.finish_for_save(ctx);
+        if save_as
+            || self
+                .snapshot
+                .as_ref()
+                .is_none_or(|s| s.source_file.is_none())
+        {
+            self.choose_path(DialogKind::Save);
+        } else {
+            self.file.phase = Phase::WaitingForEdits {
+                path: None,
+                overwrite: None,
+            };
+        }
+    }
+    fn start_pending_save(&mut self) {
+        if self.operation.is_some()
+            || !self.queued.is_empty()
+            || !self.awaiting.is_empty()
+            || self.canvas.gesture_active()
+        {
+            return;
+        }
+        let Phase::WaitingForEdits { path, overwrite } = self.file.phase.clone() else {
+            return;
+        };
+        let Some(snapshot) = &self.snapshot else {
+            self.file.cancel();
+            return;
+        };
+        let (document_id, revision, state_id) = (snapshot.id, snapshot.revision, snapshot.state_id);
+        let req_id = self.request();
+        match self.service.submit(EditorCommand::Save {
+            document_id,
+            revision,
+            state_id,
+            path,
+            overwrite,
+            req_id,
+        }) {
+            Ok(()) => {
+                self.file.phase = Phase::Saving {
+                    request: req_id,
+                    document: document_id,
+                }
+            }
+            Err(e) => {
+                self.file.cancel();
+                self.error(e);
+            }
+        }
+    }
     fn poll(&mut self, ctx: &egui::Context) {
+        let mut completed_save = false;
+        while let Ok(result) = self.dialogs.rx.try_recv() {
+            let document = self.snapshot.as_ref().map(|s| s.id);
+            if !self.file.accepts_dialog(result.request.id, document) {
+                continue;
+            }
+            match result.path {
+                None => self.file.cancel(),
+                Some(path) => match result.request.kind {
+                    DialogKind::Open => {
+                        self.file.phase = Phase::Idle;
+                        self.action(PendingAction::Open(path), ctx);
+                    }
+                    DialogKind::Save => {
+                        self.file.phase = Phase::WaitingForEdits {
+                            path: Some(path),
+                            overwrite: None,
+                        }
+                    }
+                },
+            }
+        }
         while let Ok(event) = self.service.rx.try_recv() {
             match event {
-                EditorEvent::Saved { .. } => {}
+                EditorEvent::Saved {
+                    req_id,
+                    document_id,
+                    result,
+                } => {
+                    if !matches!(self.file.phase,Phase::Saving{request,document} if request==req_id && document==document_id)
+                    {
+                        continue;
+                    }
+                    match result {
+                        Ok(receipt) => {
+                            self.load_path = receipt.path.to_string_lossy().into_owned();
+                            for warning in receipt.warnings {
+                                self.error(warning);
+                            }
+                            completed_save = true;
+                        }
+                        Err(crate::editor::persistence::SaveError::Conflict { path, observed }) => {
+                            self.file.phase = Phase::Conflict { path, observed }
+                        }
+                        Err(e) => {
+                            self.error(e.to_string());
+                            self.file.cancel();
+                        }
+                    }
+                }
                 EditorEvent::Response { req_id, result } => {
                     self.awaiting.remove(&req_id.0);
+                    self.inspector.acknowledge(req_id);
+                    if matches!(self.file.phase,Phase::Loading{request} if request==req_id) {
+                        self.file.cancel();
+                    }
                     if self.canvas.acknowledge_control(req_id) {
                         // The worker publishes before acknowledging the fence. Reapply
                         // even an already-seen revision now that the local edit is accepted.
@@ -188,7 +356,18 @@ impl WispGuiApp {
         }
 
         if let Some(snapshot) = self.service.take_snapshot() {
+            if self.snapshot.as_ref().map(|s| s.id) != Some(snapshot.id) {
+                self.inspector.clear();
+            }
             self.snapshot = Some(snapshot);
+        }
+        if completed_save {
+            let dirty = self.snapshot.as_ref().is_some_and(|s| s.dirty)
+                || !self.awaiting.is_empty()
+                || !self.queued.is_empty();
+            if let Some(action) = self.file.saved(dirty) {
+                self.perform(action, ctx);
+            }
         }
         // The canvas protects active and unacknowledged local control values.
         if let Some(snapshot) = &self.snapshot {
@@ -241,6 +420,15 @@ impl WispGuiApp {
             self.awaiting.remove(&req_id.0);
             self.queued.truncate(n - 2);
         }
+        let geometry = match &command {
+            EditorCommand::SetGeometry {
+                document_id,
+                node_id,
+                position,
+                size,
+            } => Some((*document_id, *node_id, *position, *size)),
+            _ => None,
+        };
         let control = match &command {
             EditorCommand::SetControlValue {
                 document_id,
@@ -254,12 +442,18 @@ impl WispGuiApp {
         self.awaiting.insert(req_id.0);
         if let Some((document_id, node_id)) = control {
             self.canvas.track_control(document_id, node_id, req_id);
+            self.inspector.track(document_id, node_id, req_id);
             self.queued.push(EditorCommand::ControlFence {
                 document_id,
                 node_id,
                 req_id,
             });
         } else {
+            if let Some((document_id, node_id, position, size)) = geometry {
+                self.canvas
+                    .track_geometry(document_id, node_id, position, size, req_id);
+                self.inspector.track(document_id, node_id, req_id);
+            }
             self.queued.push(EditorCommand::Barrier { req_id });
         }
     }
@@ -270,10 +464,14 @@ impl eframe::App for WispGuiApp {
         self.poll(&ctx);
         if ctx.input(|i| i.viewport().close_requested())
             && !self.allow_close
-            && (self.dirty() || !self.queued.is_empty())
+            && (self.dirty() || self.file.busy() || !self.queued.is_empty())
         {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            self.pending = Some(PendingAction::Close);
+            if matches!(self.file.phase, Phase::Saving { .. }) {
+                self.file.deferred = Some(PendingAction::Close);
+            } else if !self.file.busy() {
+                self.action(PendingAction::Close, &ctx);
+            }
         }
         egui::Panel::top("toolbar").show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -282,7 +480,8 @@ impl eframe::App for WispGuiApp {
                     .add_enabled(
                         self.operation.is_none()
                             && self.queued.is_empty()
-                            && self.awaiting.is_empty(),
+                            && self.awaiting.is_empty()
+                            && !self.file.busy(),
                         egui::Button::new("New"),
                     )
                     .clicked()
@@ -295,13 +494,57 @@ impl eframe::App for WispGuiApp {
                     .add_enabled(
                         self.operation.is_none()
                             && self.queued.is_empty()
-                            && self.awaiting.is_empty(),
+                            && self.awaiting.is_empty()
+                            && !self.file.busy(),
                         egui::Button::new("Open"),
                     )
                     .clicked()
                     && !self.load_path.trim().is_empty()
                 {
                     self.action(PendingAction::Open(PathBuf::from(&self.load_path)), &ctx);
+                }
+            });
+            ui.horizontal(|ui| {
+                let available = !self.file.busy() && self.operation.is_none();
+                if ui
+                    .add_enabled(available, egui::Button::new("Open…"))
+                    .clicked()
+                {
+                    self.choose_path(DialogKind::Open);
+                }
+                if ui
+                    .add_enabled(
+                        available && self.snapshot.is_some(),
+                        egui::Button::new("Save"),
+                    )
+                    .clicked()
+                {
+                    self.request_save(false, &ctx);
+                }
+                if ui
+                    .add_enabled(
+                        available && self.snapshot.is_some(),
+                        egui::Button::new("Save As…"),
+                    )
+                    .clicked()
+                {
+                    self.request_save(true, &ctx);
+                }
+                if ui
+                    .add_enabled(
+                        available && self.snapshot.is_some(),
+                        egui::Button::new("Save to path…"),
+                    )
+                    .clicked()
+                {
+                    self.finish_for_save(&ctx);
+                    self.entry_path = self.load_path.clone();
+                    self.file.phase = Phase::Entering {
+                        kind: DialogKind::Save,
+                    };
+                }
+                if self.file.busy() {
+                    ui.label("File operation…");
                 }
             });
             ui.horizontal(|ui| {
@@ -324,6 +567,7 @@ impl eframe::App for WispGuiApp {
                     if ui
                         .add_enabled(
                             enabled
+                                && self.file.editable()
                                 && self.operation.is_none()
                                 && self.queued.is_empty()
                                 && self.awaiting.is_empty(),
@@ -375,7 +619,7 @@ impl eframe::App for WispGuiApp {
                 if let Some(s) = &self.snapshot {
                     ui.label(&s.flow_name);
                     if s.dirty {
-                        ui.label("Unsaved (saving: milestone 3)");
+                        ui.label("Unsaved");
                     }
                 }
             });
@@ -396,14 +640,47 @@ impl eframe::App for WispGuiApp {
                         {
                             ui.label(reason);
                         }
+                        for buffer in &snapshot.buffers {
+                            if let Some(warning) = &buffer.diagnostic {
+                                ui.colored_label(egui::Color32::YELLOW, warning);
+                            }
+                        }
                         for error in &snapshot.diagnostics {
                             ui.colored_label(egui::Color32::LIGHT_RED, error);
                         }
                     }
                 });
         });
+        if !ctx.egui_wants_keyboard_input() && !self.file.busy() && self.operation.is_none() {
+            if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::S))
+                && self.snapshot.is_some()
+            {
+                self.request_save(ctx.input(|i| i.modifiers.shift), &ctx);
+            } else if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::O)) {
+                self.choose_path(DialogKind::Open);
+            } else if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::N)) {
+                self.action(PendingAction::New(self.new_name.clone()), &ctx);
+            }
+        }
+        if self.tab == CanvasTab::Graph {
+            egui::Panel::right("inspector")
+                .default_size(230.)
+                .show(ui, |ui| {
+                    let selected = self.canvas.selection().clone();
+                    let enabled = self.operation.is_none()
+                        && (self.file.editable()
+                            || matches!(self.file.phase, Phase::WaitingForEdits { .. }));
+                    for command in
+                        self.inspector
+                            .show(ui, self.snapshot.as_ref(), &selected, enabled)
+                    {
+                        self.queue(command);
+                    }
+                });
+        }
         if self.tab == CanvasTab::Graph
             && !self.canvas.picker_open()
+            && self.file.editable()
             && !ctx.egui_wants_keyboard_input()
             && self.operation.is_none()
             && self.queued.is_empty()
@@ -431,39 +708,107 @@ impl eframe::App for WispGuiApp {
         }
         egui::CentralPanel::default().show(ui, |ui| match self.tab {
             CanvasTab::Graph => {
-                ui.add_enabled_ui(self.operation.is_none(), |ui| {
+                ui.add_enabled_ui(self.operation.is_none() && self.file.editable(), |ui| {
                     for command in self.canvas.show(ui) {
                         self.queue(command);
                     }
                 });
             }
             CanvasTab::Lab => {
+                if let Some(command) = self.inspector.finish_gesture() {
+                    self.queue(command);
+                }
                 if let Some(command) = self.canvas.finish_gesture() {
                     self.queue(command);
                 }
                 self.lab.show(ui);
             }
         });
-        if self.pending.is_some() {
-            egui::Window::new("Discard unsaved changes?")
+        if matches!(self.file.phase, Phase::DirtyDecision) {
+            egui::Window::new("Unsaved changes")
                 .collapsible(false)
                 .resizable(false)
                 .show(&ctx, |ui| {
-                    ui.label("Saving is not implemented yet. Your edits are only in memory.");
+                    ui.label("Save changes before continuing?");
                     ui.horizontal(|ui| {
-                        if ui.button("Discard changes").clicked()
-                            && let Some(action) = self.pending.take()
+                        if ui.button("Save").clicked() {
+                            self.request_save(false, &ctx);
+                        }
+                        if ui.button("Discard").clicked()
+                            && let Some(action) = self.file.deferred.take()
                         {
+                            self.file.phase = Phase::Idle;
                             self.perform(action, &ctx);
                         }
                         if ui.button("Cancel").clicked() {
-                            self.pending = None;
+                            self.file.cancel();
                         }
                     });
                 });
         }
+        if let Phase::Entering { kind } = self.file.phase.clone() {
+            egui::Window::new("Flow path")
+                .collapsible(false)
+                .show(&ctx, |ui| {
+                    ui.text_edit_singleline(&mut self.entry_path);
+                    if ui.button("Apply").clicked() && !self.entry_path.trim().is_empty() {
+                        let path = PathBuf::from(self.entry_path.trim());
+                        if kind == DialogKind::Save {
+                            self.file.phase = Phase::WaitingForEdits {
+                                path: Some(path),
+                                overwrite: None,
+                            };
+                        } else {
+                            self.file.phase = Phase::Idle;
+                            self.action(PendingAction::Open(path), &ctx);
+                        }
+                    }
+                    if ui.button("Cancel").clicked() {
+                        self.file.cancel();
+                    }
+                });
+        }
+        if let Phase::Conflict { path, observed } = self.file.phase.clone() {
+            egui::Window::new("File changed externally")
+                .collapsible(false)
+                .show(&ctx, |ui| {
+                    ui.label(format!(
+                        "{} differs from the version opened/saved.",
+                        path.display()
+                    ));
+                    if ui.button("Overwrite this version").clicked() {
+                        self.file.phase = Phase::WaitingForEdits {
+                            path: Some(path),
+                            overwrite: Some(observed),
+                        };
+                    }
+                    if ui.button("Save As…").clicked() {
+                        self.choose_path(DialogKind::Save);
+                    }
+                    if ui.button("Enter another path…").clicked() {
+                        self.entry_path = String::new();
+                        self.file.phase = Phase::Entering {
+                            kind: DialogKind::Save,
+                        };
+                    }
+                    if ui.button("Cancel").clicked() {
+                        self.file.cancel();
+                    }
+                });
+        }
+        if matches!(self.file.phase, Phase::Choosing { .. }) {
+            egui::Window::new("Choosing flow path").collapsible(false).show(&ctx,|ui| {
+                ui.label("Waiting for the native file dialog. Path entry remains available without a portal.");
+                if ui.button("Cancel").clicked(){self.file.cancel();}
+                if ui.button("Use path entry instead").clicked(){
+                    let kind=match self.file.phase {Phase::Choosing{kind,..}=>kind,_=>DialogKind::Open};
+                    self.entry_path=self.load_path.clone();self.file.phase=Phase::Entering{kind};
+                }
+            });
+        }
         // Send this frame's input immediately instead of adding a repaint's
         // worth of latency before it can reach the audio callback.
         self.flush_commands(&ctx);
+        self.start_pending_save();
     }
 }

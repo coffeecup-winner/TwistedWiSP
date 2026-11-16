@@ -19,6 +19,7 @@ pub struct GraphCanvas {
     document_id: Option<DocumentId>,
     accepted_wires: Vec<(OutPinId, InPinId)>,
     pending_controls: BTreeMap<EditorNodeId, RequestId>,
+    pending_geometry: BTreeMap<EditorNodeId, RequestId>,
     revision: u64,
     catalog: Vec<crate::editor::document::FunctionChoice>,
     pub snap: bool,
@@ -29,6 +30,54 @@ pub struct GraphCanvas {
     view: super::state::CanvasViewState,
 }
 impl GraphCanvas {
+    pub fn selection(&self) -> &BTreeSet<EditorNodeId> {
+        &self.view.selected
+    }
+    pub fn track_geometry(
+        &mut self,
+        document: DocumentId,
+        node: EditorNodeId,
+        position: egui::Vec2,
+        size: egui::Vec2,
+        request: RequestId,
+    ) {
+        if self.document_id != Some(document) {
+            return;
+        }
+        if let Some(native) = self.ids.get(&node) {
+            let info = self.snarl.get_node_info_mut(*native).unwrap();
+            info.pos = position.round().to_pos2();
+            info.value.position = position.round();
+            info.value.custom_size = Some(size.max(egui::vec2(80., 60.)).round());
+            self.pending_geometry.insert(node, request);
+        }
+    }
+    pub fn finish_for_file_action(&mut self) -> Vec<EditorCommand> {
+        let mut commands = vec![];
+        if let Some(document_id) = self.document_id {
+            let moves: Vec<_> = self
+                .snarl
+                .nodes_pos_ids_mut()
+                .filter_map(|(_, pos, node)| {
+                    let p = pos.to_vec2().round();
+                    (node.position != p).then_some((node.id, p))
+                })
+                .collect();
+            if !moves.is_empty() {
+                commands.push(EditorCommand::Edit {
+                    document_id,
+                    revision: self.revision,
+                    edit: Edit::Move(moves),
+                    req_id: RequestId(0),
+                });
+            }
+        }
+        if let Some(command) = self.finish_gesture() {
+            commands.push(command);
+        }
+        commands
+    }
+
     pub fn gesture_active(&self) -> bool {
         self.gesture
     }
@@ -45,10 +94,12 @@ impl GraphCanvas {
         }
     }
     pub fn acknowledge_control(&mut self, req_id: RequestId) -> bool {
-        let before = self.pending_controls.len();
+        let before = self.pending_controls.len() + self.pending_geometry.len();
         self.pending_controls
             .retain(|_, pending| *pending != req_id);
-        self.pending_controls.len() != before
+        self.pending_geometry
+            .retain(|_, pending| *pending != req_id);
+        self.pending_controls.len() + self.pending_geometry.len() != before
     }
 
     pub fn finish_gesture(&mut self) -> Option<EditorCommand> {
@@ -75,6 +126,7 @@ impl GraphCanvas {
             self.snarl = Snarl::new();
             self.ids.clear();
             self.pending_controls.clear();
+            self.pending_geometry.clear();
             self.document_id = Some(snapshot.id);
             self.picker = None;
             self.gesture = false;
@@ -85,6 +137,7 @@ impl GraphCanvas {
         let desired: BTreeSet<_> = snapshot.nodes.iter().map(|(id, _)| *id).collect();
         self.view.selected.retain(|id| desired.contains(id));
         self.pending_controls.retain(|id, _| desired.contains(id));
+        self.pending_geometry.retain(|id, _| desired.contains(id));
         let stale: Vec<_> = self
             .ids
             .keys()
@@ -101,10 +154,16 @@ impl GraphCanvas {
                 let info = self.snarl.get_node_info_mut(*native).unwrap();
                 let moved = self.gesture && info.pos.to_vec2() != info.value.position;
                 let values = info.value.control_values.clone();
+                let geometry = (info.pos, info.value.position, info.value.custom_size);
                 if !moved {
                     info.pos = node.position.to_pos2();
                 }
                 info.value = node.clone();
+                if self.pending_geometry.contains_key(id) {
+                    info.pos = geometry.0;
+                    info.value.position = geometry.1;
+                    info.value.custom_size = geometry.2;
+                }
                 if self.gesture || self.pending_controls.contains_key(id) {
                     info.value.control_values = values;
                 }
@@ -190,7 +249,7 @@ impl GraphCanvas {
             && viewer.picker.is_none()
             && response.contains_pointer()
             && !ui.ctx().egui_wants_keyboard_input();
-        if canvas_focus && ui.input(|i| i.key_pressed(egui::Key::N)) {
+        if canvas_focus && ui.input(|i| !i.modifiers.command && i.key_pressed(egui::Key::N)) {
             let p = ui
                 .input(|i| i.pointer.hover_pos())
                 .unwrap_or(ui.max_rect().center());
@@ -784,5 +843,36 @@ mod tests {
             canvas.show(ui);
         });
         output.textures_delta.clear();
+    }
+    #[test]
+    fn geometry_fences_allow_undo_to_reconcile_the_canvas() {
+        let (mut doc, mut canvas) = fixture();
+        let snapshot = doc.snapshot();
+        let id = snapshot.nodes[0].0;
+        let native = canvas.ids[&id];
+        let original = snapshot.nodes[0].1.position;
+        canvas.track_geometry(
+            snapshot.id,
+            id,
+            egui::vec2(42., 55.),
+            egui::vec2(180., 120.),
+            RequestId(7),
+        );
+        canvas.sync(&snapshot);
+        assert_eq!(
+            canvas.snarl.get_node_info(native).unwrap().pos,
+            egui::pos2(42., 55.)
+        );
+        assert!(!canvas.acknowledge_control(RequestId(6)));
+        assert!(canvas.acknowledge_control(RequestId(7)));
+        doc.set_geometry(id, egui::vec2(42., 55.), egui::vec2(180., 120.))
+            .unwrap();
+        canvas.sync(&doc.snapshot());
+        doc.edit(doc.snapshot().revision, Edit::Undo).unwrap();
+        canvas.sync(&doc.snapshot());
+        assert_eq!(
+            canvas.snarl.get_node_info(native).unwrap().pos,
+            original.to_pos2()
+        );
     }
 }
