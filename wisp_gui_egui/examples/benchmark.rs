@@ -66,7 +66,7 @@ fn main() {
                         .insert(id, (0..4096).map(|i| (i as f32 * 0.03).sin()).collect());
                 }
             }
-            canvas.set_special(telemetry);
+            canvas.set_special(telemetry.clone());
             let mut times = Vec::new();
             for frame in 0..350 {
                 let events = if motion {
@@ -92,6 +92,17 @@ fn main() {
                     ..Default::default()
                 };
                 let start = Instant::now();
+                // Model the service's 30 Hz bounded telemetry snapshots, including
+                // their UI-side copy cost, rather than drawing a static history.
+                if scopes && frame % 2 == 0 {
+                    for trace in telemetry.traces.values_mut() {
+                        wisp_gui_egui::editor::telemetry::append(
+                            trace,
+                            (0..32).map(|i| ((frame * 32 + i) as f32 * 0.03).sin()),
+                        );
+                    }
+                    canvas.set_special(telemetry.clone());
+                }
                 let mut output = ctx.run_ui(input, |ui| {
                     let _ = canvas.show(ui);
                 });
