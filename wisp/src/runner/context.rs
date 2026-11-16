@@ -35,18 +35,14 @@ struct WispDataArray {
 
 #[derive(Debug, Default)]
 pub struct WispEngineContext {
-    num_outputs: u32,
-    sample_rate: u32,
     functions: HashMap<String, IRFunction>,
     main_function: String,
     data_arrays: HashMap<String, HashMap<String, WispDataArray>>,
 }
 
 impl WispEngineContext {
-    pub fn new(num_outputs: u32, sample_rate: u32) -> Self {
+    pub fn new() -> Self {
         WispEngineContext {
-            num_outputs,
-            sample_rate,
             ..Default::default()
         }
     }
@@ -54,14 +50,6 @@ impl WispEngineContext {
     pub fn reset(&mut self) {
         self.functions.clear();
         self.main_function = String::new();
-    }
-
-    pub fn num_outputs(&self) -> u32 {
-        self.num_outputs
-    }
-
-    pub fn sample_rate(&self) -> u32 {
-        self.sample_rate
     }
 
     pub fn add_function(&mut self, func: IRFunction) {

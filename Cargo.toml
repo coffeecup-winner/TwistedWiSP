@@ -2,7 +2,8 @@
 resolver = "2"
 members = [
     "wisp",
-    "wisp_cli",
+    # Temporary disable the CLI
+    # "wisp_cli",
     # Temporarily disable the Godot extension
     # "wisp_gui_extension",
 ]

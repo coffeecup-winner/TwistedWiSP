@@ -20,13 +20,15 @@ use super::Function;
 #[derive(Debug)]
 pub struct WispContext {
     num_outputs: u32,
+    sample_rate: u32,
     functions: HashMap<String, Function>,
 }
 
 impl WispContext {
-    pub fn new(num_outputs: u32) -> Self {
+    pub fn new(num_outputs: u32, sample_rate: u32) -> Self {
         WispContext {
             num_outputs,
+            sample_rate,
             functions: HashMap::new(),
         }
     }
@@ -126,6 +128,10 @@ impl WispContext {
 
     pub fn num_outputs(&self) -> u32 {
         self.num_outputs
+    }
+
+    pub fn sample_rate(&self) -> u32 {
+        self.sample_rate
     }
 
     pub fn add_function(&mut self, func: Function) -> Option<Function> {

@@ -427,7 +427,7 @@ mod tests {
     // ========================================================================
 
     fn get_ir_function(f: MathFunction) -> IRFunction {
-        let ctx = WispContext::new(2);
+        let ctx = WispContext::new(2, 44100);
         let ir_func = f.get_ir_functions(&ctx)[0].clone();
         assert_eq!(f.name(), ir_func.name);
         assert_eq!(f.inputs().len(), ir_func.inputs.len());
