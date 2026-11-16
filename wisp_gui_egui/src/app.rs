@@ -14,16 +14,16 @@ fn default_core_path() -> PathBuf {
     if let Some(path) = std::env::var_os("WISP_CORE_PATH") {
         return path.into();
     }
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(bin) = exe.parent() {
-            let installed = bin.join("../share/twistedwisp/core");
-            if installed.is_dir() {
-                return installed;
-            }
-            let checkout = bin.join("../../wisp/core");
-            if checkout.is_dir() {
-                return checkout;
-            }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(bin) = exe.parent()
+    {
+        let installed = bin.join("../share/twistedwisp/core");
+        if installed.is_dir() {
+            return installed;
+        }
+        let checkout = bin.join("../../wisp/core");
+        if checkout.is_dir() {
+            return checkout;
         }
     }
     PathBuf::from("wisp/core")
