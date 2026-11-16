@@ -15,6 +15,7 @@ use wisp::core::DataType;
 #[derive(Default)]
 pub struct GraphCanvas {
     snarl: Snarl<NodeSnapshot>,
+    expressions: BTreeMap<EditorNodeId, super::expression::ExpressionDraft>,
     special: crate::editor::telemetry::SpecialSnapshot,
     buttons: BTreeSet<EditorNodeId>,
     ids: BTreeMap<EditorNodeId, NodeId>,
@@ -155,6 +156,7 @@ impl GraphCanvas {
         if self.document_id != Some(snapshot.id) {
             self.snarl = Snarl::new();
             self.ids.clear();
+            self.expressions.clear();
             self.pending_controls.clear();
             self.pending_geometry.clear();
             self.buttons.clear();
@@ -166,6 +168,22 @@ impl GraphCanvas {
         }
         self.revision = snapshot.revision;
         self.catalog = snapshot.catalog.clone();
+        self.expressions.retain(|id, _| {
+            snapshot
+                .nodes
+                .iter()
+                .any(|(node, value)| node == id && value.expression.is_some())
+        });
+        for (id, node) in &snapshot.nodes {
+            if let Some(text) = &node.expression {
+                self.expressions
+                    .entry(*id)
+                    .or_insert_with(|| {
+                        super::expression::ExpressionDraft::new(text, snapshot.revision)
+                    })
+                    .reconcile(text, snapshot.revision);
+            }
+        }
         let desired: BTreeSet<_> = snapshot.nodes.iter().map(|(id, _)| *id).collect();
         self.view.selected.retain(|id| desired.contains(id));
         self.pending_controls.retain(|id, _| desired.contains(id));
@@ -248,6 +266,7 @@ impl GraphCanvas {
             draft: &mut self.draft,
             transform: &mut self.transform,
             special: &self.special,
+            expressions: &mut self.expressions,
             buttons: &mut self.buttons,
         };
         let response = SnarlWidget::new().id_salt(("flow", document_id.0)).show(
@@ -401,6 +420,7 @@ pub struct SnarlAdapter<'a> {
     draft: &'a mut String,
     transform: &'a mut egui::emath::TSTransform,
     special: &'a crate::editor::telemetry::SpecialSnapshot,
+    expressions: &'a mut BTreeMap<EditorNodeId, super::expression::ExpressionDraft>,
     buttons: &'a mut BTreeSet<EditorNodeId>,
 }
 impl SnarlAdapter<'_> {
@@ -442,6 +462,12 @@ impl SnarlViewer<NodeSnapshot> for SnarlAdapter<'_> {
     ) {
         use node_content::NodeAction;
         let id = snarl[node].id;
+        if let Some(draft) = self.expressions.get_mut(&id) {
+            if let Some(text) = draft.show(ui) {
+                self.edit(Edit::Replace { node: id, text });
+            }
+            return;
+        }
         if let Some(action) = node_content::show_node_body(&mut snarl[node], ui, self.special) {
             let command = match action {
                 NodeAction::Scalar(value) => EditorCommand::SetControlValue {
@@ -771,6 +797,7 @@ mod tests {
             draft: &mut draft,
             transform: &mut transform,
             special: &Default::default(),
+            expressions: &mut Default::default(),
             buttons: &mut Default::default(),
         };
         viewer.connect(&from, &to, &mut canvas.snarl);

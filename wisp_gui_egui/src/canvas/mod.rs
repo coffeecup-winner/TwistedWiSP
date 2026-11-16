@@ -5,3 +5,5 @@ pub mod lab;
 pub mod node_content;
 pub mod snarl_adapter;
 pub mod state;
+
+pub mod expression;
