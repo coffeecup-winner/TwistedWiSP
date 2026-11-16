@@ -1,7 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    iter::Peekable,
-};
+use std::collections::{HashMap, HashSet};
 
 use crate::{
     core::{
@@ -295,7 +292,7 @@ pub enum CodeFunctionParseResult {
 
 #[derive(Logos, Debug, PartialEq, Clone)]
 #[logos(skip r"[ \t\r\n\f]+")]
-#[logos(skip r"//.*\n")]
+#[logos(skip r"//[^\n]*")]
 #[logos(skip r"/\*([^*]|\*[^/])*\*/")]
 enum Token {
     #[token("func")]
@@ -384,21 +381,37 @@ enum Token {
 
     #[regex("[a-zA-Z_.]+", |lex| lex.slice().to_owned())]
     Identifier(String),
-    #[regex("[0-9]+", priority = 3, callback = |lex| lex.slice().parse::<u32>().unwrap())]
+    #[regex("[0-9]+", priority = 3, callback = |lex| lex.slice().parse::<u32>().ok())]
     U32(u32),
-    #[regex(r"-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?", |lex| lex.slice().parse::<f32>().unwrap())]
+    #[regex(r"-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?", |lex| lex.slice().parse::<f32>().ok().filter(|v| v.is_finite()))]
     F32(f32),
 }
 
 pub struct CodeFunctionParser<'source> {
-    lex: Peekable<Lexer<'source, Token>>,
+    lex: Lexer<'source, Token>,
+    source: &'source str,
 }
 
 impl<'source> CodeFunctionParser<'source> {
     pub fn new(s: &'source str) -> CodeFunctionParser<'source> {
         CodeFunctionParser {
-            lex: Token::lexer(s).peekable(),
+            lex: Token::lexer(s),
+            source: s,
         }
+    }
+
+    /// Distinguish clean EOF from malformed/truncated input for file loading.
+    pub fn parse_next(&mut self) -> Result<Option<CodeFunctionParseResult>, String> {
+        if self.lex.clone().next().is_none() {
+            return Ok(None);
+        }
+        self.parse_function().map(Some).ok_or_else(|| {
+            let offset = self.lex.span().end.min(self.source.len());
+            let prefix = &self.source[..offset];
+            let line = prefix.bytes().filter(|b| *b == b'\n').count() + 1;
+            let column = prefix.rsplit('\n').next().unwrap_or("").chars().count() + 1;
+            format!("Malformed code at line {line}, column {column} (byte {offset})")
+        })
     }
 
     pub fn parse_function(&mut self) -> Option<CodeFunctionParseResult> {
@@ -954,7 +967,7 @@ impl<'source> CodeFunctionParser<'source> {
     }
 
     fn peek_token(&mut self) -> Option<Token> {
-        self.lex.peek().map(|t| t.clone().ok())?
+        self.lex.clone().next()?.ok()
     }
 
     #[must_use]
@@ -1075,6 +1088,25 @@ mod tests {
                 .unwrap(),
             CodeFunctionParseResult::Function(function)
         );
+    }
+
+    #[test]
+    fn checked_parser_rejects_trailing_invalid_and_truncated_input() {
+        for bad in [
+            "@",
+            "func broken(value: float)",
+            "func bad() -> () begin trunc %x, 999999999999999999999999 end",
+        ] {
+            let error = CodeFunctionParser::new(bad).parse_next().unwrap_err();
+            assert!(error.contains("line") && error.contains("column"));
+        }
+        let mut parser = CodeFunctionParser::new("func good() -> () begin end\n? trailing");
+        assert!(parser.parse_next().unwrap().is_some());
+        assert!(parser.parse_next().is_err());
+        assert!(CodeFunctionParser::new("// final comment")
+            .parse_next()
+            .unwrap()
+            .is_none());
     }
 
     #[test]

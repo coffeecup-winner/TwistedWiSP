@@ -1,8 +1,9 @@
+import os
 import ctypes
 import numpy as np
 from numpy.ctypeslib import ndpointer
 
-lib = ctypes.cdll.LoadLibrary('libtwisted_wisp.so')
+lib = ctypes.cdll.LoadLibrary(os.environ.get('WISP_LIBRARY_PATH', 'libtwisted_wisp.so'))
 
 # Define all the function prototypes
 lib.wisp_enable_logging.argtypes = ()

@@ -87,19 +87,28 @@ impl WispContext {
     }
 
     pub fn load_core_functions(&mut self, wisp_core_path: &Path) -> Result<(), Box<dyn Error>> {
-        for file in std::fs::read_dir(wisp_core_path)? {
-            let file = file?;
-            let text = std::fs::read_to_string(file.path())?;
+        let mut files = std::fs::read_dir(wisp_core_path)?
+            .map(|file| file.map(|file| file.path()))
+            .collect::<Result<Vec<_>, _>>()?;
+        files.sort();
+        for file in files {
+            if file.extension().and_then(|ext| ext.to_str()) != Some("twf") {
+                continue;
+            }
+            let text = std::fs::read_to_string(&file)?;
 
             if text.starts_with("[flow]") {
                 // TODO: Stop reading this file twice
-                self.load_function(&file.path())?;
+                self.load_function(&file)?;
                 continue;
             }
 
             let mut parser = CodeFunctionParser::new(&text);
             info!("Adding core functions:");
-            while let Some(result) = parser.parse_function() {
+            while let Some(result) = parser
+                .parse_next()
+                .map_err(|error| into_err(format!("{}: {error}", file.display())))?
+            {
                 match result {
                     CodeFunctionParseResult::Function(func) => {
                         info!("  - {}", func.name());

@@ -13,5 +13,5 @@ fn main() {
         .with_namespace("TwistedWisp")
         .generate()
         .expect("Unable to generate C bindings")
-        .write_to_file("../target/twisted_wisp.h");
+        .write_to_file(std::path::Path::new(&env::var("OUT_DIR").unwrap()).join("twisted_wisp.h"));
 }
