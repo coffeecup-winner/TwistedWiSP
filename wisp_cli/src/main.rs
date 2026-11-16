@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use clap::Parser;
-use twisted_wisp::{core::WispFunction, TwistedWispEngine, TwistedWispEngineConfig};
+use twisted_wisp::{TwistedWispEngine, TwistedWispEngineConfig};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -44,19 +44,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let mut wisp = TwistedWispEngine::create(config)?;
 
-    let mut ctx = twisted_wisp::core::WispContext::new(wisp.get_system_info().num_channels, wisp.get_system_info().sample_rate);
-
-    ctx.add_builtin_functions();
-    ctx.load_core_functions(args.core_lib_path.as_ref().unwrap())
-        .expect("Failed to add core functions");
-
-    let flow_name = ctx.load_function(args.file_name.as_ref().unwrap())?;
-
-    for f in ctx.functions_iter() {
-        wisp.context_add_or_update_functions(f.get_ir_functions(&ctx));
-    }
-
-    wisp.context_set_main_function(flow_name);
+    wisp.context_set_main_function("phasor".to_string());
+    wisp.context_update().expect("Failed to update context");
 
     wisp.dsp_start();
 
