@@ -7,5 +7,6 @@ pub mod core;
 mod ir;
 mod midi;
 mod runner;
+mod utils;
 
 pub use runner::engine::*;
