@@ -154,16 +154,29 @@ fn waveform(ui: &mut Ui, peaks: &[(f32, f32)]) {
     let columns = ((rect.width() * physical_scale(ui)).ceil() as usize).clamp(1, 2048);
     let chunk = peaks.len().div_ceil(columns).max(1);
     let count = peaks.len().div_ceil(chunk).max(1);
+    let mut points = Vec::with_capacity(count * 2);
     for (i, c) in peaks.chunks(chunk).enumerate() {
         let (lo, hi) = c
             .iter()
-            .fold((1f32, -1f32), |(a, b), (lo, hi)| (a.min(*lo), b.max(*hi)));
+            .fold((f32::INFINITY, f32::NEG_INFINITY), |(a, b), (lo, hi)| {
+                (a.min(*lo), b.max(*hi))
+            });
         let x = rect.left() + rect.width() * (i as f32 + 0.5) / count as f32;
         let y = |v: f32| rect.center().y - v.clamp(-1., 1.) * rect.height() * 0.5;
-        painter.line_segment(
-            [egui::pos2(x, y(lo)), egui::pos2(x, y(hi))],
-            egui::Stroke::new(1., Color32::LIGHT_GREEN),
-        );
+        let low = egui::pos2(x, y(lo));
+        let high = egui::pos2(x, y(hi));
+        points.push(low);
+        if high != low {
+            points.push(high);
+        }
+    }
+    // A connected min/max path preserves peaks when dense and joins individual
+    // samples when sparse, rather than leaving isolated vertical strokes/dots.
+    let stroke = egui::Stroke::new(1., Color32::LIGHT_GREEN);
+    if points.len() == 1 {
+        painter.circle_filled(points[0], 0.5, stroke.color);
+    } else if !points.is_empty() {
+        painter.add(egui::Shape::line(points, stroke));
     }
 }
 
@@ -196,6 +209,42 @@ mod tests {
             assert_eq!(nodes[0].1.control_values[&0], 1.);
         }
     }
+    #[test]
+    fn sparse_and_dense_waveforms_have_connected_traces() {
+        for peaks in [
+            vec![(0., 0.), (0.5, 0.5), (-0.5, -0.5)],
+            vec![(-0.8, 0.9); 10_000],
+            vec![(0.25, 0.25); 10_000],
+        ] {
+            let ctx = egui::Context::default();
+            let mut output = ctx.run_ui(Default::default(), |ui| waveform(ui, &peaks));
+            output.textures_delta.clear();
+            let paths = output
+                .shapes
+                .iter()
+                .filter_map(|shape| match &shape.shape {
+                    egui::Shape::Path(path)
+                        if path.stroke.color
+                            == egui::epaint::ColorMode::Solid(Color32::LIGHT_GREEN) =>
+                    {
+                        Some(path)
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(paths.len(), 1, "Trace must be one continuous path");
+            let path = paths[0];
+            assert!(path.points.len() >= 3);
+            assert!(path.points.len() <= 4096);
+            assert!(path.points.windows(2).all(|p| p[0].x <= p[1].x));
+            if peaks.len() == 3 {
+                assert_eq!(path.points.len(), 3);
+                assert!(path.points[1].y < path.points[0].y);
+                assert!(path.points[2].y > path.points[0].y);
+            }
+        }
+    }
+
     #[test]
     fn button_pointer_release_and_focus_loss() {
         let core = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../wisp/core");
