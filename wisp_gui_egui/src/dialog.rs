@@ -32,6 +32,7 @@ pub struct DialogWorker {
     pub tx: Sender<DialogRequest>,
     pub rx: Receiver<DialogResult>,
     stop: Arc<AtomicBool>,
+    worker: Option<std::thread::JoinHandle<()>>,
 }
 impl DialogWorker {
     pub fn spawn(repaint: egui::Context) -> Self {
@@ -39,7 +40,7 @@ impl DialogWorker {
         let (results, rx) = bounded(1);
         let stop = Arc::new(AtomicBool::new(false));
         let stopped = stop.clone();
-        std::thread::spawn(move || {
+        let worker = std::thread::spawn(move || {
             while !stopped.load(Ordering::Acquire) {
                 let request = match requests.recv_timeout(Duration::from_millis(25)) {
                     Ok(r) => r,
@@ -47,9 +48,9 @@ impl DialogWorker {
                     Err(_) => break,
                 };
                 let mut dialog = if request.kind == DialogKind::Wave {
-                    rfd::FileDialog::new().add_filter("Waveform audio", &["wav"])
+                    rfd::AsyncFileDialog::new().add_filter("Waveform audio", &["wav"])
                 } else {
-                    rfd::FileDialog::new().add_filter("TwistedWiSP flow", &["twf"])
+                    rfd::AsyncFileDialog::new().add_filter("TwistedWiSP flow", &["twf"])
                 };
                 if let Some(path) = &request.initial {
                     if let Some(parent) = path.parent() {
@@ -61,9 +62,26 @@ impl DialogWorker {
                         dialog = dialog.set_file_name(name.to_string_lossy());
                     }
                 }
-                let path = match request.kind {
-                    DialogKind::Open | DialogKind::Wave => dialog.pick_file(),
-                    DialogKind::Save => dialog.save_file(),
+                let kind = request.kind;
+                let mut pending = Box::pin(async move {
+                    match kind {
+                        DialogKind::Open | DialogKind::Wave => dialog.pick_file().await,
+                        DialogKind::Save => dialog.save_file().await,
+                    }
+                    .map(|file| file.path().to_owned())
+                });
+                let waker = std::task::Waker::from(Arc::new(DialogWake(std::thread::current())));
+                let mut context = std::task::Context::from_waker(&waker);
+                let path = loop {
+                    if stopped.load(Ordering::Acquire) {
+                        return;
+                    }
+                    match std::future::Future::poll(pending.as_mut(), &mut context) {
+                        std::task::Poll::Ready(path) => break path,
+                        std::task::Poll::Pending => {
+                            std::thread::park_timeout(Duration::from_millis(20))
+                        }
+                    }
                 };
                 if stopped.load(Ordering::Acquire) {
                     break;
@@ -72,14 +90,31 @@ impl DialogWorker {
                 repaint.request_repaint();
             }
         });
-        Self { tx, rx, stop }
+        Self {
+            tx,
+            rx,
+            stop,
+            worker: Some(worker),
+        }
     }
 }
-// Portals/native dialogs do not expose portable cancellation. Closing the app
-// detaches this one worker instead of hanging on an open chooser. It owns no
-// document/runtime resources, and drops its result if the UI has gone away.
+// Dropping the pending async portal request cancels our wait. No detached
+// application worker can retain the document or reopen a closing window.
+struct DialogWake(std::thread::Thread);
+impl std::task::Wake for DialogWake {
+    fn wake(self: Arc<Self>) {
+        self.0.unpark();
+    }
+    fn wake_by_ref(self: &Arc<Self>) {
+        self.0.unpark();
+    }
+}
 impl Drop for DialogWorker {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Release);
+        if let Some(worker) = self.worker.take() {
+            worker.thread().unpark();
+            let _ = worker.join();
+        }
     }
 }
