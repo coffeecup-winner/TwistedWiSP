@@ -41,19 +41,35 @@ pub struct Resources {
     cache: BTreeMap<Key, Result<Arc<wisp::buffer::DecodedAudio>, String>>,
     active: Option<Key>,
     pending_relink: Option<Key>,
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    worker: Option<std::thread::JoinHandle<()>>,
 }
 impl Default for Resources {
     fn default() -> Self {
         let (tx, jobs) = bounded::<Job>(1);
         let (results, rx) = bounded(1);
-        std::thread::spawn(move || {
-            while let Ok(job) = jobs.recv() {
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let stopped = stop.clone();
+        let worker = std::thread::spawn(move || {
+            while !stopped.load(std::sync::atomic::Ordering::Acquire) {
+                let job = match jobs.recv_timeout(std::time::Duration::from_millis(20)) {
+                    Ok(job) => job,
+                    Err(crossbeam::channel::RecvTimeoutError::Timeout) => continue,
+                    Err(_) => break,
+                };
                 let audio = match &job.key.path {
                     Some(p) => wisp::buffer::DecodedAudio::load(p),
                     None => wisp::buffer::DecodedAudio::builtin(&job.key.name),
                 }
                 .map(Arc::new);
-                if results.send(Completion { job, audio }).is_err() {
+                if stopped.load(std::sync::atomic::Ordering::Acquire)
+                    || results
+                        .send_timeout(
+                            Completion { job, audio },
+                            std::time::Duration::from_millis(20),
+                        )
+                        .is_err()
+                {
                     break;
                 }
             }
@@ -64,6 +80,16 @@ impl Default for Resources {
             cache: BTreeMap::new(),
             active: None,
             pending_relink: None,
+            stop,
+            worker: Some(worker),
+        }
+    }
+}
+impl Drop for Resources {
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Release);
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
         }
     }
 }
