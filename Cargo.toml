@@ -5,5 +5,4 @@ members = [
     "wisp_gui_extension",
     "wisp_ir",
     "wisp_protocol",
-    "wisp_runner"
 ]

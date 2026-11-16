@@ -9,7 +9,7 @@ use log::info;
 use string_error::into_err;
 use twisted_wisp_ir::IRFunction;
 
-use crate::compiler::DataArrayHandle;
+use crate::runner::compiler::DataArrayHandle;
 
 pub struct WispExecutionContext {
     context: Context,

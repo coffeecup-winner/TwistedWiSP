@@ -1381,16 +1381,29 @@ dependencies = [
 name = "twisted-wisp"
 version = "0.1.0"
 dependencies = [
+ "clap",
+ "cpal",
+ "crossbeam",
+ "env_logger",
+ "hound",
  "indexmap",
+ "inkwell",
  "lazy_static",
  "log",
  "logos",
+ "midir",
+ "midly",
  "pest",
  "pest_derive",
  "petgraph",
+ "rand",
+ "ringbuffer",
  "serde",
+ "string-error",
+ "thiserror",
  "toml",
  "twisted-wisp-ir",
+ "twisted-wisp-protocol",
 ]
 
 [[package]]
@@ -1421,28 +1434,6 @@ dependencies = [
  "serde",
  "serde_json",
  "twisted-wisp-ir",
-]
-
-[[package]]
-name = "twisted-wisp-runner"
-version = "0.1.0"
-dependencies = [
- "clap",
- "cpal",
- "crossbeam",
- "env_logger",
- "hound",
- "inkwell",
- "log",
- "midir",
- "midly",
- "rand",
- "ringbuffer",
- "string-error",
- "thiserror",
- "twisted-wisp",
- "twisted-wisp-ir",
- "twisted-wisp-protocol",
 ]
 
 [[package]]

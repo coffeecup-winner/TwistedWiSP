@@ -1,9 +1,4 @@
-mod audio;
-mod compiler;
-mod context;
-mod midi;
-mod runtime;
-mod server;
+// TODO: Extract this into a separate crate?
 
 use std::{
     error::Error,
@@ -11,7 +6,7 @@ use std::{
 };
 
 use clap::Parser;
-use context::{WispContext, WispExecutionContext};
+use crate::runner::context::{WispContext, WispExecutionContext};
 use midi::WispMidiIn;
 use runtime::WispRuntime;
 

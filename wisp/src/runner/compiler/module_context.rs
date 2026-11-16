@@ -7,7 +7,7 @@ use inkwell::{
 };
 use twisted_wisp_ir::IRFunction;
 
-use crate::context::WispContext;
+use crate::runner::context::WispContext;
 
 use super::{data_layout::DataLayout, error::SignalProcessCreationError};
 

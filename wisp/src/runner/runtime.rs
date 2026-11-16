@@ -13,7 +13,7 @@ use midly::{
 use twisted_wisp_ir::CallId;
 use twisted_wisp_protocol::{DataIndex, WatchIndex, WatchedDataValues};
 
-use crate::{
+use crate::runner::{
     audio::device::ConfiguredAudioDevice,
     compiler::{
         DataArrayHandle, SignalProcessCreationError, SignalProcessor, SignalProcessorBuilder,
