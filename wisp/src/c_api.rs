@@ -9,11 +9,49 @@ pub extern "C" fn wisp_enable_logging() -> bool {
     TwistedWispEngine::enable_logging()
 }
 
+/// Engine config API
+
+#[no_mangle]
+pub extern "C" fn wisp_engine_config_create() -> *mut TwistedWispEngineConfig {
+    Box::into_raw(Box::new(TwistedWispEngineConfig::default()))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn wisp_engine_config_destroy(config: *mut TwistedWispEngineConfig) {
+    if !config.is_null() {
+        drop(unsafe { Box::from_raw(config) })
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn wisp_engine_config_set_core_path(
+    config: *mut TwistedWispEngineConfig,
+    core_path: *const c_char,
+) {
+    if !config.is_null() {
+        unsafe {
+            (*config).core_path = Some(
+                std::ffi::CStr::from_ptr(core_path)
+                    .to_string_lossy()
+                    .into_owned()
+                    .into(),
+            );
+        }
+    }
+}
+
 /// Engine API
 
 #[no_mangle]
-pub extern "C" fn wisp_engine_create() -> *mut TwistedWispEngine {
-    match TwistedWispEngine::create(TwistedWispEngineConfig::default()) {
+pub unsafe extern "C" fn wisp_engine_create(
+    config: *mut TwistedWispEngineConfig,
+) -> *mut TwistedWispEngine {
+    let config = if config.is_null() {
+        &TwistedWispEngineConfig::default()
+    } else {
+        unsafe { &*config }
+    };
+    match TwistedWispEngine::create(config) {
         Ok(engine) => Box::into_raw(Box::new(engine)),
         Err(_) => std::ptr::null_mut(),
     }
