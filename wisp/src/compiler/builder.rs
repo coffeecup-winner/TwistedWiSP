@@ -129,7 +129,7 @@ impl SignalProcessorBuilder {
             .build_call(builtin, &[rng.as_pointer_value().into()], "sample")
             .unwrap()
             .try_as_basic_value()
-            .left()
+            .basic()
             .unwrap();
         noise_builder.build_return(Some(&sample)).unwrap();
 
@@ -520,7 +520,7 @@ impl SignalProcessorBuilder {
                         )
                     })?;
                     fctx.vars
-                        .insert(*vref, value.try_as_basic_value().left().unwrap());
+                        .insert(*vref, value.try_as_basic_value().basic().unwrap());
                 }
                 IStore(op_array, op_idx, op_value) => {
                     let array =
