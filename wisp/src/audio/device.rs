@@ -23,7 +23,7 @@ impl ConfiguredAudioDevice {
             preferred_output_channels,
             preferred_buffer_size,
             preferred_sample_rate,
-        );
+        )?;
         Ok(ConfiguredAudioDevice { device, config })
     }
 
@@ -67,9 +67,13 @@ impl ConfiguredAudioDevice {
         self.config.sample_rate.0
     }
 
-    pub fn build_output_audio_stream<F: FnMut(u32, &mut [f32]) + Send + 'static>(
+    pub fn build_output_audio_stream<
+        F: FnMut(u32, &mut [f32]) + Send + 'static,
+        E: FnMut(cpal::StreamError) + Send + 'static,
+    >(
         &self,
         mut process_audio: F,
+        on_error: E,
     ) -> Result<Stream, Box<dyn std::error::Error>> {
         let num_output_channels = self.num_output_channels();
         let output_stream = self.device.build_output_stream(
@@ -77,7 +81,7 @@ impl ConfiguredAudioDevice {
             move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
                 process_audio(num_output_channels, data);
             },
-            |err| error!("Output audio stream error: {err}"),
+            on_error,
             None,
         )?;
 
@@ -126,7 +130,7 @@ impl ConfiguredAudioDevice {
         } else {
             host.default_output_device()
         }
-        .expect("Failed to find any output audio device");
+        .ok_or("No output audio device is available")?;
         info!("Selected audio device: {}", device.name()?);
 
         Ok(device)
@@ -134,41 +138,90 @@ impl ConfiguredAudioDevice {
 
     fn select_output_audio_device_config(
         device: &Device,
-        preferred_output_channels: Option<u16>,
-        preferred_buffer_size: Option<u32>,
-        preferred_sample_rate: Option<u32>,
-    ) -> StreamConfig {
-        let supported_config_range = device
-            .supported_output_configs()
-            .expect("No supported configs for the selected audio device")
-            .find(|c| {
-                c.channels() == preferred_output_channels.unwrap_or(2)
-                    || c.sample_format() == SampleFormat::F32
-            })
-            .expect("No supported configs with the preferred number of channels");
-        let supported_config = supported_config_range
-            .with_sample_rate(SampleRate(preferred_sample_rate.unwrap_or(44100)));
-        let buffer_size = if let Some(mut buffer_size) = preferred_buffer_size {
-            if let SupportedBufferSize::Range { min, max } = supported_config.buffer_size() {
-                let size = buffer_size.clamp(*min, *max);
-                if size != buffer_size {
-                    error!(
-                        "Preferred buffer size {} is out of range, using {} instead",
-                        buffer_size, size
-                    );
-                    buffer_size = size;
-                }
-            }
-            BufferSize::Fixed(buffer_size)
-        } else {
-            BufferSize::Default
-        };
-        let mut config: StreamConfig = supported_config.into();
-        config.buffer_size = buffer_size;
-        info!("Selected audio device config: ");
-        info!("  - channels: {}", config.channels);
-        info!("  - bufsize: {:?}", config.buffer_size);
-        info!("  - sample rate: {}", config.sample_rate.0);
-        config
+        channels: Option<u16>,
+        buffer: Option<u32>,
+        rate: Option<u32>,
+    ) -> Result<StreamConfig, Box<dyn std::error::Error>> {
+        let ranges: Vec<_> = device.supported_output_configs()?.collect();
+        let config = choose_config(&ranges, channels, buffer, rate)?;
+        info!(
+            "Audio: {} channels, {} Hz, buffer {:?}",
+            config.channels, config.sample_rate.0, config.buffer_size
+        );
+        Ok(config)
+    }
+}
+
+fn choose_config(
+    ranges: &[cpal::SupportedStreamConfigRange],
+    channels: Option<u16>,
+    buffer: Option<u32>,
+    rate: Option<u32>,
+) -> Result<StreamConfig, Box<dyn std::error::Error>> {
+    if channels == Some(0) || rate == Some(0) || buffer == Some(0) {
+        return Err("Audio channels/rate/buffer must be positive".into());
+    }
+    let wanted_channels = channels.unwrap_or(2);
+    let wanted_rate = rate.unwrap_or(44_100);
+    let best = ranges
+        .iter()
+        .filter(|r| r.sample_format() == SampleFormat::F32 && r.channels() > 0)
+        .min_by_key(|r| {
+            (
+                r.channels().abs_diff(wanted_channels),
+                if wanted_rate < r.min_sample_rate().0 {
+                    r.min_sample_rate().0 - wanted_rate
+                } else {
+                    wanted_rate.saturating_sub(r.max_sample_rate().0)
+                },
+            )
+        })
+        .ok_or("No F32 audio output configuration is supported")?;
+    let rate = wanted_rate.clamp(best.min_sample_rate().0, best.max_sample_rate().0);
+    if best.channels() != wanted_channels || rate != wanted_rate {
+        info!(
+            "Requested audio configuration unsupported; using {} channels at {} Hz",
+            best.channels(),
+            rate
+        );
+    }
+    let mut config: StreamConfig = best.clone().with_sample_rate(SampleRate(rate)).into();
+    config.buffer_size = match (buffer, best.buffer_size()) {
+        (Some(n), SupportedBufferSize::Range { min, max }) => {
+            BufferSize::Fixed(n.clamp(*min, *max))
+        }
+        _ => BufferSize::Default,
+    };
+    Ok(config)
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn range(
+        channels: u16,
+        min: u32,
+        max: u32,
+        format: SampleFormat,
+    ) -> cpal::SupportedStreamConfigRange {
+        cpal::SupportedStreamConfigRange::new(
+            channels,
+            SampleRate(min),
+            SampleRate(max),
+            SupportedBufferSize::Range { min: 64, max: 1024 },
+            format,
+        )
+    }
+    #[test]
+    fn requires_float_and_clamps_unsupported_settings() {
+        let ranges = [
+            range(2, 44100, 48000, SampleFormat::I16),
+            range(1, 48000, 96000, SampleFormat::F32),
+        ];
+        let c = choose_config(&ranges, Some(2), Some(1), Some(44100)).unwrap();
+        assert_eq!(c.channels, 1);
+        assert_eq!(c.sample_rate.0, 48000);
+        assert_eq!(c.buffer_size, BufferSize::Fixed(64));
+        assert!(choose_config(&ranges[..1], None, None, None).is_err());
+        assert!(choose_config(&ranges, Some(0), None, None).is_err());
     }
 }

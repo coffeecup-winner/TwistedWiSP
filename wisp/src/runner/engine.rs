@@ -29,7 +29,7 @@ pub struct FunctionRef(*const dyn WispFunction);
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct FlowFunctionRef(*const FlowFunction);
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct TwistedWispEngineConfig {
     pub audio_host: Option<String>,
     pub audio_device: Option<String>,
@@ -41,9 +41,10 @@ pub struct TwistedWispEngineConfig {
 }
 
 pub struct TwistedWispEngine {
+    // Stop callback before context-owned buffers/functions are destroyed.
+    runtime: WispRuntime,
     ctx: WispContext,
     rctx: WispRuntimeContext,
-    runtime: WispRuntime,
 }
 
 impl TwistedWispEngine {
@@ -56,23 +57,55 @@ impl TwistedWispEngine {
             config.audio_sample_rate,
         )?;
         let mut ctx = WispContext::new(device.num_output_channels(), device.sample_rate());
-        let mut rctx = WispRuntimeContext::new();
+        let rctx = WispRuntimeContext::new();
 
         ctx.add_builtin_functions();
         if let Some(core_path) = config.core_path.as_deref() {
             ctx.load_core_functions(core_path)?;
         }
 
-        let midi_in = WispMidiIn::open(config.midi_in_port.as_deref())?;
-        let runtime = WispRuntime::init(device, midi_in);
-
-        for f in ctx.functions_iter() {
-            for func in f.borrow().get_ir_functions(&ctx) {
-                rctx.add_function(func);
+        let midi_in = match WispMidiIn::open(config.midi_in_port.as_deref()) {
+            Ok(midi) => Some(midi),
+            Err(error) => {
+                log::warn!("MIDI unavailable (audio remains available): {error}");
+                None
             }
-        }
+        };
+        let runtime = WispRuntime::init(device, midi_in)?;
 
         Ok(TwistedWispEngine { ctx, rctx, runtime })
+    }
+
+    /// Safe Rust editor facade. No engine pointers or borrowed function handles escape.
+    pub fn ctx_load_flow_from_text(
+        &mut self,
+        text: &str,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        self.ctx.load_flow_text(text)
+    }
+    pub fn audio_configuration(&self) -> (u32, u32) {
+        (self.ctx.sample_rate(), self.ctx.num_outputs())
+    }
+    pub fn runtime_healthy(&self) -> bool {
+        self.runtime.healthy()
+    }
+    pub fn runtime_start_checked(&self) -> Result<(), String> {
+        self.runtime.start_checked()
+    }
+    pub fn runtime_stop_checked(&self) -> Result<(), String> {
+        self.runtime.stop_checked()
+    }
+    pub fn runtime_install_checked(&self, processor: SignalProcessor) -> Result<(), String> {
+        self.runtime.install_checked(processor)
+    }
+    pub fn runtime_scalar_checked(
+        &self,
+        name: &str,
+        call: CallIndex,
+        data: DataIndex,
+        value: f32,
+    ) -> Result<(), String> {
+        self.runtime.scalar_checked(name, call, data, value)
     }
 
     pub fn enable_logging() -> bool {

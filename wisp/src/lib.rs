@@ -10,3 +10,7 @@ mod runner;
 mod utils;
 
 pub use runner::engine::*;
+
+mod offline;
+pub use compiler::{SignalProcessCreationError, SignalProcessor};
+pub use offline::OfflineSession;
