@@ -56,7 +56,17 @@ pub fn spawn_configured_service(
     repaint: egui::Context,
     offline: bool,
     config: wisp::TwistedWispEngineConfig,
+    factory: super::runtime::RuntimeFactory,
+) -> EditorServiceHandle {
+    spawn_service_with_paths(core_path, repaint, offline, config, factory, vec![])
+}
+pub fn spawn_service_with_paths(
+    core_path: PathBuf,
+    repaint: egui::Context,
+    offline: bool,
+    config: wisp::TwistedWispEngineConfig,
     mut factory: super::runtime::RuntimeFactory,
+    data_paths: Vec<PathBuf>,
 ) -> EditorServiceHandle {
     let (tx, commands) = bounded(128);
     let (events, rx) = bounded(128);
@@ -65,6 +75,8 @@ pub fn spawn_configured_service(
     let worker_stop = stop.clone();
     let worker_snapshots = snapshots.clone();
     let thread = thread::spawn(move || {
+        let io = super::persistence::IoWorker::spawn();
+        let mut saving: Option<(DocumentId, super::commands::RequestId, u64)> = None;
         let mut document: Option<EditorDocument> = None;
         let mut next_document = 1;
         let mut runtime: Option<Box<dyn super::runtime::EditorRuntime>> = None;
@@ -79,10 +91,30 @@ pub fn spawn_configured_service(
         let mut pending_command = None;
         let mut control_gesture = None;
         while !worker_stop.load(Ordering::Acquire) {
+            if let Ok(result) = io.rx.try_recv()
+                && let Some((document_id, req_id, state)) = saving.take()
+            {
+                if let Ok(receipt) = &result
+                    && let Some(doc) = document.as_mut().filter(|d| d.id() == document_id)
+                {
+                    doc.saved(state, receipt);
+                }
+                publish(&document, &worker_snapshots, &repaint);
+                deliver(
+                    EditorEvent::Saved {
+                        req_id,
+                        document_id,
+                        result,
+                    },
+                    &events,
+                    &worker_stop,
+                    &repaint,
+                );
+            }
             let mut command = match pending_command
                 .take()
                 .map(Ok)
-                .unwrap_or_else(|| commands.recv_timeout(Duration::from_millis(25)))
+                .unwrap_or_else(|| commands.recv_timeout(Duration::from_millis(5)))
             {
                 Ok(cmd) => cmd,
                 Err(crossbeam::channel::RecvTimeoutError::Timeout) => {
@@ -115,6 +147,70 @@ pub fn spawn_configured_service(
                 control_gesture,
             );
             let event = match command {
+                EditorCommand::Save {
+                    document_id,
+                    revision,
+                    state_id,
+                    path,
+                    overwrite,
+                    req_id,
+                } => {
+                    let result = (|| {
+                        if saving.is_some() {
+                            return Err("A save is already in progress".to_owned());
+                        }
+                        let doc = document
+                            .as_mut()
+                            .filter(|d| d.id() == document_id)
+                            .ok_or("Stale document")?;
+                        let snapshot = doc.snapshot();
+                        if snapshot.revision != revision || snapshot.state_id != state_id {
+                            return Err(
+                                "Document changed before save; retry after pending edits finish"
+                                    .into(),
+                            );
+                        }
+                        let (job, state) = doc.save_capture(path, overwrite)?;
+                        io.tx
+                            .try_send(job)
+                            .map_err(|_| "File worker is busy".to_owned())?;
+                        saving = Some((document_id, req_id, state));
+                        Ok::<(), String>(())
+                    })();
+                    if let Err(e) = result {
+                        deliver(
+                            EditorEvent::Saved {
+                                req_id,
+                                document_id,
+                                result: Err(super::persistence::SaveError::Failed(e)),
+                            },
+                            &events,
+                            &worker_stop,
+                            &repaint,
+                        );
+                    }
+                    publish(&document, &worker_snapshots, &repaint);
+                    continue;
+                }
+                EditorCommand::SetGeometry {
+                    document_id,
+                    node_id,
+                    position,
+                    size,
+                } => {
+                    let result = document
+                        .as_mut()
+                        .filter(|d| d.id() == document_id)
+                        .ok_or_else(|| "Stale document".to_owned())
+                        .and_then(|d| d.set_geometry(node_id, position, size));
+                    match result {
+                        Ok(()) => {
+                            publish(&document, &worker_snapshots, &repaint);
+                            continue;
+                        }
+                        Err(e) => EditorEvent::Error(e),
+                    }
+                }
                 EditorCommand::ControlFence { req_id, .. } | EditorCommand::Barrier { req_id } => {
                     EditorEvent::Response {
                         req_id,
@@ -138,9 +234,24 @@ pub fn spawn_configured_service(
                     }
                 }
                 EditorCommand::NewFlow { name, req_id } => {
+                    if saving.is_some() {
+                        deliver(
+                            EditorEvent::Response {
+                                req_id,
+                                result: Err(
+                                    "Wait for the active save before replacing the document".into(),
+                                ),
+                            },
+                            &events,
+                            &worker_stop,
+                            &repaint,
+                        );
+                        continue;
+                    }
                     let result =
                         EditorDocument::new_flow(&name, &core_path, DocumentId(next_document)).map(
-                            |doc| {
+                            |mut doc| {
+                                doc.set_data_paths(data_paths.clone());
                                 runtime = None;
                                 control_gesture = None;
                                 desired_running = false;
@@ -241,8 +352,23 @@ pub fn spawn_configured_service(
                     EditorEvent::Response { req_id, result }
                 }
                 EditorCommand::LoadFlow { path, req_id } => {
+                    if saving.is_some() {
+                        deliver(
+                            EditorEvent::Response {
+                                req_id,
+                                result: Err(
+                                    "Wait for the active save before replacing the document".into(),
+                                ),
+                            },
+                            &events,
+                            &worker_stop,
+                            &repaint,
+                        );
+                        continue;
+                    }
                     let result = EditorDocument::load(&path, &core_path, DocumentId(next_document))
-                        .map(|doc| {
+                        .map(|mut doc| {
+                            doc.set_data_paths(data_paths.clone());
                             runtime = None;
                             control_gesture = None;
                             desired_running = false;
@@ -1319,5 +1445,94 @@ mod tests {
             });
         }
         drop(service);
+    }
+    #[test]
+    fn save_service_success_conflict_failure_and_retry() {
+        use super::super::persistence::{Fingerprint, SaveError, tests::Temp};
+        let dir = Temp::new();
+        let path = dir.0.join("saved.twf");
+        let service = spawn_configured_service(
+            core(),
+            egui::Context::default(),
+            true,
+            Default::default(),
+            Box::new(|_| panic!("No devices during persistence")),
+        );
+        service
+            .submit(EditorCommand::LoadFlow {
+                path: core().join("../../wisp_gui/control.twf"),
+                req_id: RequestId(1),
+            })
+            .unwrap();
+        response(&service);
+        let before = service.take_snapshot().unwrap();
+        let save = |path: PathBuf, overwrite, request| {
+            let snap = service
+                .snapshots
+                .lock()
+                .unwrap()
+                .clone()
+                .unwrap_or_else(|| before.clone());
+            service
+                .submit(EditorCommand::Save {
+                    document_id: snap.id,
+                    revision: snap.revision,
+                    state_id: snap.state_id,
+                    path: Some(path),
+                    overwrite,
+                    req_id: RequestId(request),
+                })
+                .unwrap();
+            loop {
+                if let EditorEvent::Saved { req_id, result, .. } =
+                    service.rx.recv_timeout(Duration::from_secs(3)).unwrap()
+                {
+                    assert_eq!(req_id, RequestId(request));
+                    break result;
+                }
+            }
+        };
+        let receipt = save(path.clone(), None, 2).unwrap();
+        assert!(receipt.warnings.is_empty());
+        let after = service.snapshots.lock().unwrap().clone().unwrap();
+        assert!(!after.dirty);
+        assert_eq!(before.id, after.id);
+        assert_eq!(before.revision, after.revision);
+        assert_eq!(before.semantic_revision, after.semantic_revision);
+        assert_eq!(
+            before.nodes.iter().map(|n| n.0).collect::<Vec<_>>(),
+            after.nodes.iter().map(|n| n.0).collect::<Vec<_>>()
+        );
+        assert!(
+            super::super::document::EditorDocument::load(&path, &core(), DocumentId(99)).is_ok()
+        );
+        std::fs::write(&path, b"external change").unwrap();
+        assert!(matches!(
+            save(path.clone(), None, 3),
+            Err(SaveError::Conflict { .. })
+        ));
+        assert_eq!(std::fs::read(&path).unwrap(), b"external change");
+        let fingerprint = Fingerprint::read(&path).unwrap();
+        save(path.clone(), Some(fingerprint), 4).unwrap();
+        let saved_path = service
+            .snapshots
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .source_file
+            .clone();
+        assert!(save(dir.0.join("missing/flow.twf"), None, 5).is_err());
+        assert_eq!(
+            service
+                .snapshots
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .source_file,
+            saved_path
+        );
+        save(path, None, 6).unwrap();
     }
 }

@@ -165,6 +165,7 @@ impl WispGuiApp {
     fn poll(&mut self, ctx: &egui::Context) {
         while let Ok(event) = self.service.rx.try_recv() {
             match event {
+                EditorEvent::Saved { .. } => {}
                 EditorEvent::Response { req_id, result } => {
                     self.awaiting.remove(&req_id.0);
                     if self.canvas.acknowledge_control(req_id) {

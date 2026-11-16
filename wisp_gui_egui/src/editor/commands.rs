@@ -7,6 +7,20 @@ use std::path::PathBuf;
 pub struct RequestId(pub u64);
 #[derive(Clone, Debug)]
 pub enum EditorCommand {
+    Save {
+        document_id: DocumentId,
+        revision: u64,
+        state_id: u64,
+        path: Option<PathBuf>,
+        overwrite: Option<super::persistence::Fingerprint>,
+        req_id: RequestId,
+    },
+    SetGeometry {
+        document_id: DocumentId,
+        node_id: EditorNodeId,
+        position: Vec2,
+        size: Vec2,
+    },
     /// A control acknowledgement can move with a newer value in the same gesture.
     /// Ordinary barriers and gesture boundaries always retain their ordering.
     ControlFence {
@@ -54,6 +68,11 @@ pub enum EditorCommand {
 }
 #[derive(Clone, Debug)]
 pub enum EditorEvent {
+    Saved {
+        req_id: RequestId,
+        document_id: DocumentId,
+        result: Result<super::persistence::SaveReceipt, super::persistence::SaveError>,
+    },
     Response {
         req_id: RequestId,
         result: Result<(), String>,
