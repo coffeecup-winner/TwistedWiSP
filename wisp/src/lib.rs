@@ -16,3 +16,5 @@ pub use compiler::{SignalProcessCreationError, SignalProcessor};
 pub use offline::OfflineSession;
 
 pub use compiler::DataArrayHandle;
+
+pub mod buffer;

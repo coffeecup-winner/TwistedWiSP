@@ -117,6 +117,28 @@ impl SignalProcessorBuilder {
         }
         execution_engine.add_global_mapping(&g_noise, noise as usize);
 
+        let read = module.add_function(
+            "wisp_array_read",
+            ectx.f32_t()
+                .fn_type(&[ectx.pf32_t().into(), ectx.f32_t().into()], false),
+            None,
+        );
+        let write = module.add_function(
+            "wisp_array_write",
+            ectx.void_t().fn_type(
+                &[
+                    ectx.pf32_t().into(),
+                    ectx.f32_t().into(),
+                    ectx.f32_t().into(),
+                ],
+                false,
+            ),
+            None,
+        );
+        execution_engine.add_global_mapping(&read, crate::buffer::array_read as *const () as usize);
+        execution_engine
+            .add_global_mapping(&write, crate::buffer::array_write as *const () as usize);
+
         for name in rctx.active_set().get_untracked().iter() {
             let ir_func = rctx
                 .get_function(name)
@@ -468,56 +490,28 @@ impl SignalProcessorBuilder {
                 ILoad(vref, op_array, op_idx) => {
                     let array =
                         Self::resolve_operand(ectx, mctx, fctx, op_array)?.into_pointer_value();
-                    let idx_f32 =
-                        Self::resolve_operand(ectx, mctx, fctx, op_idx)?.into_float_value();
-                    let idx = mctx.build("cast", |b, n| {
-                        b.build_float_to_unsigned_int(idx_f32, ectx.i32_t(), n)
-                    })?;
-                    let value = mctx.build("iload", |b, n| {
-                        b.build_load(
-                            ectx.f32_t(),
-                            unsafe {
-                                b.build_gep(
-                                    ectx.f32_t(),
-                                    array,
-                                    &[b.build_int_add(
-                                        idx,
-                                        ectx.i32_t().const_int(1, false),
-                                        "array_offset",
-                                    )?],
-                                    n,
-                                )?
-                            },
+                    let idx = Self::resolve_operand(ectx, mctx, fctx, op_idx)?.into_float_value();
+                    let value = mctx.build("checked_read", |b, n| {
+                        b.build_call(
+                            mctx.module.get_function("wisp_array_read").unwrap(),
+                            &[array.into(), idx.into()],
                             n,
                         )
                     })?;
-                    fctx.vars.insert(*vref, value.as_basic_value_enum());
+                    fctx.vars
+                        .insert(*vref, value.try_as_basic_value().left().unwrap());
                 }
                 IStore(op_array, op_idx, op_value) => {
                     let array =
                         Self::resolve_operand(ectx, mctx, fctx, op_array)?.into_pointer_value();
-                    let idx_f32 =
-                        Self::resolve_operand(ectx, mctx, fctx, op_idx)?.into_float_value();
-                    let idx = mctx.build("cast", |b, n| {
-                        b.build_float_to_unsigned_int(idx_f32, ectx.i32_t(), n)
-                    })?;
+                    let idx = Self::resolve_operand(ectx, mctx, fctx, op_idx)?.into_float_value();
                     let value =
                         Self::resolve_operand(ectx, mctx, fctx, op_value)?.into_float_value();
-                    mctx.build("istore", |b, n| {
-                        b.build_store(
-                            unsafe {
-                                b.build_gep(
-                                    ectx.f32_t(),
-                                    array,
-                                    &[b.build_int_add(
-                                        idx,
-                                        ectx.i32_t().const_int(1, false),
-                                        "array_offset",
-                                    )?],
-                                    n,
-                                )?
-                            },
-                            value,
+                    mctx.build("checked_write", |b, _| {
+                        b.build_call(
+                            mctx.module.get_function("wisp_array_write").unwrap(),
+                            &[array.into(), idx.into(), value.into()],
+                            "",
                         )
                     })?;
                 }
