@@ -9,7 +9,7 @@ use crate::{
     core::{FlowFunction, WispContext, WispFunction},
     ir::IRFunction,
     midi::WispMidiIn,
-    runner::{context::WispEngineContext, runtime::WispRuntime},
+    runner::{context::WispRuntimeContext, runtime::WispRuntime},
 };
 
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
@@ -45,7 +45,7 @@ pub struct TwistedWispEngineConfig<'a> {
 
 pub struct TwistedWispEngine {
     ctx: WispContext,
-    wisp: WispEngineContext,
+    rctx: WispRuntimeContext,
     runtime: WispRuntime,
 }
 
@@ -59,7 +59,7 @@ impl TwistedWispEngine {
             config.audio_sample_rate,
         )?;
         let mut ctx = WispContext::new(device.num_output_channels(), device.sample_rate());
-        let mut wisp = WispEngineContext::new();
+        let mut wisp = WispRuntimeContext::new();
 
         ctx.add_builtin_functions();
         if let Some(core_path) = config.core_path {
@@ -75,7 +75,11 @@ impl TwistedWispEngine {
             }
         }
 
-        Ok(TwistedWispEngine { ctx, wisp, runtime })
+        Ok(TwistedWispEngine {
+            ctx,
+            rctx: wisp,
+            runtime,
+        })
     }
 
     pub fn dsp_start(&mut self) {
@@ -87,7 +91,7 @@ impl TwistedWispEngine {
     }
 
     pub fn context_reset(&mut self) {
-        self.wisp.reset();
+        self.rctx.reset();
     }
 
     pub fn ctx_list_functions(&self) -> Vec<String> {
@@ -146,12 +150,12 @@ impl TwistedWispEngine {
 
     pub fn context_add_or_update_functions(&mut self, functions: Vec<IRFunction>) {
         for func in functions {
-            self.wisp.add_function(func);
+            self.rctx.add_function(func);
         }
     }
 
     pub fn context_remove_function(&mut self, name: String) {
-        self.wisp.remove_function(&name);
+        self.rctx.remove_function(&name);
     }
 
     pub fn context_set_main_function(&mut self, name: String) {
@@ -230,7 +234,7 @@ impl TwistedWispEngine {
     pub fn context_update(&mut self) -> Result<(), SignalProcessCreationError> {
         if let Some(main_function) = self.ctx.main_function() {
             self.runtime
-                .switch_to_signal_processor(&self.ctx, &self.wisp, main_function)
+                .switch_to_signal_processor(&self.ctx, &mut self.rctx, main_function)
         } else {
             Err(SignalProcessCreationError::NoMainFunction)
         }

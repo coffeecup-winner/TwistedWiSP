@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use cpal::Stream;
 use crossbeam::channel::{Receiver, Sender};
 use inkwell::{
+    context::Context,
     execution_engine::ExecutionEngine,
     llvm_sys::{
         execution_engine::{LLVMDisposeExecutionEngine, LLVMExecutionEngineRef},
@@ -24,7 +25,7 @@ use crate::{
     },
     core::WispContext,
     midi::WispMidiIn,
-    runner::context::{WispEngineContext, WispExecutionContext},
+    runner::context::WispRuntimeContext,
     CallIndex,
 };
 
@@ -70,6 +71,22 @@ enum RuntimeStateMessage {
 enum SignalProcessorResponse {
     Watch(Option<WatchIndex>),
     WatchData(WatchedDataValues),
+}
+
+pub struct WispExecutionContext {
+    context: Context,
+}
+
+impl WispExecutionContext {
+    pub fn init() -> Self {
+        WispExecutionContext {
+            context: Context::create(),
+        }
+    }
+
+    pub fn llvm(&self) -> &Context {
+        &self.context
+    }
 }
 
 // We need this separate holder for the EE reference because inkwell's ExecutionEngine
@@ -300,12 +317,12 @@ impl WispRuntime {
     pub fn switch_to_signal_processor(
         &mut self,
         ctx: &WispContext,
-        wctx: &WispEngineContext,
+        rctx: &mut WispRuntimeContext,
         top_level: &str,
     ) -> Result<(), SignalProcessCreationError> {
         let (sp, ee) = self
             .builder
-            .create_signal_processor(ctx, &self.ectx, wctx, top_level)?;
+            .build_signal_processor(ctx, &self.ectx, rctx, top_level)?;
         self.runtime_tx
             .send(RuntimeStateMessage::SetProcessor(sp))
             .expect("The processor channel is disconnected");

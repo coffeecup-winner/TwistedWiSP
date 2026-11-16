@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::{
     ir::{DataRef, IRFunction, IRFunctionDataType, Instruction, SourceLocation},
-    runner::context::WispEngineContext,
+    runner::context::WispRuntimeContext,
     CallIndex,
 };
 
@@ -67,12 +67,12 @@ pub struct DataLayout {
 }
 
 impl DataLayout {
-    pub fn calculate(top_level_func: &IRFunction, wctx: &WispEngineContext) -> Self {
+    pub fn calculate(top_level_func: &IRFunction, rctx: &WispRuntimeContext) -> Self {
         let mut data_layout = HashMap::new();
         let mut called_functions = HashSet::new();
         if let Some(function_data_layout) = Self::calculate_function_data_layout(
             top_level_func,
-            wctx,
+            rctx,
             &mut data_layout,
             &mut called_functions,
         ) {
@@ -90,7 +90,7 @@ impl DataLayout {
 
     fn calculate_function_data_layout(
         func: &IRFunction,
-        wctx: &WispEngineContext,
+        rctx: &WispRuntimeContext,
         data_layout: &mut HashMap<String, FunctionDataLayout>,
         called_functions: &mut HashSet<String>,
     ) -> Option<FunctionDataLayout> {
@@ -98,7 +98,7 @@ impl DataLayout {
 
         Self::calculate_children_data_sizes(
             func.instructions(),
-            wctx,
+            rctx,
             data_layout,
             called_functions,
             &mut children_data_sizes,
@@ -136,7 +136,7 @@ impl DataLayout {
 
     fn calculate_children_data_sizes(
         insns: &[Instruction],
-        wctx: &WispEngineContext,
+        rctx: &WispRuntimeContext,
         data_layout: &mut HashMap<String, FunctionDataLayout>,
         called_functions: &mut HashSet<String>,
         sizes: &mut BTreeMap<CallIndex, (String, u32)>,
@@ -149,8 +149,8 @@ impl DataLayout {
                     if let Some(child_data_layout) = data_layout.get(name) {
                         sizes.insert(CallIndex(id.0), (name.into(), child_data_layout.total_size));
                     } else if let Some(child_data_layout) = Self::calculate_function_data_layout(
-                        wctx.get_function(name).unwrap(),
-                        wctx,
+                        &rctx.get_function(name).unwrap().ir_function().get(None),
+                        rctx,
                         data_layout,
                         called_functions,
                     ) {
@@ -161,14 +161,14 @@ impl DataLayout {
                 Instruction::Conditional(_, then, else_) => {
                     Self::calculate_children_data_sizes(
                         then,
-                        wctx,
+                        rctx,
                         data_layout,
                         called_functions,
                         sizes,
                     );
                     Self::calculate_children_data_sizes(
                         else_,
-                        wctx,
+                        rctx,
                         data_layout,
                         called_functions,
                         sizes,

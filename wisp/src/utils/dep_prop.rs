@@ -1,5 +1,5 @@
 use std::{
-    cell::{Cell, RefCell},
+    cell::{Cell, Ref, RefCell},
     rc::{Rc, Weak},
 };
 
@@ -56,14 +56,14 @@ impl PropertyTracker {
 #[derive(Debug)]
 pub struct Property<T> {
     tracker: PropertyTracker,
-    value: T,
+    value: RefCell<T>,
 }
 
 impl<T> Property<T> {
     pub fn new(value: T) -> Self {
         Property {
             tracker: PropertyTracker::default(),
-            value,
+            value: RefCell::new(value),
         }
     }
 
@@ -75,30 +75,45 @@ impl<T> Property<T> {
         self.tracker.handle()
     }
 
-    pub fn get(&self, dependent: Option<DependencyHandle>) -> &T {
+    pub fn get(&self, dependent: Option<DependencyHandle>) -> Ref<T> {
         if let Some(dependent) = dependent {
             self.tracker.add_dependent(dependent);
         }
-        &self.value
+        self.value.borrow()
     }
 
-    pub fn set(&mut self, value: T) {
-        self.value = value;
+    pub fn set(&self, value: T) {
+        *self.value.borrow_mut() = value;
         self.tracker.invalidate_dependents();
         self.tracker.mark_as_valid();
     }
+
+    pub fn update(&self, f: impl FnOnce(Option<DependencyHandle>) -> T) {
+        if !self.is_valid() {
+            let new_value = f(Some(self.handle()));
+            self.set(new_value);
+        }
+    }
 }
 
+#[allow(dead_code)]
 impl<T> Property<T>
 where
     T: PartialEq,
 {
-    pub fn set_if_changed(&mut self, value: T) {
-        if self.value != value {
-            self.value = value;
+    pub fn set_if_changed(&self, value: T) {
+        if *self.value.borrow() != value {
+            *self.value.borrow_mut() = value;
             self.tracker.invalidate_dependents();
         }
         self.tracker.mark_as_valid();
+    }
+
+    pub fn update_if_changed(&mut self, f: impl FnOnce(Option<DependencyHandle>) -> T) {
+        if !self.is_valid() {
+            let new_value = f(Some(self.handle()));
+            self.set_if_changed(new_value);
+        }
     }
 }
 
@@ -108,8 +123,8 @@ mod tests {
 
     #[test]
     fn basic_invalidation() {
-        let mut parent = Property::new(42);
-        let mut child = Property::new(0);
+        let parent = Property::new(42);
+        let child = Property::new(0);
 
         child.set(*parent.get(Some(child.handle())));
 
@@ -121,9 +136,9 @@ mod tests {
 
     #[test]
     fn two_parents() {
-        let mut parent1 = Property::new(42);
-        let mut parent2 = Property::new(42);
-        let mut child = Property::new(0);
+        let parent1 = Property::new(42);
+        let parent2 = Property::new(42);
+        let child = Property::new(0);
 
         child.set(*parent1.get(Some(child.handle())) + *parent2.get(Some(child.handle())));
 
@@ -144,9 +159,9 @@ mod tests {
 
     #[test]
     fn two_children() {
-        let mut parent = Property::new(42);
-        let mut child1 = Property::new(0);
-        let mut child2 = Property::new(0);
+        let parent = Property::new(42);
+        let child1 = Property::new(0);
+        let child2 = Property::new(0);
 
         child1.set(*parent.get(Some(child1.handle())));
         child2.set(*parent.get(Some(child2.handle())));
@@ -160,8 +175,8 @@ mod tests {
 
     #[test]
     fn set_if_changed() {
-        let mut parent = Property::new(42);
-        let mut child = Property::new(0);
+        let parent = Property::new(42);
+        let child = Property::new(0);
 
         child.set(*parent.get(Some(child.handle())));
 
@@ -178,9 +193,9 @@ mod tests {
 
     #[test]
     fn chain_invalidation_rules() {
-        let mut grandparent = Property::new(42);
-        let mut parent = Property::new(0);
-        let mut child = Property::new(0);
+        let grandparent = Property::new(42);
+        let parent = Property::new(0);
+        let child = Property::new(0);
 
         parent.set(*grandparent.get(Some(parent.handle())) / 2);
         child.set(*parent.get(Some(child.handle())) / 2);
