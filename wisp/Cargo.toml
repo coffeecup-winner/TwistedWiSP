@@ -23,8 +23,6 @@ hound = "3.5"
 # MIDI
 midly = "0.5"
 midir = "0.10"
-# CLI
-clap = { version = "4", features = ["derive"] }
 # Core
 crossbeam = "0.8"
 inkwell = { version = "0.5.0", features = ["llvm17-0-prefer-dynamic"] }
@@ -35,6 +33,3 @@ log = "0.4"
 ringbuffer = "0.15.0"
 string-error = "0.1.0"
 thiserror = "1"
-
-# ===== Protocol =====
-serde_json = "1"
