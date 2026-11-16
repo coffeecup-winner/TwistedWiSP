@@ -4,8 +4,8 @@ use ringbuffer::{AllocRingBuffer, RingBuffer};
 
 use crate::{
     compiler::DataArrayHandle,
-    ir::CallId,
     runner::engine::{DataIndex, WatchIndex, WatchedDataValues},
+    CallIndex,
 };
 
 use super::data_layout::{DataLayout, DataValue};
@@ -159,12 +159,12 @@ impl SignalProcessor {
     pub fn set_data_value(
         &mut self,
         name: &str,
-        id: CallId,
-        _idx: DataIndex,
+        call_idx: CallIndex,
+        _data_idx: DataIndex,
         value: f32,
     ) -> Option<()> {
         let data_layout = self.data_layout.get(name)?;
-        let (_, child_offset) = data_layout.children_data_items.get(&id)?;
+        let (_, child_offset) = data_layout.children_data_items.get(&call_idx)?;
         // TODO: Add data index within child using idx
         let data = self.data.get_mut(*child_offset as usize)?;
         *data = DataValue::new_float(value);
@@ -174,12 +174,12 @@ impl SignalProcessor {
     pub fn set_data_array(
         &mut self,
         name: &str,
-        id: CallId,
-        _idx: DataIndex,
+        call_idx: CallIndex,
+        _data_idx: DataIndex,
         array: DataArrayHandle,
     ) -> Option<()> {
         let data_layout = self.data_layout.get(name)?;
-        let (_, child_offset) = data_layout.children_data_items.get(&id)?;
+        let (_, child_offset) = data_layout.children_data_items.get(&call_idx)?;
         // TODO: Add data index within child using idx
         let data = self.data.get_mut(*child_offset as usize)?;
         *data = DataValue::new_array(array);
@@ -189,12 +189,12 @@ impl SignalProcessor {
     pub fn watch_data_value(
         &mut self,
         name: &str,
-        id: CallId,
-        _idx: DataIndex,
+        call_idx: CallIndex,
+        _data_idx: DataIndex,
         only_last_value: bool,
     ) -> Option<WatchIndex> {
         let data_layout = self.data_layout.get(name)?;
-        let (_, child_offset) = data_layout.children_data_items.get(&id)?;
+        let (_, child_offset) = data_layout.children_data_items.get(&call_idx)?;
         // TODO: Add data index within child using idx
         let idx = WatchIndex(self.watch_id_gen);
         self.watch_id_gen += 1;

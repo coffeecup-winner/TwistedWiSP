@@ -7,8 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use twisted_wisp::{
     core::{FlowFunction, WispContext, WispFunction},
-    ir::CallId,
-    DataIndex, TwistedWispEngine, TwistedWispEngineConfig,
+    CallIndex, DataIndex, TwistedWispEngine, TwistedWispEngineConfig,
 };
 
 use crate::{logger::GodotLogger, TwistedWispFlow};
@@ -191,7 +190,7 @@ impl TwistedWisp {
         for (idx, buffer_name) in buffer_nodes {
             runner.context_set_data_array(
                 flow_name.clone(),
-                CallId(idx.index() as u32),
+                CallIndex(idx.index() as u32),
                 DataIndex(0),
                 buffer_name,
             );
@@ -199,7 +198,7 @@ impl TwistedWisp {
         for (idx, value) in value_nodes {
             runner.context_set_data_value(
                 flow_name.clone(),
-                CallId(idx.index() as u32),
+                CallIndex(idx.index() as u32),
                 DataIndex(0),
                 value,
             );

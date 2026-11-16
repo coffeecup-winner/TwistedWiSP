@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::{
     audio::device::ConfiguredAudioDevice,
     compiler::SignalProcessCreationError,
-    ir::{CallId, IRFunction},
+    ir::IRFunction,
     midi::WispMidiIn,
     runner::{
         context::{WispContext, WispExecutionContext},
@@ -15,6 +15,9 @@ use crate::{
 pub struct SystemInfo {
     pub num_channels: u32,
 }
+
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+pub struct CallIndex(pub u32);
 
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct DataIndex(pub u32);
@@ -96,20 +99,27 @@ impl TwistedWispEngine {
         self.wisp.set_main_function(&name);
     }
 
-    pub fn context_set_data_value(&mut self, name: String, id: CallId, idx: DataIndex, value: f32) {
+    pub fn context_set_data_value(
+        &mut self,
+        name: String,
+        id: CallIndex,
+        idx: DataIndex,
+        value: f32,
+    ) {
         self.runtime.set_data_value(&name, id, idx, value);
     }
 
     pub fn context_set_data_array(
         &mut self,
         name: String,
-        id: CallId,
-        idx: DataIndex,
+        call_idx: CallIndex,
+        data_idx: DataIndex,
         array_name: String,
     ) -> Option<()> {
         match self.wisp.get_data_array(&name, &array_name) {
             Some(array) => {
-                self.runtime.set_data_array(&name, id, idx, array);
+                self.runtime
+                    .set_data_array(&name, call_idx, data_idx, array);
                 Some(())
             }
             None => None,
@@ -119,20 +129,22 @@ impl TwistedWispEngine {
     pub fn context_learn_midi_cc(
         &mut self,
         name: String,
-        id: CallId,
-        idx: DataIndex,
+        call_idx: CallIndex,
+        data_idx: DataIndex,
     ) -> Option<WatchIndex> {
-        self.runtime.learn_midi_cc(&name, id, idx);
-        self.runtime.watch_data_value(&name, id, idx, true)
+        self.runtime.learn_midi_cc(&name, call_idx, data_idx);
+        self.runtime
+            .watch_data_value(&name, call_idx, data_idx, true)
     }
 
     pub fn context_watch_data_value(
         &mut self,
         name: String,
-        id: CallId,
-        idx: DataIndex,
+        call_idx: CallIndex,
+        data_idx: DataIndex,
     ) -> Option<WatchIndex> {
-        self.runtime.watch_data_value(&name, id, idx, false)
+        self.runtime
+            .watch_data_value(&name, call_idx, data_idx, false)
     }
 
     pub fn context_unwatch_data_value(&mut self, idx: WatchIndex) {
