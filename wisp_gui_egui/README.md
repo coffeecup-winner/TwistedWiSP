@@ -1,4 +1,4 @@
-# Native egui editor — milestones 1–2
+# Native egui editor — milestones 1–4
 
 From the repository root:
 
@@ -9,9 +9,9 @@ cargo run -p wisp_gui_egui -- --flow wisp_gui/control.twf --offline
 
 Startup is stopped and does not open audio/MIDI. **Start DSP** lazily opens audio, compiles the authoritative flow, installs it, restores saved scalar values, then starts playback. Sliders update DSP without recompilation. During a drag, outdated queued values collapse to the newest value instead of trailing behind the pointer. The GUI requests a 256-frame audio buffer by default (about 5.8 ms per block at 44.1 kHz), clamped to device support; `--audio-buffer-size` overrides it. Actual response also depends on the device/driver output buffering. Stop outputs silence while keeping the callback available for commands. Audio failures are shown in the editor; offline edits remain available. MIDI is optional.
 
-`--offline` forbids device initialization. `--help` lists core, audio host/device/channel/buffer/rate and MIDI options. `--core-lib-path PATH` selects another core directory. Repeatable `--data-path` is reserved for milestone 4; WAV binding is not implemented. Flows needing arrays/buffers remain viewable but cannot start DSP.
+`--offline` forbids device initialization. `--help` lists core, audio host/device/channel/buffer/rate and MIDI options. `--core-lib-path PATH` selects another core directory. Repeatable `--data-path` adds WAV search directories. Root buffer nodes load validated WAV data before playback; nested array bindings remain gated pending instance addressing in M6.
 
-The graph displays actual `.twf` ports/wires and saved geometry. Use **New** with a unique alphanumeric/underscore name, or **Open** an existing flow. Edits stay in memory; saving is milestone 3. Replacing or closing an edited document offers discard/cancel. A failed load retains the previous document and playback.
+The graph displays actual `.twf` ports/wires and saved geometry. Use **New** with a unique alphanumeric/underscore name, or **Open** an existing flow. Edits stay in memory until saved. Replacing or closing an edited document offers Save/Discard/Cancel. A failed load retains the previous document and playback.
 
 - **N** over the graph, or right-click empty space → **Add node…**, opens the searchable function/expression picker at the cursor. Expressions start with `=`. Apply commits; rejected drafts remain editable. Function entries show their kind/port counts, with port details on hover.
 - Drag between output/input pins to connect. Float inputs sum multiple sources; incompatible types, array fan-in and feedback without a lag are rejected. Right-click a wire to disconnect that exact edge, or right-click a pin to disconnect all attached edges. The node menu also offers **Disconnect all**. Command/Ctrl-drag previews/copies attached connections; accepted wires remain until explicitly disconnected, including after a canceled drag.
@@ -23,9 +23,15 @@ Structural edits while DSP is enabled stop, compile, install, initialize control
 
 Use **Open…**, **Save**, **Save As…**, or Command/Ctrl-O, S, Shift-S and N for file actions. The existing Flow path field with **Open** and **Save to path…** work without a desktop portal. New/Open/window close on a dirty document offers Save/Discard/Cancel. A save captures accepted edits; edits made while it writes remain unsaved. External changes require confirmation before overwriting. Files are replaced through a synced sibling temporary file; symlink destinations must be selected by their target path explicitly.
 
+Buttons are momentary and reset on release or focus loss; toggles persist their 0/1 value. Numeric watches show their latest value and status; graph watches retain at most 4,096 samples and draw a bounded min/max trace. Telemetry updates at approximately 30 Hz, with reduced refresh for hidden graphs.
+
+Select a root control/toggle and choose **Learn CC** (or press **L** outside text entry), then move a MIDI CC. Learning can be canceled without MIDI traffic. Incoming values update the saved scalar property without adding Undo entries or echoing another runtime write. Mappings are session-only; missing MIDI is reported without disabling audio.
+
 The **Inspector** edits the single selected node's x/y/width/height and control value. Enter or focus loss commits numeric typing; Escape cancels typing. Drags form one Undo entry. Coordinates use legacy integer geometry, minimum sizes are 80×60, and controls use 0–1 in 0.001 steps. Width/height are renderer size hints: snarl's header/pins can require more space, and interactive resize handles are not provided.
 
-Buffer references are preserved and diagnosed without enabling playback. Relative paths resolve against the owning flow directory, then `--data-path` entries in order. Save As rebases resolved references to preserve the target; unresolved strings and absent-path builtin entries remain unchanged. Flattened node metadata supports the backend's i32/f32/string types; unsupported types fail loading with a property-specific error rather than being silently discarded.
+Buffer nodes show loading/error status, source format and a cached waveform preview. Use **Choose WAV**, reload/retry, or the builtin sine source. Decoding runs off the UI/audio threads; a failed reload retains the last safe resource. Mono files retain their samples; multichannel files are averaged to mono. Source rate and duration are displayed without resampling; normalized `sample` positions wrap at 1. Resources are bounded to 16M interleaved samples per file, 64 root buffers and a 128 MiB cache.
+
+Relative buffer references are preserved and diagnosed. Relative paths resolve against the owning flow directory, then `--data-path` entries in order. Save As rebases resolved references to preserve the target; unresolved strings and absent-path builtin entries remain unchanged. Flattened node metadata supports the backend's i32/f32/string types; unsupported types fail loading with a property-specific error rather than being silently discarded.
 
 **Canvas lab** is separate synthetic state. It contains waveform painting from a bounded 2,048-sample ring, a highlighted multiline editor, mixed controls, and a one-level child snarl. Scale buttons exercise 0.25×–2×. The child is explicitly read-only: the public-API nesting experiment routes wheel input over the child to the parent. See the reproducible headless test and completion report in [milestone1.md](../gui_plan/milestone1.md). No snarl fork or vendoring is used.
 
