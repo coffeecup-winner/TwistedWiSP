@@ -183,6 +183,7 @@ impl WispFunction for CodeFunction {
                         "{} %{}, {}",
                         match type_ {
                             UnaryOpType::Truncate => "trunc",
+                            UnaryOpType::Floor => "floor",
                         },
                         vref.0,
                         format_operand(op)
@@ -712,6 +713,15 @@ impl<'source> CodeFunctionParser<'source> {
                     };
                     instructions.push(Instruction::ComparisonOp(vref, type_, op0, op1))
                 }
+                // Contextual opcode: keep `floor` usable as a function name/call.
+                Token::Identifier(name)
+                    if name == "floor" && self.peek_token()? == Token::VarPrefix =>
+                {
+                    let vref = self.parse_vref(symbols, true)?;
+                    self.expect_token(Token::Comma)?;
+                    let op = self.parse_op(symbols)?;
+                    instructions.push(Instruction::UnaryOp(vref, UnaryOpType::Floor, op))
+                }
                 Token::Identifier(name) => {
                     let id = match self.peek_token()? {
                         Token::OutputPrefix => {
@@ -1040,6 +1050,30 @@ mod tests {
         assert_eq!(
             CodeFunctionParseResult::Function(create_test_function_lag()),
             parser.parse_function().unwrap()
+        );
+    }
+
+    #[test]
+    fn floor_opcode_and_function_call_round_trip() {
+        let source = "func floor(value: float) -> (out: float)\nbegin\n  floor %rounded, $value\n  trunc %truncated, $value\n  floor($value) -> (%called)\n  store #out, %rounded\nend\n";
+        let CodeFunctionParseResult::Function(function) =
+            CodeFunctionParser::new(source).parse_function().unwrap()
+        else {
+            panic!("Expected function");
+        };
+        assert!(matches!(
+            function.ir[0],
+            Instruction::UnaryOp(_, UnaryOpType::Floor, _)
+        ));
+        assert!(matches!(
+            function.ir[1],
+            Instruction::UnaryOp(_, UnaryOpType::Truncate, _)
+        ));
+        assert_eq!(
+            CodeFunctionParser::new(&function.save())
+                .parse_function()
+                .unwrap(),
+            CodeFunctionParseResult::Function(function)
         );
     }
 

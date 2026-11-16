@@ -77,8 +77,8 @@ end
 // floor - round down to the nearest integer
 func floor(value: float) -> (out: float)
 begin
-  trunc %temp, $value
-  store #out, %temp
+  floor %result, $value
+  store #out, %result
 end
 
 // abs - return the absolute value of a number
@@ -153,26 +153,36 @@ begin
   store #length, %temp
 end
 
+// Normalized [0,1], endpoint 1 wraps to 0; outside/NaN returns zero.
 func sample(buf: array, pos: float) -> (value: float)
 begin
   alloc !result
+  store !result, 0
   len %length, $buf
-  cmp.eq %is_zero, %length, 0
-  if %is_zero
-    store !result, 0
+  cmp.gt %nonempty, %length, 0
+  if %nonempty
+    cmp.ge %nonnegative, $pos, 0
+    if %nonnegative
+      cmp.le %inrange, $pos, 1
+      if %inrange
+        mul %idx, $pos, %length
+        trunc %curr_idx, %idx
+        rem %left_idx, %curr_idx, %length
+        add %next_idx, %curr_idx, 1
+        rem %right_idx, %next_idx, %length
+        iload %left, $buf, %left_idx
+        iload %right, $buf, %right_idx
+        sub %fraction, %idx, %curr_idx
+        sub %left_weight, 1, %fraction
+        mul %weighted_left, %left, %left_weight
+        mul %weighted_right, %right, %fraction
+        add %interpolated, %weighted_left, %weighted_right
+        store !result, %interpolated
+      else
+      end
+    else
+    end
   else
-    mul %idx, $pos, %length
-    trunc %curr_idx, %idx
-    add %next_idx, %idx, 1
-    rem %next_idx, %next_idx, %length
-    iload %sample_left, $buf, %idx
-    iload %sample_right, $buf, %next_idx
-    sub %scale_left, %curr_idx, %idx
-    sub %scale_right, 1, %scale_left
-    mul %scaled_left, %sample_left, %scale_left
-    mul %scaled_right, %sample_right, %scale_right
-    add %res, %scaled_left, %scaled_right
-    store !result, %res
   end
   load %res, !result
   store #value, %res

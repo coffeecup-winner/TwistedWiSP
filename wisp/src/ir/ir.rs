@@ -32,6 +32,7 @@ pub enum Constant {
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub enum UnaryOpType {
     Truncate,
+    Floor,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]

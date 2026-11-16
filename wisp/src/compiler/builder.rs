@@ -529,21 +529,20 @@ impl SignalProcessorBuilder {
                 UnaryOp(vref, type_, op) => {
                     let operand = Self::resolve_operand(ectx, mctx, fctx, op)?.into_float_value();
                     use crate::ir::UnaryOpType::*;
-                    let res = match type_ {
-                        Truncate => mctx.build("unop_trunc", |b, n| {
-                            let trunc = Intrinsic::find("llvm.trunc").unwrap();
-                            b.build_call(
-                                trunc
-                                    .get_declaration(
-                                        mctx.module,
-                                        &[ectx.f32_t().as_basic_type_enum()],
-                                    )
-                                    .unwrap(),
-                                &[BasicMetadataValueEnum::FloatValue(operand)],
-                                n,
-                            )
-                        }),
-                    }?;
+                    let intrinsic = match type_ {
+                        Truncate => "llvm.trunc",
+                        Floor => "llvm.floor",
+                    };
+                    let res = mctx.build("unop", |b, n| {
+                        let intrinsic = Intrinsic::find(intrinsic).unwrap();
+                        b.build_call(
+                            intrinsic
+                                .get_declaration(mctx.module, &[ectx.f32_t().as_basic_type_enum()])
+                                .unwrap(),
+                            &[BasicMetadataValueEnum::FloatValue(operand)],
+                            n,
+                        )
+                    })?;
                     fctx.vars.insert(
                         *vref,
                         res.as_any_value_enum()
