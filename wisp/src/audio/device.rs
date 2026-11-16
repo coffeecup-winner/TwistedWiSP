@@ -27,38 +27,6 @@ impl ConfiguredAudioDevice {
         Ok(ConfiguredAudioDevice { device, config })
     }
 
-    #[allow(dead_code)]
-    pub fn list_all_devices() -> Result<(), Box<dyn std::error::Error>> {
-        info!("Available audio devices:");
-        let default_host_id = cpal::default_host().id();
-        for host_id in cpal::available_hosts() {
-            info!(
-                " {} {}:",
-                if default_host_id == host_id { "*" } else { "-" },
-                host_id.name()
-            );
-            let host = cpal::host_from_id(host_id)?;
-            let default_device_name = host
-                .default_output_device()
-                .map(|d| d.name().unwrap())
-                .unwrap_or_else(|| "".to_owned());
-            for device in host.output_devices()? {
-                let name = device.name()?;
-                info!(
-                    "    {} {}",
-                    if default_device_name == name {
-                        "*"
-                    } else {
-                        "-"
-                    },
-                    name
-                );
-            }
-        }
-
-        Ok(())
-    }
-
     pub fn num_output_channels(&self) -> u32 {
         self.config.channels as u32
     }

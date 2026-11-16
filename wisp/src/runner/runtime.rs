@@ -1,10 +1,8 @@
 use super::engine::{DataIndex, WatchIndex, WatchedDataValues};
-use crate::compiler::{OwnedArray, Watch, WatchBatch};
+use crate::compiler::{Watch, WatchBatch};
 use crate::{
     audio::device::ConfiguredAudioDevice,
-    compiler::{
-        DataArrayHandle, SignalProcessCreationError, SignalProcessor, SignalProcessorBuilder,
-    },
+    compiler::{SignalProcessCreationError, SignalProcessor, SignalProcessorBuilder},
     core::{WispContext, WispFunction},
     midi::WispMidiIn,
     runner::context::WispRuntimeContext,
@@ -20,7 +18,7 @@ use inkwell::{
 use midir::MidiInputConnection;
 use midly::{live::LiveEvent, MidiMessage};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -33,9 +31,7 @@ enum RuntimeStateMessage {
     StopDsp,
     SetProcessor(Option<SignalProcessor>),
     SetDataValue(String, CallIndex, DataIndex, f32),
-    SetDataArray(String, CallIndex, DataIndex, Option<OwnedArray>),
     WatchDataValue(String, CallIndex, DataIndex, Option<Watch>),
-    UnwatchDataValue(WatchIndex, Option<Watch>),
     QueryWatchedDataValues(Option<Box<WatchBatch>>),
 }
 
@@ -130,23 +126,12 @@ impl RuntimeState {
                     .and_then(|p| p.set_data_value(name, *call, *data, *value))
                     .ok_or("Invalid scalar address or no processor")?;
             }
-            RuntimeStateMessage::SetDataArray(name, call, data, array) => {
-                self.processor
-                    .as_mut()
-                    .and_then(|p| p.bind_prepared(name, *call, *data, array))
-                    .ok_or("Invalid array address or retained buffer limit (128)")?;
-            }
             RuntimeStateMessage::WatchDataValue(name, call, data, last) => {
                 return Ok(SignalProcessorResponse::Watch(
                     self.processor
                         .as_mut()
                         .and_then(|p| p.watch_prepared(name, *call, *data, last)),
                 ))
-            }
-            RuntimeStateMessage::UnwatchDataValue(id, retired) => {
-                if let Some(p) = &mut self.processor {
-                    *retired = p.take_watch(*id);
-                }
             }
             RuntimeStateMessage::QueryWatchedDataValues(batch) => {
                 let mut batch = batch.take().ok_or("Missing watch storage")?;
@@ -309,8 +294,6 @@ pub struct WispRuntime {
     _midi: Option<MidiInputConnection<()>>,
     _device: ConfiguredAudioDevice,
     midi: Arc<crate::MidiMailbox>,
-    legacy_midi: HashMap<u64, (String, CallIndex, DataIndex)>,
-    legacy_pending: HashMap<u64, f32>,
     watch_batch: std::cell::RefCell<Option<Box<WatchBatch>>>,
     transport: RuntimeTransport,
 }
@@ -386,8 +369,6 @@ impl WispRuntime {
             _midi: midi_connection,
             _device: device,
             midi: mailbox,
-            legacy_midi: HashMap::new(),
-            legacy_pending: HashMap::new(),
             watch_batch: std::cell::RefCell::new(Some(Box::new(WatchBatch::new()))),
             transport: RuntimeTransport {
                 tx,
@@ -441,24 +422,6 @@ impl WispRuntime {
             .map(|_| ())
     }
 
-    pub fn start_dsp(&mut self) {
-        if let Err(e) = self.start_checked() {
-            log::error!("{e}");
-        }
-    }
-
-    pub fn stop_dsp(&mut self) {
-        if let Err(e) = self.stop_checked() {
-            log::error!("{e}");
-        }
-    }
-
-    pub fn switch_to_signal_processor(&mut self, sp: SignalProcessor) {
-        if let Err(e) = self.install_checked(sp) {
-            log::error!("{e}");
-        }
-    }
-
     pub fn compile(
         &mut self,
         ctx: &WispContext,
@@ -466,29 +429,6 @@ impl WispRuntime {
         root: &str,
     ) -> Result<SignalProcessor, SignalProcessCreationError> {
         compile_context(ctx, rctx, root)
-    }
-
-    pub fn set_data_value(&mut self, name: &str, call: CallIndex, data: DataIndex, value: f32) {
-        if let Err(e) = self.scalar_checked(name, call, data, value) {
-            log::error!("{e}");
-        }
-    }
-
-    pub fn set_data_array(
-        &mut self,
-        name: &str,
-        call: CallIndex,
-        data: DataIndex,
-        array: DataArrayHandle,
-    ) {
-        if let Err(e) = self.transport.request(RuntimeStateMessage::SetDataArray(
-            name.into(),
-            call,
-            data,
-            OwnedArray::prepare(array),
-        )) {
-            log::error!("{e}");
-        }
     }
 
     pub fn midi_available(&self) -> bool {
@@ -536,16 +476,6 @@ impl WispRuntime {
             })
             .map_err(|_| "Audio queue full".into())
     }
-    pub fn learn_midi_cc(&mut self, name: &str, call: CallIndex, data: DataIndex) {
-        // Legacy callers already poll watches; use the same mailbox, with reserved tokens.
-        if self.legacy_midi.len() >= 128 {
-            return;
-        }
-        let token = (1u64 << 55) | (self.legacy_midi.len() as u64 + 1);
-        self.legacy_midi.insert(token, (name.into(), call, data));
-        let _ = self.midi_learn(token);
-    }
-
     pub fn watch_checked(
         &self,
         name: &str,
@@ -581,60 +511,12 @@ impl WispRuntime {
             _ => Err("Unexpected watch reply".into()),
         }
     }
-    pub fn watch_data_value(
-        &mut self,
-        name: &str,
-        call: CallIndex,
-        data: DataIndex,
-        last: bool,
-    ) -> Option<WatchIndex> {
-        match self
-            .transport
-            .request(RuntimeStateMessage::WatchDataValue(
-                name.into(),
-                call,
-                data,
-                Some(Watch::prepare(last)),
-            ))
-            .ok()?
-        {
-            SignalProcessorResponse::Watch(id) => id,
-            _ => None,
-        }
-    }
-
-    pub fn unwatch_data_value(&mut self, id: WatchIndex) {
-        let _ = self
-            .transport
-            .request(RuntimeStateMessage::UnwatchDataValue(id, None));
-    }
-
-    pub fn query_watched_data_values(&mut self) -> WatchedDataValues {
-        for v in self.midi_poll() {
-            if self.legacy_midi.contains_key(&v.target) {
-                self.legacy_pending.insert(v.target, v.value);
-            }
-        }
-        self.legacy_pending.retain(|token, value| {
-            let Some((name, call, data)) = self.legacy_midi.get(token) else {
-                return false;
-            };
-            self.transport
-                .tx
-                .try_send(RuntimeRequest {
-                    message: RuntimeStateMessage::SetDataValue(name.clone(), *call, *data, *value),
-                    reply: None,
-                    deferred: None,
-                })
-                .is_err()
-        });
-        self.query_checked().unwrap_or_default()
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::DataArrayHandle;
 
     #[test]
     fn abandoned_installs_and_callback_destruction_return_owned_state() {
@@ -735,7 +617,6 @@ mod tests {
             ),
             RuntimeStateMessage::StartDsp,
             RuntimeStateMessage::QueryWatchedDataValues(Some(Box::new(WatchBatch::new()))),
-            RuntimeStateMessage::UnwatchDataValue(WatchIndex(0), None),
             RuntimeStateMessage::StopDsp,
         ];
         let mut buffer = [0.; 1024];

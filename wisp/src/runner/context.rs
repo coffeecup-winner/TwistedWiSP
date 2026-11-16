@@ -52,10 +52,6 @@ impl WispRuntimeContext {
         }
     }
 
-    pub fn reset(&mut self) {
-        self.functions.clear();
-    }
-
     pub fn add_function(&mut self, func: IRFunction) {
         log::debug!("Adding function {}", func.name());
         if let Some(f) = self.functions.get_mut(func.name()) {
@@ -65,10 +61,6 @@ impl WispRuntimeContext {
             self.functions
                 .insert(func.name().into(), RuntimeFunction::new(func));
         }
-    }
-
-    pub fn remove_function(&mut self, name: &str) -> Option<RuntimeFunction> {
-        self.functions.remove(name)
     }
 
     pub fn get_function(&self, name: &str) -> Option<&RuntimeFunction> {

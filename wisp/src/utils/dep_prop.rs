@@ -98,27 +98,6 @@ impl<T> Property<T> {
     }
 }
 
-#[allow(dead_code)]
-impl<T> Property<T>
-where
-    T: PartialEq,
-{
-    pub fn set_if_changed(&self, value: T) {
-        if *self.value.borrow() != value {
-            *self.value.borrow_mut() = value;
-            self.tracker.invalidate_dependents();
-        }
-        self.tracker.mark_as_valid();
-    }
-
-    pub fn update_if_changed(&mut self, f: impl FnOnce(DependencyHandle) -> T) {
-        if !self.is_valid() {
-            let new_value = f(self.handle());
-            self.set_if_changed(new_value);
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -174,25 +153,6 @@ mod tests {
         assert_eq!(false, child1.is_valid());
         assert_eq!(false, child2.is_valid());
     }
-
-    #[test]
-    fn set_if_changed() {
-        let parent = Property::new(42);
-        let child = Property::new(0);
-
-        child.set(*parent.get(child.handle()));
-
-        parent.set_if_changed(42);
-
-        assert_eq!(true, parent.is_valid());
-        assert_eq!(true, child.is_valid());
-
-        parent.set_if_changed(41);
-
-        assert_eq!(true, parent.is_valid());
-        assert_eq!(false, child.is_valid());
-    }
-
     #[test]
     fn chain_invalidation_rules() {
         let grandparent = Property::new(42);
@@ -210,11 +170,11 @@ mod tests {
         assert_eq!(true, child.is_valid());
 
         // Setting it to the same value it used to be
-        parent.set_if_changed(42 / 2);
+        parent.set(42 / 2);
 
         assert_eq!(true, grandparent.is_valid());
         assert_eq!(true, parent.is_valid());
-        // Child was never invalidated
-        assert_eq!(true, child.is_valid());
+        // Setting a parent invalidates its direct dependents.
+        assert_eq!(false, child.is_valid());
     }
 }

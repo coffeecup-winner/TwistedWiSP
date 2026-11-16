@@ -6,8 +6,6 @@ use twisted_wisp::{TwistedWispEngine, TwistedWispEngineConfig};
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    #[arg(long)]
-    list_audio_devices: bool,
     #[arg(short, long)]
     audio_host: Option<String>,
     #[arg(short = 'd', long)]
@@ -55,8 +53,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    wisp.runtime_switch_to_signal_processor(sp);
-    wisp.runtime_dsp_start();
+    wisp.runtime_install_checked(sp)?;
+    wisp.runtime_start_checked()?;
 
     loop {
         std::thread::sleep(std::time::Duration::from_millis(50));

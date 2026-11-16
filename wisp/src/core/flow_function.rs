@@ -248,10 +248,6 @@ impl FlowFunction {
         Some(Function::Flow(flow))
     }
 
-    pub fn add_buffer(&mut self, name: &str, path: PathBuf) {
-        self.buffers.insert(name.into(), Some(path));
-    }
-
     pub fn buffers(&self) -> &HashMap<String, Option<PathBuf>> {
         &self.buffers
     }

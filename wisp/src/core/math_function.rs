@@ -16,9 +16,7 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct MathFunction {
     name: String,
-    #[allow(dead_code)]
     expr_string: String,
-    #[allow(dead_code)]
     expr: MathExpression,
     inputs: Vec<FunctionInput>,
     outputs: Vec<FunctionOutput>,

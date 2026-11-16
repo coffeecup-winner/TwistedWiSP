@@ -5,11 +5,9 @@ use std::{
 };
 
 use crate::{
-    compiler::DataArrayHandle,
     core::{
         BuiltinFunction, CodeFunction, CodeFunctionParseResult, CodeFunctionParser, DataType,
-        DefaultInputValue, FlowFunction, FlowNodeIndex, FunctionInput, FunctionOutput,
-        WispFunction,
+        DefaultInputValue, FlowFunction, FunctionInput, FunctionOutput, WispFunction,
     },
     ir::{Instruction, Operand, SignalOutputIndex, TargetLocation},
 };
@@ -24,7 +22,6 @@ pub struct WispContext {
     num_outputs: u32,
     sample_rate: u32,
     functions: HashMap<String, FunctionHandle>,
-    data_arrays: HashMap<String, HashMap<String, DataArrayHandle>>,
 }
 
 impl WispContext {
@@ -33,7 +30,6 @@ impl WispContext {
             num_outputs,
             sample_rate,
             functions: HashMap::new(),
-            data_arrays: HashMap::new(),
         }
     }
 
@@ -156,10 +152,6 @@ impl WispContext {
             .insert(func.name().into(), FunctionHandle::new(func))
     }
 
-    pub fn remove_function(&mut self, name: &str) -> Option<FunctionHandle> {
-        self.functions.remove(name)
-    }
-
     pub fn functions_iter(&self) -> hash_map::Values<'_, String, FunctionHandle> {
         self.functions.values()
     }
@@ -170,59 +162,5 @@ impl WispContext {
         } else {
             self.functions.get(name).cloned()
         }
-    }
-
-    pub fn flow_add_node(&mut self, flow_name: &str, node_text: &str) -> (FlowNodeIndex, String) {
-        let func = self.get_function(flow_name).unwrap();
-        let mut flow = func.as_flow_mut().unwrap();
-        let idx = flow.add_node(node_text);
-        (idx, flow.get_node(idx).unwrap().name.clone())
-    }
-
-    pub fn flow_remove_node(&mut self, flow_name: &str, node_idx: FlowNodeIndex) -> Option<String> {
-        let func = self.get_function(flow_name).unwrap();
-        let mut flow = func.as_flow_mut().unwrap();
-        if let Some(node) = flow.remove_node(node_idx) {
-            if node.name.starts_with("$math") {
-                self.remove_function(&node.name);
-            }
-            Some(node.name)
-        } else {
-            None
-        }
-    }
-
-    pub fn add_data_array(&mut self, name: &str, array_name: String, data: Vec<f32>) {
-        self.data_arrays
-            .entry(name.into())
-            .or_default()
-            .insert(array_name, DataArrayHandle::from(data.as_slice()));
-    }
-
-    pub fn get_data_array(&mut self, name: &str, array_name: &str) -> Option<DataArrayHandle> {
-        self.data_arrays
-            .get(name)
-            .and_then(|m| m.get(array_name).cloned())
-    }
-
-    pub fn load_wave_file(
-        &mut self,
-        name: &str,
-        buffer_name: &str,
-        filepath: &str,
-    ) -> Result<(), Box<dyn Error>> {
-        let audio = if filepath.is_empty() {
-            crate::buffer::DecodedAudio::builtin(buffer_name)?
-        } else {
-            crate::buffer::DecodedAudio::load(std::path::Path::new(filepath))?
-        };
-        self.add_data_array(name, buffer_name.into(), audio.samples.to_vec());
-        Ok(())
-    }
-
-    pub fn unload_wave_file(&mut self, name: &str, buffer_name: &str) {
-        self.data_arrays
-            .get_mut(name)
-            .and_then(|m| m.remove(buffer_name));
     }
 }

@@ -3,8 +3,7 @@ use std::{collections::HashMap, path::PathBuf};
 use crate::{
     audio::device::ConfiguredAudioDevice,
     compiler::{SignalProcessCreationError, SignalProcessor},
-    core::{FlowFunction, WispContext, WispFunction},
-    ir::IRFunction,
+    core::WispContext,
     midi::WispMidiIn,
     runner::{context::WispRuntimeContext, runtime::WispRuntime},
 };
@@ -22,12 +21,6 @@ pub struct WatchIndex(pub u32);
 pub struct WatchedDataValues {
     pub values: HashMap<WatchIndex, Vec<f32>>,
 }
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub struct FunctionRef(*const dyn WispFunction);
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub struct FlowFunctionRef(*const FlowFunction);
 
 #[derive(Debug, Default, Clone)]
 pub struct TwistedWispEngineConfig {
@@ -172,155 +165,11 @@ impl TwistedWispEngine {
 
     // ===== Runtime API =====
 
-    pub fn runtime_dsp_start(&mut self) {
-        self.runtime.start_dsp();
-    }
-
-    pub fn runtime_dsp_stop(&mut self) {
-        self.runtime.stop_dsp();
-    }
-
     pub fn runtime_compile_signal_processor(
         &mut self,
         main_function: String,
     ) -> Result<SignalProcessor, SignalProcessCreationError> {
         self.runtime
             .compile(&self.ctx, &mut self.rctx, &main_function)
-    }
-
-    pub fn runtime_switch_to_signal_processor(&mut self, sp: SignalProcessor) {
-        self.runtime.switch_to_signal_processor(sp)
-    }
-
-    // ===== TODO: Move/remove these =====
-
-    pub fn context_reset(&mut self) {
-        self.rctx.reset();
-    }
-
-    pub fn ctx_list_functions(&self) -> Vec<String> {
-        self.ctx
-            .functions_iter()
-            .map(|f| f.borrow().name().to_owned())
-            .collect()
-    }
-
-    // pub fn ctx_get_flow(&self, name: &str) -> Option<FlowFunctionRef> {
-    //     self.ctx
-    //         .get_function(name)?
-    //         .as_flow()
-    //         .map(|f| FlowFunctionRef(f.borrow()))
-    // }
-
-    pub fn ctx_remove_function(&mut self, name: &str) {
-        self.ctx.remove_function(name);
-    }
-
-    pub fn ctx_get_function_metadata(&self, _name: &str) -> Option<FunctionRef> {
-        // let f = self.ctx.get_function(name)?;
-        // Some(FunctionRef(&*f as *const _))
-        todo!()
-    }
-
-    pub fn flow_get_ir_functions(&self, flow: FlowFunctionRef) -> Vec<IRFunction> {
-        unsafe { (*flow.0).get_ir_functions(&self.ctx) }
-    }
-
-    pub fn flow_get_buffers(&self, flow: FlowFunctionRef) -> &HashMap<String, Option<PathBuf>> {
-        unsafe { (*flow.0).buffers() }
-    }
-
-    pub fn flow_get_node_indices(
-        &self,
-        flow: FlowFunctionRef,
-    ) -> petgraph::stable_graph::NodeIndices<'_, crate::core::FlowNode> {
-        unsafe { (*flow.0).node_indices() }
-    }
-
-    pub fn flow_get_node(
-        &self,
-        flow: FlowFunctionRef,
-        idx: petgraph::graph::NodeIndex,
-    ) -> Option<&crate::core::FlowNode> {
-        unsafe { (*flow.0).get_node(idx) }
-    }
-
-    pub fn context_add_or_update_functions(&mut self, functions: Vec<IRFunction>) {
-        for func in functions {
-            self.rctx.add_function(func);
-        }
-    }
-
-    pub fn context_remove_function(&mut self, name: String) {
-        self.rctx.remove_function(&name);
-    }
-
-    pub fn context_set_data_value(
-        &mut self,
-        name: String,
-        id: CallIndex,
-        idx: DataIndex,
-        value: f32,
-    ) {
-        self.runtime.set_data_value(&name, id, idx, value);
-    }
-
-    pub fn context_set_data_array(
-        &mut self,
-        name: String,
-        call_idx: CallIndex,
-        data_idx: DataIndex,
-        array_name: String,
-    ) -> Option<()> {
-        match self.ctx.get_data_array(&name, &array_name) {
-            Some(array) => {
-                self.runtime
-                    .set_data_array(&name, call_idx, data_idx, array);
-                Some(())
-            }
-            None => None,
-        }
-    }
-
-    pub fn context_learn_midi_cc(
-        &mut self,
-        name: String,
-        call_idx: CallIndex,
-        data_idx: DataIndex,
-    ) -> Option<WatchIndex> {
-        self.runtime.learn_midi_cc(&name, call_idx, data_idx);
-        self.runtime
-            .watch_data_value(&name, call_idx, data_idx, true)
-    }
-
-    pub fn context_watch_data_value(
-        &mut self,
-        name: String,
-        call_idx: CallIndex,
-        data_idx: DataIndex,
-    ) -> Option<WatchIndex> {
-        self.runtime
-            .watch_data_value(&name, call_idx, data_idx, false)
-    }
-
-    pub fn context_unwatch_data_value(&mut self, idx: WatchIndex) {
-        self.runtime.unwatch_data_value(idx);
-    }
-
-    pub fn context_query_watched_data_values(&mut self) -> WatchedDataValues {
-        self.runtime.query_watched_data_values()
-    }
-
-    pub fn context_load_wave_file(
-        &mut self,
-        name: String,
-        buffer_name: String,
-        path: String,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        self.ctx.load_wave_file(&name, &buffer_name, &path)
-    }
-
-    pub fn context_unload_wave_file(&mut self, name: String, buffer_name: String) {
-        self.ctx.unload_wave_file(&name, &buffer_name);
     }
 }

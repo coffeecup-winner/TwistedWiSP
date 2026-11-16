@@ -137,10 +137,7 @@ mod tests {
         for operation in ["read", "sample"] {
             let mut session = session();
             let name = session.load_flow_text(&array_flow(operation)).unwrap();
-            session
-                .context
-                .add_data_array(&name, "source".into(), vec![10., 20.]);
-            let source = session.context.get_data_array(&name, "source").unwrap();
+            let source = crate::DataArrayHandle::from(&[10., 20.][..]);
             let mut first = session.compile(&name).unwrap();
             let mut second = session.compile(&name).unwrap();
             first
@@ -149,7 +146,6 @@ mod tests {
             second
                 .set_data_array(&name, CallIndex(0), DataIndex(0), source)
                 .unwrap();
-            session.context.unload_wave_file(&name, "source");
             drop(session);
             let cases: &[(f32, f32)] = if operation == "sample" {
                 &[

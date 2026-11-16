@@ -241,97 +241,6 @@ impl SignalProcessor {
         }
     }
 
-    pub fn copy_from(&mut self, other: SignalProcessor) {
-        let other_layout = other.get_data_layout();
-        let own_layout = self.get_data_layout();
-
-        let own_floats = self.float_offsets();
-        let other_floats = other.float_offsets();
-        for (key, offset) in other_layout.iter() {
-            if let Some(own_offset) = own_layout.get(key) {
-                if own_floats.contains(own_offset) && other_floats.contains(offset) {
-                    self.data[*own_offset as usize] = other.data[*offset as usize];
-                }
-            }
-        }
-
-        let mut other_offset_to_layout_key = HashMap::new();
-        for (k, v) in other_layout {
-            other_offset_to_layout_key.insert(v, k);
-        }
-
-        for (idx, watch) in other.watches {
-            let key = &other_offset_to_layout_key[&watch.data_offset];
-            if let Some(offset) = own_layout
-                .get(key)
-                .filter(|offset| own_floats.contains(offset))
-            {
-                self.watches.insert(
-                    idx,
-                    Watch {
-                        data_offset: *offset,
-                        ..watch
-                    },
-                );
-            }
-        }
-
-        self.watch_id_gen = other.watch_id_gen;
-        self.elapsed_ticks = other.elapsed_ticks;
-    }
-
-    fn float_offsets(&self) -> std::collections::HashSet<u32> {
-        fn collect(
-            layouts: &DataLayout,
-            name: &str,
-            base: u32,
-            result: &mut std::collections::HashSet<u32>,
-        ) {
-            if let Some(layout) = layouts.get(name) {
-                for item in layout.own_data_items.values() {
-                    if matches!(item.type_, crate::ir::IRFunctionDataType::Float) {
-                        result.insert(base + item.offset);
-                    }
-                }
-                for (child, offset) in layout.children_data_items.values() {
-                    collect(layouts, child, base + offset, result);
-                }
-            }
-        }
-        let mut result = Default::default();
-        collect(&self.data_layout, &self.name, 0, &mut result);
-        result
-    }
-    fn get_data_layout(&self) -> HashMap<String, u32> {
-        let mut layout = HashMap::new();
-        self.build_data_layout(&self.name, "", 0, &mut layout);
-        layout
-    }
-
-    fn build_data_layout(
-        &self,
-        name: &str,
-        prefix: &str,
-        current_offset: u32,
-        layout: &mut HashMap<String, u32>,
-    ) {
-        let data_layout = self.data_layout.get(name).unwrap();
-        for (id, offset) in &data_layout.own_data_items {
-            layout.insert(
-                format!("{}{}@{}", prefix, name, id.0),
-                current_offset + offset.offset,
-            );
-        }
-        for (id, (child_name, offset)) in &data_layout.children_data_items {
-            self.build_data_layout(
-                child_name,
-                &format!("{}{}#{}.", prefix, name, id.0),
-                current_offset + *offset,
-                layout,
-            );
-        }
-    }
-
     pub fn set_data_value(
         &mut self,
         name: &str,
@@ -411,21 +320,6 @@ impl SignalProcessor {
         Some(())
     }
 
-    pub fn watch_data_value(
-        &mut self,
-        name: &str,
-        call_idx: CallIndex,
-        data_idx: DataIndex,
-        only_last_value: bool,
-    ) -> Option<WatchIndex> {
-        self.watch_prepared(
-            name,
-            call_idx,
-            data_idx,
-            &mut Some(Watch::prepare(only_last_value)),
-        )
-    }
-
     pub(crate) fn watch_prepared(
         &mut self,
         name: &str,
@@ -461,10 +355,6 @@ impl SignalProcessor {
         Some(idx)
     }
 
-    pub(crate) fn take_watch(&mut self, idx: WatchIndex) -> Option<Watch> {
-        self.watches.remove(&idx)
-    }
-
     pub(crate) fn query_into(&mut self, batch: &mut WatchBatch) {
         batch.len = self.watches.len();
         for ((id, samples), (watch_id, watch)) in batch.slots.iter_mut().zip(&mut self.watches) {
@@ -480,30 +370,6 @@ impl SignalProcessor {
                 }
             }
         }
-    }
-
-    pub fn unwatch_data_value(&mut self, idx: WatchIndex) {
-        self.watches.remove(&idx);
-    }
-
-    pub fn query_watched_data_value(&mut self) -> WatchedDataValues {
-        let mut values = HashMap::new();
-        for (idx, watch) in &mut self.watches {
-            let mut history = match watch.data {
-                WatchedData::LastValue(v) => {
-                    vec![v]
-                }
-                WatchedData::Buffer(ref mut buffer) => buffer.drain().collect(),
-            };
-            // NaNs are serialized as nulls and can't be deserialized as f32, easier to zero them out
-            for v in history.iter_mut() {
-                if v.is_nan() {
-                    *v = 0.0;
-                }
-            }
-            values.insert(*idx, history);
-        }
-        WatchedDataValues { values }
     }
 }
 
