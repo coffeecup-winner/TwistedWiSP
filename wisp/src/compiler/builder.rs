@@ -241,7 +241,7 @@ impl SignalProcessorBuilder {
             .get_function(func.name())
             .ok_or_else(|| SignalProcessCreationError::UnknownFunction(func.name().to_owned()))?;
         let data_arg = if rctx
-            .get_function(&func.name())
+            .get_function(func.name())
             .unwrap()
             .data_layout()
             .get_untracked()
