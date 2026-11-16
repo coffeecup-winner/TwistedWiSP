@@ -8,3 +8,6 @@ pub mod service;
 pub mod runtime;
 
 pub mod history;
+
+pub mod assets;
+pub mod persistence;

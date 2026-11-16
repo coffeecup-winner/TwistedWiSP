@@ -57,6 +57,7 @@ pub struct DocumentSnapshot {
     pub can_undo: bool,
     pub can_redo: bool,
     pub catalog: Vec<FunctionChoice>,
+    pub buffers: Vec<super::assets::BufferReference>,
     pub id: DocumentId,
     pub revision: u64,
     pub semantic_revision: u64,
@@ -73,8 +74,19 @@ pub struct DocumentSnapshot {
 /// Owned, atomic edits applied on the service thread.
 #[derive(Clone, Debug)]
 pub enum Edit {
-    Create { text: String, position: Vec2 },
-    Replace { node: EditorNodeId, text: String },
+    Geometry {
+        node: EditorNodeId,
+        position: Vec2,
+        size: Vec2,
+    },
+    Create {
+        text: String,
+        position: Vec2,
+    },
+    Replace {
+        node: EditorNodeId,
+        text: String,
+    },
     Delete(Vec<EditorNodeId>),
     Connect(Wire),
     Disconnect(Vec<Wire>),
@@ -85,6 +97,9 @@ pub enum Edit {
 /// Constructed and retained on the service thread; backend handles never enter UI events.
 pub struct EditorDocument {
     core_path: PathBuf,
+    asset_base: Option<PathBuf>,
+    data_paths: Vec<PathBuf>,
+    fingerprint: super::persistence::Fingerprint,
     next_node: usize,
     state: u64,
     next_state: u64,
@@ -99,9 +114,12 @@ pub struct EditorDocument {
 }
 impl EditorDocument {
     pub fn load(path: &Path, core_path: &Path, id: DocumentId) -> Result<Self, String> {
+        let path = path
+            .canonicalize()
+            .map_err(|e| format!("{}: {e}", path.display()))?;
         let content =
-            std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
-        Self::from_text(&content, core_path, id, Some(path.to_owned()))
+            std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        Self::from_text(&content, core_path, id, Some(path))
     }
     pub fn from_text(
         content: &str,
@@ -139,6 +157,28 @@ impl EditorDocument {
             .and_then(toml::Value::as_array)
             .map(Vec::as_slice)
             .unwrap_or_default();
+        // The backend's flattened metadata supports only i32, f32 and strings.
+        // Reject unsupported fields explicitly rather than letting a save drop them.
+        for (index, node) in nodes.iter().enumerate() {
+            if let Some(table) = node.as_table() {
+                for (key, value) in table {
+                    if key == "text" {
+                        continue;
+                    }
+                    let supported = match value {
+                        toml::Value::Integer(n) => i32::try_from(*n).is_ok(),
+                        toml::Value::Float(n) => n.is_finite() && (*n as f32).is_finite(),
+                        toml::Value::String(_) => true,
+                        _ => false,
+                    };
+                    if !supported {
+                        return Err(format!(
+                            "Node {index} property {key}: unsupported metadata; expected finite i32/f32 or string"
+                        ));
+                    }
+                }
+            }
+        }
         for edge in edges {
             for key in ["from", "to"] {
                 let n = edge
@@ -204,7 +244,12 @@ impl EditorDocument {
             })
             .collect();
         catalog.sort_by(|a, b| a.name.cmp(&b.name));
+        let asset_base = source_file
+            .as_ref()
+            .and_then(|p| p.parent())
+            .map(Path::to_owned);
         let mut snapshot = DocumentSnapshot {
+            buffers: vec![],
             can_undo: false,
             can_redo: false,
             catalog,
@@ -355,8 +400,15 @@ impl EditorDocument {
         if let Err(error) = context.validate_function(&snapshot.flow_name) {
             snapshot.diagnostics.push(error);
         }
-        Ok(Self {
+        let mut document = Self {
             core_path: core_path.to_owned(),
+            asset_base,
+            data_paths: vec![],
+            fingerprint: if snapshot.source_file.is_some() {
+                super::persistence::Fingerprint::Content(content.as_bytes().to_vec())
+            } else {
+                super::persistence::Fingerprint::Missing
+            },
             next_node: snapshot.nodes.len() + 1,
             state: 0,
             next_state: 1,
@@ -368,7 +420,9 @@ impl EditorDocument {
             flow,
             node_indices,
             snapshot,
-        })
+        };
+        document.refresh_assets();
+        Ok(document)
     }
     pub fn snapshot(&self) -> DocumentSnapshot {
         let mut snapshot = self.snapshot.clone();
@@ -435,6 +489,114 @@ impl EditorDocument {
         self.changed();
         self.snapshot.semantic_revision += 1;
         Ok(())
+    }
+    pub fn set_geometry(
+        &mut self,
+        id: EditorNodeId,
+        position: Vec2,
+        size: Vec2,
+    ) -> Result<(), String> {
+        let (position, size) = validate_geometry(position, size)?;
+        let node = &self
+            .snapshot
+            .nodes
+            .iter()
+            .find(|(n, _)| *n == id)
+            .ok_or("Unknown node")?
+            .1;
+        if node.position == position && node.custom_size == Some(size) {
+            return Ok(());
+        }
+        let previous = self.gesture.is_none().then(|| self.memento());
+        let mut graph = self.flow.as_flow_mut().ok_or("Missing flow")?;
+        let data = &mut graph
+            .get_node_mut(*self.node_indices.get(&id).ok_or("Unknown node")?)
+            .ok_or("Missing node")?
+            .extra_data;
+        for (k, v) in [
+            ("x", position.x),
+            ("y", position.y),
+            ("w", size.x),
+            ("h", size.y),
+        ] {
+            data.insert(k.into(), FlowNodeExtraData::Integer(v as i32));
+        }
+        drop(graph);
+        let node = &mut self
+            .snapshot
+            .nodes
+            .iter_mut()
+            .find(|(n, _)| *n == id)
+            .unwrap()
+            .1;
+        node.position = position;
+        node.custom_size = Some(size);
+        if let Some(previous) = previous {
+            self.record(previous);
+        } else {
+            self.state = self.next_state;
+            self.next_state += 1;
+        }
+        self.changed();
+        Ok(())
+    }
+    fn copy_file_state(&mut self, source: &Self) {
+        self.asset_base = source.asset_base.clone();
+        self.data_paths = source.data_paths.clone();
+        self.fingerprint = source.fingerprint.clone();
+        self.refresh_assets();
+    }
+    pub fn set_data_paths(&mut self, paths: Vec<PathBuf>) {
+        self.data_paths = paths;
+        self.refresh_assets();
+    }
+    fn refresh_assets(&mut self) {
+        let graph = self.flow.as_flow().unwrap();
+        self.snapshot.buffers = graph
+            .buffers()
+            .iter()
+            .map(|(name, path)| {
+                super::assets::resolve(
+                    name.clone(),
+                    path.clone(),
+                    self.asset_base.as_deref(),
+                    &self.data_paths,
+                )
+            })
+            .collect();
+        self.snapshot.buffers.sort_by(|a, b| a.name.cmp(&b.name));
+    }
+    pub fn save_capture(
+        &mut self,
+        path: Option<PathBuf>,
+        overwrite: Option<super::persistence::Fingerprint>,
+    ) -> Result<(super::persistence::SaveJob, u64), String> {
+        self.end_gesture();
+        let path = path
+            .or_else(|| self.snapshot.source_file.clone())
+            .ok_or("Choose a Save As path for this untitled flow")?;
+        let path = super::persistence::destination_path(&path)?;
+        let expected = overwrite.unwrap_or_else(|| {
+            if self.snapshot.source_file.as_ref() == Some(&path) {
+                self.fingerprint.clone()
+            } else {
+                super::persistence::Fingerprint::Missing
+            }
+        });
+        Ok((
+            super::persistence::SaveJob {
+                path,
+                bytes: self.serialize().into_bytes(),
+                expected,
+                references: self.snapshot.buffers.clone(),
+            },
+            self.state,
+        ))
+    }
+    pub fn saved(&mut self, state: u64, receipt: &super::persistence::SaveReceipt) {
+        self.snapshot.source_file = Some(receipt.path.clone());
+        self.fingerprint = receipt.fingerprint.clone();
+        self.mark_saved(state);
     }
     pub fn set_position(&mut self, id: EditorNodeId, position: Vec2) -> Result<(), String> {
         if !position.is_finite() {
@@ -559,6 +721,7 @@ impl EditorDocument {
             outputs,
         )?;
         candidate.remap(&self.memento().ids)?;
+        candidate.copy_file_state(self);
         candidate.next_node = self.next_node;
         candidate.state = self.state;
         candidate.next_state = self.next_state;
@@ -680,6 +843,7 @@ impl EditorDocument {
                 self.context.num_outputs(),
             )?;
             candidate.remap(&target.ids)?;
+            candidate.copy_file_state(self);
             let structural = topology(&before.text)? != topology(&target.text)?;
             candidate.next_node = self.next_node;
             candidate.state = target.state;
@@ -735,9 +899,25 @@ impl EditorDocument {
             }
             Ok(toml::Value::Table(t))
         };
-        let structural = !matches!(edit, Edit::Move(_));
+        let structural = !matches!(edit, Edit::Move(_) | Edit::Geometry { .. });
         let repair = matches!(edit, Edit::Delete(_) | Edit::Disconnect(_));
         match edit {
+            Edit::Geometry {
+                node,
+                position,
+                size,
+            } => {
+                let (position, size) = validate_geometry(position, size)?;
+                let n = &mut nodes[ordinal(node)?];
+                for (key, v) in [
+                    ("x", position.x),
+                    ("y", position.y),
+                    ("w", size.x),
+                    ("h", size.y),
+                ] {
+                    n[key] = (v as i64).into();
+                }
+            }
             Edit::Create { text, position } => {
                 self.check_text(&text)?;
                 if !position.is_finite() {
@@ -839,6 +1019,7 @@ impl EditorDocument {
             self.context.num_outputs(),
         )?;
         candidate.remap(&ids)?;
+        candidate.copy_file_state(self);
         // Deletion/disconnection can repair invalid files; additions/replacements cannot introduce diagnostics.
         if structural && !repair && !candidate.snapshot.diagnostics.is_empty() {
             return Err(format!(
@@ -881,6 +1062,19 @@ impl EditorDocument {
         );
         self.flow.borrow().save()
     }
+}
+
+fn validate_geometry(position: Vec2, size: Vec2) -> Result<(Vec2, Vec2), String> {
+    if !position.is_finite() || !size.is_finite() {
+        return Err("Geometry must be finite".into());
+    }
+    if [position.x, position.y, size.x, size.y]
+        .iter()
+        .any(|n| n.abs() > 2_000_000_000.)
+    {
+        return Err("Geometry exceeds the integer file format range".into());
+    }
+    Ok((position.round(), size.max(Vec2::new(80., 60.)).round()))
 }
 
 fn topology(text: &str) -> Result<toml::Value, String> {
@@ -1294,6 +1488,138 @@ mod tests {
         assert!(
             EditorDocument::from_text(text, &root().join("wisp/core"), DocumentId(1), None)
                 .is_err()
+        );
+    }
+    #[test]
+    fn fixture_roundtrips_and_unsupported_metadata() {
+        let core = root().join("wisp/core");
+        for entry in std::fs::read_dir(root().join("wisp_gui"))
+            .unwrap()
+            .chain(std::fs::read_dir(&core).unwrap())
+        {
+            let path = entry.unwrap().path();
+            if path.extension().is_none_or(|e| e != "twf") {
+                continue;
+            }
+            let source_text = std::fs::read_to_string(&path).unwrap();
+            // core.twf is the legacy code-function language, not a TOML flow.
+            if path == core.join("core.twf") {
+                assert!(source_text.contains("func control()"));
+                continue;
+            }
+            let mut source: toml::Value = toml::from_str(&source_text).unwrap();
+            // Core library flows intentionally shadow installed function names;
+            // give the root a distinct name to exercise the editor round trip.
+            source["flow"]["name"] = "roundtrip_fixture".into();
+            let doc = EditorDocument::from_text(
+                &toml::to_string(&source).unwrap(),
+                &core,
+                DocumentId(1),
+                Some(path.clone()),
+            )
+            .unwrap();
+            let text = doc.serialize();
+            let reopened = EditorDocument::from_text(&text, &core, DocumentId(2), None).unwrap();
+            let a: toml::Value = toml::from_str(&text).unwrap();
+            let b: toml::Value = toml::from_str(&reopened.serialize()).unwrap();
+            assert_eq!(a, b, "{}", path.display());
+            assert_eq!(doc.snapshot.nodes.len(), reopened.snapshot.nodes.len());
+            assert_eq!(doc.snapshot.edges, reopened.snapshot.edges);
+        }
+        for value in ["true", "[1, 2]", "{a=1}", "2147483648", "inf"] {
+            let text = format!(
+                "[flow]\nname='metadata'\n[[flow.nodes]]\ntext='control'\ncustom={value}\n"
+            );
+            let error = EditorDocument::from_text(&text, &core, DocumentId(1), None)
+                .err()
+                .unwrap();
+            assert!(error.contains("property custom"), "{error}");
+        }
+    }
+    #[test]
+    fn save_capture_preserves_history_identity_and_asset_target() {
+        use super::super::persistence::{atomic_write, tests::Temp};
+        use std::sync::atomic::AtomicBool;
+        let dir = Temp::new();
+        let old = dir.0.join("old");
+        let new = dir.0.join("new");
+        std::fs::create_dir(&old).unwrap();
+        std::fs::create_dir(&new).unwrap();
+        std::fs::write(old.join("sample.wav"), b"asset").unwrap();
+        let path = old.join("flow.twf");
+        let text = "[flow]\nname='save_test'\n[[flow.nodes]]\ntext='control'\nvalue=0.1234567\nnote='keep'\n[[buffers]]\nname='sample'\npath='sample.wav'\n[[buffers]]\nname='builtin'\n";
+        std::fs::write(&path, text).unwrap();
+        let mut doc =
+            EditorDocument::load(&path, &root().join("wisp/core"), DocumentId(1)).unwrap();
+        let id = doc.snapshot.nodes[0].0;
+        doc.set_geometry(id, Vec2::new(1.4, -2.7), Vec2::new(-1., 0.))
+            .unwrap();
+        let snap = doc.snapshot();
+        assert_eq!(snap.nodes[0].1.position, Vec2::new(1., -3.));
+        assert_eq!(snap.nodes[0].1.custom_size, Some(Vec2::new(80., 60.)));
+        assert_eq!(snap.semantic_revision, 0);
+        assert!(
+            doc.set_geometry(id, Vec2::ZERO, Vec2::splat(f32::NAN))
+                .is_err()
+        );
+        let (job, captured) = doc.save_capture(Some(new.join("flow.twf")), None).unwrap();
+        let (text, _) = super::super::assets::rebase(
+            std::str::from_utf8(&job.bytes).unwrap(),
+            &job.references,
+            &new,
+        )
+        .unwrap();
+        // A newer accepted edit must remain dirty when the older write completes.
+        doc.set_value(id, 0.9).unwrap();
+        let before = doc.snapshot();
+        let receipt = atomic_write(
+            &job.path,
+            text.as_bytes(),
+            job.expected,
+            &AtomicBool::new(false),
+        )
+        .unwrap();
+        doc.saved(captured, &receipt);
+        let after = doc.snapshot();
+        assert!(after.dirty);
+        assert_eq!(after.revision, before.revision);
+        assert_eq!(after.semantic_revision, before.semantic_revision);
+        assert_eq!(after.nodes[0].0, id);
+        apply(&mut doc, Edit::Undo);
+        assert!(!doc.snapshot().dirty);
+        let loaded =
+            EditorDocument::load(&receipt.path, &root().join("wisp/core"), DocumentId(2)).unwrap();
+        let asset = loaded
+            .snapshot
+            .buffers
+            .iter()
+            .find(|r| r.name == "sample")
+            .unwrap();
+        assert_eq!(
+            asset.resolved.as_ref().unwrap().canonicalize().unwrap(),
+            old.join("sample.wav")
+        );
+        assert!(
+            loaded
+                .snapshot
+                .buffers
+                .iter()
+                .find(|r| r.name == "builtin")
+                .unwrap()
+                .authored
+                .is_none()
+        );
+        assert!(loaded.serialize().contains("keep"));
+        // A later edit/undo still resolves paths against the original authored base.
+        doc.set_value(id, 0.5).unwrap();
+        assert_eq!(
+            doc.snapshot
+                .buffers
+                .iter()
+                .find(|r| r.name == "sample")
+                .unwrap()
+                .resolved,
+            Some(old.join("sample.wav"))
         );
     }
 }
