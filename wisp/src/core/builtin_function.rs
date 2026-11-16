@@ -60,15 +60,7 @@ impl WispFunction for BuiltinFunction {
         vec
     }
 
-    fn load(_s: &str, _ctx: &WispContext) -> Option<Box<dyn WispFunction>> {
-        None
-    }
-
     fn save(&self) -> String {
         self.name.clone()
-    }
-
-    fn clone(&self) -> Box<dyn WispFunction> {
-        Box::new(std::clone::Clone::clone(self))
     }
 }

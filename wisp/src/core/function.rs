@@ -99,10 +99,92 @@ pub trait WispFunction: Debug {
         None
     }
 
-    fn load(s: &str, ctx: &WispContext) -> Option<Box<dyn WispFunction>>
-    where
-        Self: Sized;
     fn save(&self) -> String;
+}
 
-    fn clone(&self) -> Box<dyn WispFunction>;
+#[derive(Debug, Clone)]
+pub enum Function {
+    Builtin(super::BuiltinFunction),
+    Code(super::CodeFunction),
+    Flow(super::FlowFunction),
+    Math(super::MathFunction),
+}
+
+impl WispFunction for Function {
+    fn name(&self) -> &str {
+        match self {
+            Function::Builtin(f) => f.name(),
+            Function::Code(f) => f.name(),
+            Function::Flow(f) => f.name(),
+            Function::Math(f) => f.name(),
+        }
+    }
+
+    fn name_mut(&mut self) -> &mut String {
+        match self {
+            Function::Builtin(f) => f.name_mut(),
+            Function::Code(f) => f.name_mut(),
+            Function::Flow(f) => f.name_mut(),
+            Function::Math(f) => f.name_mut(),
+        }
+    }
+
+    fn inputs(&self) -> &[FunctionInput] {
+        match self {
+            Function::Builtin(f) => f.inputs(),
+            Function::Code(f) => f.inputs(),
+            Function::Flow(f) => f.inputs(),
+            Function::Math(f) => f.inputs(),
+        }
+    }
+
+    fn outputs(&self) -> &[FunctionOutput] {
+        match self {
+            Function::Builtin(f) => f.outputs(),
+            Function::Code(f) => f.outputs(),
+            Function::Flow(f) => f.outputs(),
+            Function::Math(f) => f.outputs(),
+        }
+    }
+
+    fn get_ir_functions(&self, ctx: &WispContext) -> Vec<IRFunction> {
+        match self {
+            Function::Builtin(f) => f.get_ir_functions(ctx),
+            Function::Code(f) => f.get_ir_functions(ctx),
+            Function::Flow(f) => f.get_ir_functions(ctx),
+            Function::Math(f) => f.get_ir_functions(ctx),
+        }
+    }
+
+    fn lag_value(&self) -> Option<DataRef> {
+        match self {
+            Function::Builtin(f) => f.lag_value(),
+            Function::Code(f) => f.lag_value(),
+            Function::Flow(f) => f.lag_value(),
+            Function::Math(f) => f.lag_value(),
+        }
+    }
+
+    fn as_flow(&self) -> Option<&FlowFunction> {
+        match self {
+            Function::Flow(f) => Some(f),
+            _ => None,
+        }
+    }
+
+    fn as_flow_mut(&mut self) -> Option<&mut FlowFunction> {
+        match self {
+            Function::Flow(f) => Some(f),
+            _ => None,
+        }
+    }
+
+    fn save(&self) -> String {
+        match self {
+            Function::Builtin(f) => f.save(),
+            Function::Code(f) => f.save(),
+            Function::Flow(f) => f.save(),
+            Function::Math(f) => f.save(),
+        }
+    }
 }

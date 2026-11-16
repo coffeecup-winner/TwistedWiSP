@@ -45,19 +45,8 @@ impl WispFunction for MathFunction {
         vec![self.compile_ir_function()]
     }
 
-    fn load(_s: &str, _ctx: &WispContext) -> Option<Box<dyn WispFunction>>
-    where
-        Self: Sized,
-    {
-        panic!("Must not be called, use MathFunctionParser::parse_function instead");
-    }
-
     fn save(&self) -> String {
         self.expr_string.clone()
-    }
-
-    fn clone(&self) -> Box<dyn WispFunction> {
-        Box::new(std::clone::Clone::clone(self))
     }
 }
 
