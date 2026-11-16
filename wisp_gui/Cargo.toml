@@ -17,6 +17,6 @@ wisp = { path = "../wisp", package = "twisted-wisp" }
 crossbeam = "0.8"
 clap = { version = "4", features = ["derive"] }
 env_logger = "0.11"
-toml = "0.8"
+toml = "1.2.1"
 
 rfd = { version = "=0.15.4", default-features = false, features = ["xdg-portal", "async-std"] }
