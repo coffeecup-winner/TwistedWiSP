@@ -68,7 +68,7 @@ impl<'ectx, 'temp> ModuleContext<'ectx, 'temp> {
     ) -> Result<Ref<'temp, IRFunction>, SignalProcessCreationError> {
         self.rctx
             .get_function(name)
-            .map(|f| f.ir_function().get(None))
+            .map(|f| f.ir_function().get_untracked())
             .ok_or_else(|| SignalProcessCreationError::UnknownFunction(name.into()))
     }
 

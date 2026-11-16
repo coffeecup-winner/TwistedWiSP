@@ -75,10 +75,12 @@ impl<T> Property<T> {
         self.tracker.handle()
     }
 
-    pub fn get(&self, dependent: Option<DependencyHandle>) -> Ref<T> {
-        if let Some(dependent) = dependent {
-            self.tracker.add_dependent(dependent);
-        }
+    pub fn get_untracked(&self) -> Ref<T> {
+        self.value.borrow()
+    }
+
+    pub fn get(&self, dependent: DependencyHandle) -> Ref<T> {
+        self.tracker.add_dependent(dependent);
         self.value.borrow()
     }
 
@@ -88,9 +90,9 @@ impl<T> Property<T> {
         self.tracker.mark_as_valid();
     }
 
-    pub fn update(&self, f: impl FnOnce(Option<DependencyHandle>) -> T) {
+    pub fn update(&self, f: impl FnOnce(DependencyHandle) -> T) {
         if !self.is_valid() {
-            let new_value = f(Some(self.handle()));
+            let new_value = f(self.handle());
             self.set(new_value);
         }
     }
@@ -109,9 +111,9 @@ where
         self.tracker.mark_as_valid();
     }
 
-    pub fn update_if_changed(&mut self, f: impl FnOnce(Option<DependencyHandle>) -> T) {
+    pub fn update_if_changed(&mut self, f: impl FnOnce(DependencyHandle) -> T) {
         if !self.is_valid() {
-            let new_value = f(Some(self.handle()));
+            let new_value = f(self.handle());
             self.set_if_changed(new_value);
         }
     }
@@ -126,7 +128,7 @@ mod tests {
         let parent = Property::new(42);
         let child = Property::new(0);
 
-        child.set(*parent.get(Some(child.handle())));
+        child.set(*parent.get(child.handle()));
 
         parent.set(41);
 
@@ -140,7 +142,7 @@ mod tests {
         let parent2 = Property::new(42);
         let child = Property::new(0);
 
-        child.set(*parent1.get(Some(child.handle())) + *parent2.get(Some(child.handle())));
+        child.set(*parent1.get(child.handle()) + *parent2.get(child.handle()));
 
         parent1.set(41);
 
@@ -148,7 +150,7 @@ mod tests {
         assert_eq!(true, parent2.is_valid());
         assert_eq!(false, child.is_valid());
 
-        child.set(*parent1.get(Some(child.handle())) + *parent2.get(Some(child.handle())));
+        child.set(*parent1.get(child.handle()) + *parent2.get(child.handle()));
 
         parent2.set(41);
 
@@ -163,8 +165,8 @@ mod tests {
         let child1 = Property::new(0);
         let child2 = Property::new(0);
 
-        child1.set(*parent.get(Some(child1.handle())));
-        child2.set(*parent.get(Some(child2.handle())));
+        child1.set(*parent.get(child1.handle()));
+        child2.set(*parent.get(child2.handle()));
 
         parent.set(41);
 
@@ -178,7 +180,7 @@ mod tests {
         let parent = Property::new(42);
         let child = Property::new(0);
 
-        child.set(*parent.get(Some(child.handle())));
+        child.set(*parent.get(child.handle()));
 
         parent.set_if_changed(42);
 
@@ -197,8 +199,8 @@ mod tests {
         let parent = Property::new(0);
         let child = Property::new(0);
 
-        parent.set(*grandparent.get(Some(parent.handle())) / 2);
-        child.set(*parent.get(Some(child.handle())) / 2);
+        parent.set(*grandparent.get(parent.handle()) / 2);
+        child.set(*parent.get(child.handle()) / 2);
 
         grandparent.set(41);
 

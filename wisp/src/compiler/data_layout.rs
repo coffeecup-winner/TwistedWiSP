@@ -149,7 +149,11 @@ impl DataLayout {
                     if let Some(child_data_layout) = data_layout.get(name) {
                         sizes.insert(CallIndex(id.0), (name.into(), child_data_layout.total_size));
                     } else if let Some(child_data_layout) = Self::calculate_function_data_layout(
-                        &rctx.get_function(name).unwrap().ir_function().get(None),
+                        &rctx
+                            .get_function(name)
+                            .unwrap()
+                            .ir_function()
+                            .get_untracked(),
                         rctx,
                         data_layout,
                         called_functions,

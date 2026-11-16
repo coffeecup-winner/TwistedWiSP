@@ -70,7 +70,7 @@ impl SignalProcessorBuilder {
                 .get_function(top_level)
                 .unwrap()
                 .ir_function()
-                .get(None),
+                .get_untracked(),
             rctx,
         );
 
@@ -104,7 +104,7 @@ impl SignalProcessorBuilder {
         execution_engine.add_global_mapping(&g_noise, noise as usize);
 
         for (name, func) in rctx.functions_iter() {
-            let ir_func = func.ir_function().get(None);
+            let ir_func = func.ir_function().get_untracked();
 
             if !data_layout.was_called(name) {
                 continue;
@@ -138,7 +138,7 @@ impl SignalProcessorBuilder {
         }
 
         for (_, func) in rctx.functions_iter() {
-            let ir_func = func.ir_function().get(None);
+            let ir_func = func.ir_function().get_untracked();
 
             if !data_layout.was_called(ir_func.name()) {
                 continue;

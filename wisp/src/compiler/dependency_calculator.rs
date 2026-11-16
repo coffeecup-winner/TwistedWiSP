@@ -30,7 +30,7 @@ fn calculate_dependencies_core(ir: &[Instruction], dependencies: &mut BTreeSet<S
 pub fn calculate_active_set(
     rtcx: &WispRuntimeContext,
     top_level: &str,
-    dep_handle: Option<DependencyHandle>,
+    dep_handle: DependencyHandle,
 ) -> Vec<String> {
     let mut visited = BTreeSet::new();
     let mut stack = Vec::new();
