@@ -21,7 +21,13 @@ pub fn show_node_body(node: &mut NodeSnapshot, ui: &mut Ui) -> Option<f64> {
     if node.node_type == NodeType::Control {
         let value = node.control_values.entry(0).or_insert(0.0);
         if ui
-            .add(egui::Slider::new(value, 0.0..=1.0).step_by(0.001))
+            .add(
+                egui::Slider::new(value, 0.0..=1.0)
+                    .step_by(0.001)
+                    // Backend f32 snapshots need not fall exactly on f64 slider steps.
+                    // Painting must not round them and emit another edit.
+                    .clamping(egui::SliderClamping::Edits),
+            )
             .changed()
         {
             return Some(*value);

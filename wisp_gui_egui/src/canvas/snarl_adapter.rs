@@ -445,6 +445,31 @@ mod tests {
         (doc, canvas)
     }
     #[test]
+    fn service_slider_snapshots_do_not_generate_edits_without_input() {
+        let (mut doc, mut canvas) = fixture();
+        let ctx = egui::Context::default();
+        let control = doc.snapshot().nodes[1].0;
+        // Replay backend f32 values, including a value between slider steps.
+        // Snapshot delivery/painting must never submit those values as new edits.
+        for value in [0.103, 0.455, 0.203, 0.317, 0.123456] {
+            doc.set_value(control, value).unwrap();
+            for _ in 0..3 {
+                canvas.sync(&doc.snapshot());
+                let mut commands = vec![];
+                let mut output = ctx.run_ui(Default::default(), |ui| {
+                    commands = canvas.show(ui);
+                });
+                output.textures_delta.clear();
+                assert!(
+                    !commands
+                        .iter()
+                        .any(|command| matches!(command, EditorCommand::SetControlValue { .. })),
+                    "Snapshot {value} generated an unsolicited slider edit: {commands:?}"
+                );
+            }
+        }
+    }
+    #[test]
     fn accepted_positions_and_wires_reconcile_after_undo_or_native_bypass() {
         let (mut doc, mut canvas) = fixture();
         let id = doc.snapshot().nodes[0].0;
