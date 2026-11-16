@@ -1,0 +1,8 @@
+// wisp_gui_egui/editor — Document model, commands, events, service thread.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
+pub mod commands;
+pub mod document;
+pub mod service;
+
+pub mod runtime;
