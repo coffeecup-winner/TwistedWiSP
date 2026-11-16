@@ -19,3 +19,6 @@ pub mod buffer;
 pub use compiler::DataArrayHandle;
 
 pub use midi::mailbox::{MidiMailbox, MidiObservation};
+
+#[cfg(test)]
+mod allocation_probe;

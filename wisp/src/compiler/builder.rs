@@ -8,7 +8,6 @@ use inkwell::{
     OptimizationLevel,
 };
 use log::debug;
-use rand::Rng;
 
 use crate::{
     compiler::dependency_calculator,
@@ -104,6 +103,7 @@ impl SignalProcessorBuilder {
         let g_noise = module.add_function("noise", ectx.f32_t().fn_type(&[], false), None);
         let mut spctx = Box::new(SignalProcessorContext {
             p_output: std::ptr::null_mut(),
+            noise_state: rand::random::<u64>().max(1),
         });
         execution_engine.add_global_mapping(&g_output, &mut spctx.p_output as *mut _ as usize);
         static EMPTY_ARRAY: [u32; 1] = [0];
@@ -112,10 +112,26 @@ impl SignalProcessorBuilder {
             debug!("Debug: {}", v);
         }
         execution_engine.add_global_mapping(&g_wisp_debug, wisp_debug as usize);
-        extern "C" fn noise() -> f32 {
-            rand::thread_rng().gen_range(-1.0..=1.0)
-        }
-        execution_engine.add_global_mapping(&g_noise, noise as usize);
+        // Keep the zero-argument DSP function as a thin adapter to the Rust
+        // builtin, passing this processor's stable boxed RNG state address.
+        let rng = module.add_global(ectx.llvm().i64_type(), None, "wisp_noise_state");
+        execution_engine.add_global_mapping(&rng, &mut spctx.noise_state as *mut _ as usize);
+        let builtin = module.add_function(
+            "wisp_noise",
+            ectx.f32_t().fn_type(&[ectx.pf32_t().into()], false),
+            None,
+        );
+        execution_engine
+            .add_global_mapping(&builtin, super::processor::noise as *const () as usize);
+        let noise_builder = ectx.llvm().create_builder();
+        noise_builder.position_at_end(ectx.llvm().append_basic_block(g_noise, "noise"));
+        let sample = noise_builder
+            .build_call(builtin, &[rng.as_pointer_value().into()], "sample")
+            .unwrap()
+            .try_as_basic_value()
+            .left()
+            .unwrap();
+        noise_builder.build_return(Some(&sample)).unwrap();
 
         let read = module.add_function(
             "wisp_array_read",

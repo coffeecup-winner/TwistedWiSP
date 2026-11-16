@@ -1,4 +1,5 @@
 use super::engine::{DataIndex, WatchIndex, WatchedDataValues};
+use crate::compiler::{OwnedArray, Watch, WatchBatch};
 use crate::{
     audio::device::ConfiguredAudioDevice,
     compiler::{
@@ -32,17 +33,17 @@ enum RuntimeStateMessage {
     StopDsp,
     SetProcessor(Option<SignalProcessor>),
     SetDataValue(String, CallIndex, DataIndex, f32),
-    SetDataArray(String, CallIndex, DataIndex, DataArrayHandle),
-    WatchDataValue(String, CallIndex, DataIndex, bool),
-    UnwatchDataValue(WatchIndex),
-    QueryWatchedDataValues,
+    SetDataArray(String, CallIndex, DataIndex, Option<OwnedArray>),
+    WatchDataValue(String, CallIndex, DataIndex, Option<Watch>),
+    UnwatchDataValue(WatchIndex, Option<Watch>),
+    QueryWatchedDataValues(Option<Box<WatchBatch>>),
 }
 
 enum SignalProcessorResponse {
     Ack,
     Installed,
     Watch(Option<WatchIndex>),
-    WatchData(WatchedDataValues),
+    WatchData(Box<WatchBatch>),
 }
 
 struct RuntimeRequest {
@@ -132,28 +133,27 @@ impl RuntimeState {
             RuntimeStateMessage::SetDataArray(name, call, data, array) => {
                 self.processor
                     .as_mut()
-                    .and_then(|p| p.set_data_array(name, *call, *data, array.clone()))
-                    .ok_or("Invalid array address or no processor")?;
+                    .and_then(|p| p.bind_prepared(name, *call, *data, array))
+                    .ok_or("Invalid array address or retained buffer limit (128)")?;
             }
             RuntimeStateMessage::WatchDataValue(name, call, data, last) => {
                 return Ok(SignalProcessorResponse::Watch(
                     self.processor
                         .as_mut()
-                        .and_then(|p| p.watch_data_value(name, *call, *data, *last)),
+                        .and_then(|p| p.watch_prepared(name, *call, *data, last)),
                 ))
             }
-            RuntimeStateMessage::UnwatchDataValue(id) => {
+            RuntimeStateMessage::UnwatchDataValue(id, retired) => {
                 if let Some(p) = &mut self.processor {
-                    p.unwatch_data_value(*id);
+                    *retired = p.take_watch(*id);
                 }
             }
-            RuntimeStateMessage::QueryWatchedDataValues => {
-                return Ok(SignalProcessorResponse::WatchData(
-                    self.processor
-                        .as_mut()
-                        .map(|p| p.query_watched_data_value())
-                        .unwrap_or_default(),
-                ))
+            RuntimeStateMessage::QueryWatchedDataValues(batch) => {
+                let mut batch = batch.take().ok_or("Missing watch storage")?;
+                if let Some(processor) = &mut self.processor {
+                    processor.query_into(&mut batch);
+                }
+                return Ok(SignalProcessorResponse::WatchData(batch));
             }
         }
         Ok(SignalProcessorResponse::Ack)
@@ -311,6 +311,7 @@ pub struct WispRuntime {
     midi: Arc<crate::MidiMailbox>,
     legacy_midi: HashMap<u64, (String, CallIndex, DataIndex)>,
     legacy_pending: HashMap<u64, f32>,
+    watch_batch: std::cell::RefCell<Option<Box<WatchBatch>>>,
     transport: RuntimeTransport,
 }
 
@@ -387,6 +388,7 @@ impl WispRuntime {
             midi: mailbox,
             legacy_midi: HashMap::new(),
             legacy_pending: HashMap::new(),
+            watch_batch: std::cell::RefCell::new(Some(Box::new(WatchBatch::new()))),
             transport: RuntimeTransport {
                 tx,
                 failed,
@@ -483,7 +485,7 @@ impl WispRuntime {
             name.into(),
             call,
             data,
-            array,
+            OwnedArray::prepare(array),
         )) {
             log::error!("{e}");
         }
@@ -555,18 +557,27 @@ impl WispRuntime {
             name.into(),
             call,
             data,
-            last,
+            Some(Watch::prepare(last)),
         ))? {
             SignalProcessorResponse::Watch(Some(id)) => Ok(id),
             _ => Err("Invalid watch or watch limit (128)".into()),
         }
     }
     pub fn query_checked(&self) -> Result<WatchedDataValues, String> {
+        let batch = self
+            .watch_batch
+            .borrow_mut()
+            .take()
+            .unwrap_or_else(|| Box::new(WatchBatch::new()));
         match self
             .transport
-            .request(RuntimeStateMessage::QueryWatchedDataValues)?
+            .request(RuntimeStateMessage::QueryWatchedDataValues(Some(batch)))?
         {
-            SignalProcessorResponse::WatchData(data) => Ok(data),
+            SignalProcessorResponse::WatchData(batch) => {
+                let values = batch.values();
+                *self.watch_batch.borrow_mut() = Some(batch);
+                Ok(values)
+            }
             _ => Err("Unexpected watch reply".into()),
         }
     }
@@ -583,7 +594,7 @@ impl WispRuntime {
                 name.into(),
                 call,
                 data,
-                last,
+                Some(Watch::prepare(last)),
             ))
             .ok()?
         {
@@ -595,7 +606,7 @@ impl WispRuntime {
     pub fn unwatch_data_value(&mut self, id: WatchIndex) {
         let _ = self
             .transport
-            .request(RuntimeStateMessage::UnwatchDataValue(id));
+            .request(RuntimeStateMessage::UnwatchDataValue(id, None));
     }
 
     pub fn query_watched_data_values(&mut self) -> WatchedDataValues {
@@ -617,13 +628,7 @@ impl WispRuntime {
                 })
                 .is_err()
         });
-        match self
-            .transport
-            .request(RuntimeStateMessage::QueryWatchedDataValues)
-        {
-            Ok(SignalProcessorResponse::WatchData(data)) => data,
-            _ => WatchedDataValues::default(),
-        }
+        self.query_checked().unwrap_or_default()
     }
 }
 
@@ -700,6 +705,57 @@ mod tests {
         drop(packet); // Old processor's source is released on this control thread.
         assert!(weak.upgrade().is_none());
         drop(states.recv().unwrap());
+    }
+
+    #[test]
+    fn prepared_callback_operations_do_not_allocate_or_destroy_payloads() {
+        let mut session = crate::OfflineSession::new(
+            44100,
+            2,
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("core"),
+        )
+        .unwrap();
+        let name = session.load_flow_text("[flow]\nname='probe'\n[[flow.nodes]]\ntext='control'\n[[flow.nodes]]\ntext='noise'\n[[flow.nodes]]\ntext='out'\n[[flow.edges]]\nfrom=1\nto=2\noutput_index=0\ninput_index=0\n").unwrap();
+        let processor = session.compile(&name).unwrap();
+        let retired = Arc::new(crossbeam::queue::ArrayQueue::new(128));
+        let mut state = RuntimeState {
+            retired: retired.clone(),
+            processor: None,
+            is_running: false,
+        };
+        let (tx, rx) = bounded(64);
+        let messages = vec![
+            RuntimeStateMessage::SetProcessor(Some(processor)),
+            RuntimeStateMessage::SetDataValue(name.clone(), CallIndex(0), DataIndex(0), 0.5),
+            RuntimeStateMessage::WatchDataValue(
+                name,
+                CallIndex(0),
+                DataIndex(0),
+                Some(Watch::prepare(false)),
+            ),
+            RuntimeStateMessage::StartDsp,
+            RuntimeStateMessage::QueryWatchedDataValues(Some(Box::new(WatchBatch::new()))),
+            RuntimeStateMessage::UnwatchDataValue(WatchIndex(0), None),
+            RuntimeStateMessage::StopDsp,
+        ];
+        let mut buffer = [0.; 1024];
+        for message in messages {
+            tx.try_send(RuntimeRequest {
+                message,
+                reply: None,
+                deferred: None,
+            })
+            .unwrap();
+            let counts = crate::allocation_probe::measure(|| {
+                state.drain(&rx);
+                state.render(&mut buffer);
+            });
+            assert_eq!(counts, (0, 0), "allocations/destructions in callback");
+            while let Some(packet) = retired.pop() {
+                assert!(packet.deferred.as_ref().unwrap().is_ok());
+                drop(packet);
+            }
+        }
     }
 
     #[test]
