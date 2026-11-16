@@ -153,7 +153,7 @@ fn choose_config(
             rate
         );
     }
-    let mut config: StreamConfig = best.clone().with_sample_rate(SampleRate(rate)).into();
+    let mut config: StreamConfig = (*best).with_sample_rate(SampleRate(rate)).into();
     config.buffer_size = match (buffer, best.buffer_size()) {
         (Some(n), SupportedBufferSize::Range { min, max }) => {
             BufferSize::Fixed(n.clamp(*min, *max))

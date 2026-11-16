@@ -172,7 +172,7 @@ impl DataLayout {
 
     fn create_data_recursive(&self, data: &mut [DataValue], layout: &FunctionDataLayout) {
         let mut offset = 0;
-        for (_, item) in layout.own_data_items.iter() {
+        for item in layout.own_data_items.values() {
             data[item.offset as usize] = match item.type_ {
                 IRFunctionDataType::Float => DataValue::new_float(0.0),
                 IRFunctionDataType::Array => {
@@ -182,7 +182,7 @@ impl DataLayout {
             };
         }
         offset += layout.own_data_items.len() as u32;
-        for (_, (name, _)) in layout.children_data_items.iter() {
+        for (name, _) in layout.children_data_items.values() {
             if let Some(layout) = self.data_layout.get(name).as_ref() {
                 self.create_data_recursive(&mut data[offset as usize..], layout);
                 offset += layout.total_size;

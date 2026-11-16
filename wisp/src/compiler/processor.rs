@@ -214,7 +214,7 @@ impl SignalProcessor {
         for chunk in output.chunks_mut(self.num_outputs) {
             // Capture watch values before processing to have 0-based sample index
             for watch in &mut self.watches.values_mut() {
-                if self.elapsed_ticks % watch.rate == 0 {
+                if self.elapsed_ticks.is_multiple_of(watch.rate) {
                     let value = self.data[watch.data_offset as usize];
                     match watch.data {
                         WatchedData::LastValue(ref mut v) => *v = value.as_float(),
