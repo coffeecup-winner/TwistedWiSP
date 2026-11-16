@@ -36,7 +36,6 @@ struct WispDataArray {
 #[derive(Debug, Default)]
 pub struct WispEngineContext {
     functions: HashMap<String, IRFunction>,
-    main_function: String,
     data_arrays: HashMap<String, HashMap<String, WispDataArray>>,
 }
 
@@ -49,7 +48,6 @@ impl WispEngineContext {
 
     pub fn reset(&mut self) {
         self.functions.clear();
-        self.main_function = String::new();
     }
 
     pub fn add_function(&mut self, func: IRFunction) {
@@ -66,14 +64,6 @@ impl WispEngineContext {
 
     pub fn functions_iter(&self) -> hash_map::Iter<'_, String, IRFunction> {
         self.functions.iter()
-    }
-
-    pub fn set_main_function(&mut self, name: &str) {
-        self.main_function = name.into();
-    }
-
-    pub fn main_function(&self) -> &str {
-        &self.main_function
     }
 
     pub fn add_data_array(&mut self, name: &str, array_name: String, mut data: Vec<f32>) {
