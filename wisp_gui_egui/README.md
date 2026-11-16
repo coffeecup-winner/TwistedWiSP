@@ -21,9 +21,15 @@ The graph displays actual `.twf` ports/wires and saved geometry. Use **New** wit
 
 Structural edits while DSP is enabled stop, compile, install, initialize controls and resume on the existing device. Compile failure keeps the edited document visible and the last good processor stopped; correct the graph or Undo to recover. Device/install/initialization failure leaves editing/history available; retry Start. Geometry and scalar changes do not compile. Expressions are bounded to 8,192 bytes, at most 64 opening parentheses and argument indices `$0`–`$1023`; malformed/nonfinite literals are rejected.
 
+Use **Open…**, **Save**, **Save As…**, or Command/Ctrl-O, S, Shift-S and N for file actions. The existing Flow path field with **Open** and **Save to path…** work without a desktop portal. New/Open/window close on a dirty document offers Save/Discard/Cancel. A save captures accepted edits; edits made while it writes remain unsaved. External changes require confirmation before overwriting. Files are replaced through a synced sibling temporary file; symlink destinations must be selected by their target path explicitly.
+
+The **Inspector** edits the single selected node's x/y/width/height and control value. Enter or focus loss commits numeric typing; Escape cancels typing. Drags form one Undo entry. Coordinates use legacy integer geometry, minimum sizes are 80×60, and controls use 0–1 in 0.001 steps. Width/height are renderer size hints: snarl's header/pins can require more space, and interactive resize handles are not provided.
+
+Buffer references are preserved and diagnosed without enabling playback. Relative paths resolve against the owning flow directory, then `--data-path` entries in order. Save As rebases resolved references to preserve the target; unresolved strings and absent-path builtin entries remain unchanged. Flattened node metadata supports the backend's i32/f32/string types; unsupported types fail loading with a property-specific error rather than being silently discarded.
+
 **Canvas lab** is separate synthetic state. It contains waveform painting from a bounded 2,048-sample ring, a highlighted multiline editor, mixed controls, and a one-level child snarl. Scale buttons exercise 0.25×–2×. The child is explicitly read-only: the public-API nesting experiment routes wheel input over the child to the parent. See the reproducible headless test and completion report in [milestone1.md](../gui_plan/milestone1.md). No snarl fork or vendoring is used.
 
-Dependencies: egui/eframe 0.36.2, egui-snarl 0.12.0; Rust stable (tested 1.100.0), LLVM 18, and native Linux audio/windowing development libraries. Set `LLVM_SYS_180_PREFIX` for a nonstandard LLVM installation. The existing Qwen package name and edition 2024 are retained.
+Dependencies: egui/eframe 0.36.2, egui-snarl 0.12.0, rfd 0.15.4 (MIT, GTK-free XDG portal/async-std); Rust stable (tested 1.100.0), LLVM 18, and native Linux audio/windowing development libraries. Set `LLVM_SYS_180_PREFIX` for a nonstandard LLVM installation. The existing Qwen package name and edition 2024 are retained.
 
 ```sh
 cargo check --workspace
