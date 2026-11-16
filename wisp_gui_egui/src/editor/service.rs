@@ -69,6 +69,8 @@ pub fn spawn_configured_service(
         let mut next_document = 1;
         let mut runtime: Option<Box<dyn super::runtime::EditorRuntime>> = None;
         let mut generation = 0;
+        let mut desired_running = false;
+        let mut runtime_current = false;
         let mut status = if offline {
             RuntimeStatus::Offline
         } else {
@@ -117,10 +119,130 @@ pub fn spawn_configured_service(
                 }
             }
             let event = match command {
+                EditorCommand::Barrier { req_id } => EditorEvent::Response {
+                    req_id,
+                    result: Ok(()),
+                },
+                EditorCommand::Gesture { document_id, begin } => {
+                    match document.as_mut().filter(|d| d.id() == document_id) {
+                        Some(doc) => {
+                            if begin {
+                                doc.begin_gesture();
+                            } else {
+                                doc.end_gesture();
+                            }
+                            publish_doc(doc, &worker_snapshots, &repaint);
+                            continue;
+                        }
+                        None => EditorEvent::Error("Stale document".into()),
+                    }
+                }
+                EditorCommand::NewFlow { name, req_id } => {
+                    let result =
+                        EditorDocument::new_flow(&name, &core_path, DocumentId(next_document)).map(
+                            |doc| {
+                                runtime = None;
+                                desired_running = false;
+                                next_document += 1;
+                                generation += 1;
+                                status = if offline {
+                                    RuntimeStatus::Offline
+                                } else {
+                                    RuntimeStatus::Stopped
+                                };
+                                document = Some(doc);
+                            },
+                        );
+                    EditorEvent::Response { req_id, result }
+                }
+                EditorCommand::Edit {
+                    document_id,
+                    revision,
+                    edit,
+                    req_id,
+                } => {
+                    let result = (|| {
+                        let doc = document
+                            .as_mut()
+                            .filter(|d| d.id() == document_id)
+                            .ok_or("Stale document")?;
+                        let old_revision = doc.snapshot().revision;
+                        let old_bindings = doc.scalar_bindings()?;
+                        let structural = doc.edit(revision, edit)?;
+                        if structural {
+                            runtime_current = false;
+                        }
+                        if doc.snapshot().revision == old_revision {
+                            return Ok(());
+                        }
+                        publish_doc(doc, &worker_snapshots, &repaint);
+                        if let Some(live) = runtime.as_mut() {
+                            if structural {
+                                if let Err(e) = live.stop() {
+                                    runtime = None;
+                                    status = RuntimeStatus::Error;
+                                    return Err(e);
+                                }
+                                status = RuntimeStatus::Compiling;
+                                deliver(
+                                    EditorEvent::Runtime {
+                                        document_id: Some(doc.id()),
+                                        generation,
+                                        semantic_revision: None,
+                                        status,
+                                    },
+                                    &events,
+                                    &worker_stop,
+                                    &repaint,
+                                );
+                                // install compiles before replacing the installed processor.
+                                // On compile failure the previous processor remains stopped.
+                                if let Err(e) =
+                                    doc.can_start().and_then(|_| live.prepare(&doc.serialize()))
+                                {
+                                    status = RuntimeStatus::Error;
+                                    return Err(e);
+                                }
+                                if let Err(e) = live.install_prepared() {
+                                    runtime = None;
+                                    status = RuntimeStatus::Error;
+                                    return Err(e);
+                                }
+                                generation += 1;
+                                runtime_current = true;
+                                status = RuntimeStatus::Stopped;
+                            }
+                            if runtime_current
+                                && (structural || old_bindings != doc.scalar_bindings()?)
+                            {
+                                let root = doc.snapshot().flow_name;
+                                for (call, value) in doc.scalar_bindings()? {
+                                    if let Err(e) = live.scalar(&root, call, value) {
+                                        let _ = live.stop();
+                                        runtime = None;
+                                        status = RuntimeStatus::Error;
+                                        return Err(e);
+                                    }
+                                }
+                                if structural && desired_running {
+                                    if let Err(e) = live.start() {
+                                        runtime = None;
+                                        status = RuntimeStatus::Error;
+                                        return Err(e);
+                                    }
+                                    status = RuntimeStatus::Running;
+                                }
+                            }
+                        }
+                        Ok::<(), String>(())
+                    })();
+                    EditorEvent::Response { req_id, result }
+                }
                 EditorCommand::LoadFlow { path, req_id } => {
                     let result = EditorDocument::load(&path, &core_path, DocumentId(next_document))
                         .map(|doc| {
                             runtime = None;
+                            desired_running = false;
                             generation += 1;
                             status = if offline {
                                 RuntimeStatus::Offline
@@ -144,7 +266,7 @@ pub fn spawn_configured_service(
                             .filter(|d| d.id() == document_id)
                             .ok_or("Stale document")?;
                         doc.set_value(node_id, value)?;
-                        if let Some(live) = runtime.as_mut() {
+                        if let Some(live) = runtime.as_mut().filter(|_| runtime_current) {
                             let snapshot = doc.snapshot();
                             let result = live.scalar(
                                 &snapshot.flow_name,
@@ -185,37 +307,55 @@ pub fn spawn_configured_service(
                     }
                 }
                 EditorCommand::DspStart { req_id } => {
+                    desired_running = true;
                     let result = (|| {
                         if offline {
                             return Err("This session is forced offline".to_owned());
                         }
                         let doc = document.as_mut().ok_or("Open a flow first")?;
                         doc.can_start()?;
-                        runtime = None;
-                        generation += 1;
+                        if runtime.is_none() {
+                            runtime = Some(factory(&config)?);
+                        }
+                        let live = runtime.as_mut().unwrap();
+                        let (rate, outputs) = live.configuration();
+                        doc.reconfigure(&core_path, rate, outputs)?;
+                        doc.can_start()?;
+                        if let Err(e) = live.stop() {
+                            runtime = None;
+                            return Err(e);
+                        }
+                        runtime_current = false;
                         deliver(
                             EditorEvent::Runtime {
                                 document_id: Some(doc.id()),
                                 generation,
-                                semantic_revision: Some(doc.snapshot().semantic_revision),
+                                semantic_revision: None,
                                 status: RuntimeStatus::Compiling,
                             },
                             &events,
                             &worker_stop,
                             &repaint,
                         );
-                        let mut live = factory(&config)?;
-                        let (rate, outputs) = live.configuration();
-                        doc.reconfigure(&core_path, rate, outputs)?;
-                        doc.can_start()?;
                         publish_doc(doc, &worker_snapshots, &repaint);
-                        live.install(&doc.serialize())?;
+                        live.prepare(&doc.serialize())?;
+                        if let Err(e) = live.install_prepared() {
+                            runtime = None;
+                            return Err(e);
+                        }
                         let root = doc.snapshot().flow_name;
                         for (call, value) in doc.scalar_bindings()? {
-                            live.scalar(&root, call, value)?;
+                            if let Err(e) = live.scalar(&root, call, value) {
+                                runtime = None;
+                                return Err(e);
+                            }
                         }
-                        live.start()?;
-                        runtime = Some(live);
+                        if let Err(e) = live.start() {
+                            runtime = None;
+                            return Err(e);
+                        }
+                        generation += 1;
+                        runtime_current = true;
                         Ok::<(), String>(())
                     })();
                     status = if result.is_ok() {
@@ -223,7 +363,6 @@ pub fn spawn_configured_service(
                     } else if offline {
                         RuntimeStatus::Offline
                     } else {
-                        runtime = None;
                         RuntimeStatus::Error
                     };
                     deliver(
@@ -235,6 +374,7 @@ pub fn spawn_configured_service(
                     EditorEvent::Response { req_id, result }
                 }
                 EditorCommand::DspStop { req_id } => {
+                    desired_running = false;
                     let result = runtime.as_mut().map_or(Ok(()), |r| r.stop());
                     status = if result.is_err() {
                         runtime = None;
@@ -253,6 +393,7 @@ pub fn spawn_configured_service(
                     EditorEvent::Response { req_id, result }
                 }
             };
+            publish(&document, &worker_snapshots, &repaint);
             if !deliver(event, &events, &worker_stop, &repaint) {
                 break;
             }
@@ -340,7 +481,10 @@ mod tests {
         fn configuration(&self) -> (u32, u32) {
             (48000, 2)
         }
-        fn install(&mut self, _: &str) -> Result<(), String> {
+        fn prepare(&mut self, _: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn install_prepared(&mut self) -> Result<(), String> {
             self.log.lock().unwrap().push("install".into());
             Ok(())
         }
@@ -410,11 +554,12 @@ mod tests {
             EditorEvent::Response { result: Ok(()), .. }
         ));
         let calls = log.lock().unwrap().clone();
-        assert_eq!(calls.len(), 4);
-        assert_eq!(calls[0], "install");
-        assert!(calls[1].starts_with("scalar:1:0.103"));
-        assert!(calls[2].starts_with("scalar:4:0.455"));
-        assert_eq!(calls[3], "start");
+        assert_eq!(calls.len(), 5);
+        assert_eq!(calls[0], "stop");
+        assert_eq!(calls[1], "install");
+        assert!(calls[2].starts_with("scalar:1:0.103"));
+        assert!(calls[3].starts_with("scalar:4:0.455"));
+        assert_eq!(calls[4], "start");
         // A failed replacement does not tear down the running processor.
         service
             .submit(EditorCommand::LoadFlow {
@@ -573,6 +718,358 @@ mod tests {
             thread::sleep(Duration::from_millis(5));
         }
         panic!("Loaded document was lost");
+    }
+    struct RecoveryFake {
+        log: Arc<Mutex<Vec<String>>>,
+        fail: Arc<std::sync::atomic::AtomicUsize>,
+    }
+    impl RecoveryFake {
+        fn step(&self, name: &str, n: usize) -> Result<(), String> {
+            self.log.lock().unwrap().push(name.into());
+            if self.fail.load(Ordering::Acquire) == n {
+                Err(format!("injected {name} failure"))
+            } else {
+                Ok(())
+            }
+        }
+    }
+    impl super::super::runtime::EditorRuntime for RecoveryFake {
+        fn configuration(&self) -> (u32, u32) {
+            (44100, 2)
+        }
+        fn prepare(&mut self, _: &str) -> Result<(), String> {
+            self.step("compile", 1)
+        }
+        fn install_prepared(&mut self) -> Result<(), String> {
+            self.step("install", 2)
+        }
+        fn scalar(&mut self, _: &str, _: u32, _: f32) -> Result<(), String> {
+            self.step("scalar", 3)
+        }
+        fn start(&mut self) -> Result<(), String> {
+            self.step("start", 4)
+        }
+        fn stop(&mut self) -> Result<(), String> {
+            self.step("stop", 5)
+        }
+        fn healthy(&self) -> bool {
+            true
+        }
+    }
+    impl Drop for RecoveryFake {
+        fn drop(&mut self) {
+            self.log.lock().unwrap().push("drop".into());
+        }
+    }
+    fn recovery_service() -> (
+        EditorServiceHandle,
+        Arc<Mutex<Vec<String>>>,
+        Arc<std::sync::atomic::AtomicUsize>,
+    ) {
+        let log = Arc::new(Mutex::new(vec![]));
+        let fail = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let l = log.clone();
+        let f = fail.clone();
+        let service = spawn_configured_service(
+            core(),
+            egui::Context::default(),
+            false,
+            Default::default(),
+            Box::new(move |_| {
+                l.lock().unwrap().push("open".into());
+                Ok(Box::new(RecoveryFake {
+                    log: l.clone(),
+                    fail: f.clone(),
+                }))
+            }),
+        );
+        service
+            .submit(EditorCommand::LoadFlow {
+                path: core().join("../../wisp_gui/control.twf"),
+                req_id: RequestId(1),
+            })
+            .unwrap();
+        assert!(matches!(
+            response(&service),
+            EditorEvent::Response { result: Ok(()), .. }
+        ));
+        service
+            .submit(EditorCommand::DspStart {
+                req_id: RequestId(2),
+            })
+            .unwrap();
+        assert!(matches!(
+            response(&service),
+            EditorEvent::Response { result: Ok(()), .. }
+        ));
+        log.lock().unwrap().clear();
+        (service, log, fail)
+    }
+    fn service_edit(
+        service: &EditorServiceHandle,
+        edit: super::super::document::Edit,
+    ) -> Result<(), String> {
+        let s = service.snapshots.lock().unwrap().as_ref().unwrap().clone();
+        service
+            .submit(EditorCommand::Edit {
+                document_id: s.id,
+                revision: s.revision,
+                edit,
+                req_id: RequestId(50),
+            })
+            .unwrap();
+        match response(service) {
+            EditorEvent::Response { result, .. } => result,
+            _ => unreachable!(),
+        }
+    }
+    #[test]
+    fn structural_runtime_order_retains_compile_failure_and_undo_recovers() {
+        use super::super::document::Edit;
+        let (service, log, fail) = recovery_service();
+        service_edit(
+            &service,
+            Edit::Create {
+                text: "= 1".into(),
+                position: egui::Vec2::ZERO,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            *log.lock().unwrap(),
+            ["stop", "compile", "install", "scalar", "scalar", "start"]
+        );
+        log.lock().unwrap().clear();
+        service_edit(
+            &service,
+            Edit::Move(vec![(
+                super::super::document::EditorNodeId(1),
+                egui::vec2(20., 40.),
+            )]),
+        )
+        .unwrap();
+        assert!(log.lock().unwrap().is_empty());
+        // Rejection leaves playback and history untouched.
+        assert!(
+            service_edit(
+                &service,
+                Edit::Create {
+                    text: "= (".into(),
+                    position: egui::Vec2::ZERO
+                }
+            )
+            .is_err()
+        );
+        assert!(log.lock().unwrap().is_empty());
+        fail.store(1, Ordering::Release);
+        assert!(
+            service_edit(
+                &service,
+                Edit::Create {
+                    text: "= 2".into(),
+                    position: egui::Vec2::ZERO
+                }
+            )
+            .is_err()
+        );
+        assert_eq!(*log.lock().unwrap(), ["stop", "compile"]);
+        assert_eq!(
+            service
+                .snapshots
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .nodes
+                .len(),
+            9
+        );
+        log.lock().unwrap().clear();
+        fail.store(0, Ordering::Release);
+        service_edit(&service, Edit::Undo).unwrap();
+        assert_eq!(
+            *log.lock().unwrap(),
+            ["stop", "compile", "install", "scalar", "scalar", "start"]
+        );
+        // Explicit restart also reuses the device.
+        log.lock().unwrap().clear();
+        service
+            .submit(EditorCommand::DspStop {
+                req_id: RequestId(60),
+            })
+            .unwrap();
+        response(&service);
+        service
+            .submit(EditorCommand::DspStart {
+                req_id: RequestId(61),
+            })
+            .unwrap();
+        response(&service);
+        assert!(
+            !log.lock()
+                .unwrap()
+                .iter()
+                .any(|s| s == "open" || s == "drop")
+        );
+    }
+    #[test]
+    fn failed_install_initialization_and_device_leave_editable_history() {
+        use super::super::document::Edit;
+        for phase in [2, 3, 4, 5] {
+            let (service, log, fail) = recovery_service();
+            fail.store(phase, Ordering::Release);
+            assert!(
+                service_edit(
+                    &service,
+                    Edit::Create {
+                        text: "= 1".into(),
+                        position: egui::Vec2::ZERO
+                    }
+                )
+                .is_err()
+            );
+            let calls = log.lock().unwrap().clone();
+            assert_eq!(calls.first().unwrap(), "stop");
+            assert_eq!(calls.last().unwrap(), "drop");
+            if phase != 4 {
+                assert!(!calls.iter().any(|s| s == "start"));
+            }
+            assert_eq!(
+                service
+                    .snapshots
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .nodes
+                    .len(),
+                8
+            );
+            fail.store(0, Ordering::Release);
+            service_edit(&service, Edit::Undo).unwrap();
+            assert_eq!(
+                service
+                    .snapshots
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .nodes
+                    .len(),
+                7
+            );
+            service
+                .submit(EditorCommand::DspStart {
+                    req_id: RequestId(70),
+                })
+                .unwrap();
+            assert!(matches!(
+                response(&service),
+                EditorEvent::Response { result: Ok(()), .. }
+            ));
+        }
+    }
+    #[test]
+    fn saturated_queue_preserves_gesture_end_and_final_values() {
+        use super::super::document::{Edit, EditorNodeId};
+        let service = spawn_editor_service(core(), egui::Context::default());
+        service
+            .submit(EditorCommand::LoadFlow {
+                path: core().join("../../wisp_gui/control.twf"),
+                req_id: RequestId(1),
+            })
+            .unwrap();
+        response(&service);
+        let original = service.snapshots.lock().unwrap().as_ref().unwrap().clone();
+        let mut pending = std::collections::VecDeque::new();
+        pending.push_back(EditorCommand::Gesture {
+            document_id: DocumentId(1),
+            begin: true,
+        });
+        for i in 0..512 {
+            pending.push_back(EditorCommand::SetControlValue {
+                document_id: DocumentId(1),
+                node_id: EditorNodeId(if i % 2 == 0 { 2 } else { 5 }),
+                value: i as f64 / 512.,
+            });
+        }
+        pending.push_back(EditorCommand::Gesture {
+            document_id: DocumentId(1),
+            begin: false,
+        });
+        pending.push_back(EditorCommand::Barrier {
+            req_id: RequestId(90),
+        });
+        let mut saturated = false;
+        // Hold event consumption until the bounded queues really exert backpressure.
+        while let Some(command) = pending.pop_front() {
+            if let Err(crossbeam::channel::TrySendError::Full(command)) =
+                service.tx.try_send(command)
+            {
+                pending.push_front(command);
+                saturated = true;
+                break;
+            }
+        }
+        assert!(saturated);
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while let Some(command) = pending.pop_front() {
+            if let Err(crossbeam::channel::TrySendError::Full(command)) =
+                service.tx.try_send(command)
+            {
+                pending.push_front(command);
+            }
+            while service.rx.try_recv().is_ok() {}
+            assert!(std::time::Instant::now() < deadline);
+            thread::yield_now();
+        }
+        // The last drain may already have consumed the barrier: use a fresh one.
+        loop {
+            match service.tx.try_send(EditorCommand::Barrier {
+                req_id: RequestId(91),
+            }) {
+                Ok(()) => break,
+                Err(crossbeam::channel::TrySendError::Full(_)) => {
+                    while service.rx.try_recv().is_ok() {}
+                    thread::yield_now();
+                }
+                Err(_) => panic!("worker disconnected"),
+            }
+            assert!(std::time::Instant::now() < deadline);
+        }
+        loop {
+            if matches!(
+                response(&service),
+                EditorEvent::Response {
+                    req_id: RequestId(91),
+                    ..
+                }
+            ) {
+                break;
+            }
+        }
+        let edited = service.snapshots.lock().unwrap().as_ref().unwrap().clone();
+        assert_eq!(
+            edited.nodes[1].1.control_values[&0],
+            (510.0f32 / 512.) as f64
+        );
+        assert_eq!(
+            edited.nodes[4].1.control_values[&0],
+            (511.0f32 / 512.) as f64
+        );
+        assert!(edited.can_undo);
+        service_edit(&service, Edit::Undo).unwrap();
+        let undone = service.snapshots.lock().unwrap().as_ref().unwrap().clone();
+        assert!(!undone.can_undo);
+        assert!(!undone.dirty);
+        assert_eq!(
+            undone.nodes[1].1.control_values,
+            original.nodes[1].1.control_values
+        );
+        assert_eq!(
+            undone.nodes[4].1.control_values,
+            original.nodes[4].1.control_values
+        );
     }
     #[test]
     fn shutdown_does_not_wait_for_ui_to_drain_full_events() {

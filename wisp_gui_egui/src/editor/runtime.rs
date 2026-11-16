@@ -2,7 +2,13 @@
 use wisp::{CallIndex, DataIndex, TwistedWispEngine, TwistedWispEngineConfig};
 pub trait EditorRuntime {
     fn configuration(&self) -> (u32, u32);
-    fn install(&mut self, flow: &str) -> Result<(), String>;
+    fn prepare(&mut self, flow: &str) -> Result<(), String>;
+    fn install_prepared(&mut self) -> Result<(), String>;
+    fn install(&mut self, flow: &str) -> Result<(), String> {
+        self.stop()?;
+        self.prepare(flow)?;
+        self.install_prepared()
+    }
     fn scalar(&mut self, root: &str, call: u32, value: f32) -> Result<(), String>;
     fn start(&mut self) -> Result<(), String>;
     fn stop(&mut self) -> Result<(), String>;
@@ -13,35 +19,52 @@ pub type RuntimeFactory =
 pub fn live_factory() -> RuntimeFactory {
     Box::new(|config| {
         TwistedWispEngine::create(config)
-            .map(|engine| Box::new(engine) as Box<dyn EditorRuntime>)
+            .map(|engine| {
+                Box::new(LiveRuntime {
+                    engine,
+                    prepared: None,
+                }) as Box<dyn EditorRuntime>
+            })
             .map_err(|e| e.to_string())
     })
 }
-impl EditorRuntime for TwistedWispEngine {
+struct LiveRuntime {
+    engine: TwistedWispEngine,
+    prepared: Option<wisp::SignalProcessor>,
+}
+impl EditorRuntime for LiveRuntime {
     fn configuration(&self) -> (u32, u32) {
-        self.audio_configuration()
+        self.engine.audio_configuration()
     }
-    fn install(&mut self, text: &str) -> Result<(), String> {
-        self.runtime_stop_checked()?;
+    fn prepare(&mut self, text: &str) -> Result<(), String> {
+        self.prepared = None;
         let name = self
+            .engine
             .ctx_load_flow_from_text(text)
             .map_err(|e| e.to_string())?;
-        let processor = self
-            .runtime_compile_signal_processor(name)
-            .map_err(|e| e.to_string())?;
-        self.runtime_install_checked(processor)
+        self.prepared = Some(
+            self.engine
+                .runtime_compile_signal_processor(name)
+                .map_err(|e| e.to_string())?,
+        );
+        Ok(())
+    }
+    fn install_prepared(&mut self) -> Result<(), String> {
+        self.engine
+            .runtime_install_checked(self.prepared.take().ok_or("No prepared processor")?)
     }
     fn scalar(&mut self, root: &str, call: u32, value: f32) -> Result<(), String> {
-        self.runtime_scalar_checked(root, CallIndex(call), DataIndex(0), value)
+        self.engine
+            .runtime_scalar_checked(root, CallIndex(call), DataIndex(0), value)
     }
     fn start(&mut self) -> Result<(), String> {
-        self.runtime_start_checked()
+        self.engine.runtime_start_checked()
     }
     fn stop(&mut self) -> Result<(), String> {
-        self.runtime_stop_checked()
+        self.engine.runtime_stop_checked()
     }
     fn healthy(&self) -> bool {
-        self.runtime_healthy()
+        self.engine.runtime_healthy()
     }
 }
 
@@ -69,6 +92,15 @@ mod tests {
         runtime.scalar("control_test", 1, 0.2).unwrap();
         runtime.stop().unwrap();
         runtime.scalar("control_test", 4, 0.05).unwrap();
+        runtime.start().unwrap();
+        runtime.stop().unwrap();
+        let original = std::fs::read_to_string(root.join("wisp_gui/control.twf")).unwrap();
+        let malformed = original.replacen("= ($0 + $1 / SampleRate) % 1.0", "= (", 1);
+        assert!(runtime.prepare(&malformed).is_err());
+        assert!(runtime.healthy());
+        runtime.prepare(&original).unwrap();
+        runtime.install_prepared().unwrap();
+        runtime.scalar("control_test", 1, 0.1).unwrap();
         runtime.start().unwrap();
         runtime.stop().unwrap();
         assert!(runtime.healthy());

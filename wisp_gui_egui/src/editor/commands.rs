@@ -7,6 +7,23 @@ use std::path::PathBuf;
 pub struct RequestId(pub u64);
 #[derive(Clone, Debug)]
 pub enum EditorCommand {
+    Barrier {
+        req_id: RequestId,
+    },
+    Gesture {
+        document_id: DocumentId,
+        begin: bool,
+    },
+    NewFlow {
+        name: String,
+        req_id: RequestId,
+    },
+    Edit {
+        document_id: DocumentId,
+        revision: u64,
+        edit: super::document::Edit,
+        req_id: RequestId,
+    },
     LoadFlow {
         path: PathBuf,
         req_id: RequestId,
