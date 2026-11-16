@@ -1,8 +1,9 @@
 use std::fmt::Debug;
 
-use crate::core::{context::WispContext, FlowFunction};
-
-use twisted_wisp_ir::{DataRef, IRFunction, IRFunctionDataType};
+use crate::{
+    core::{context::WispContext, FlowFunction},
+    ir::{DataRef, IRFunction, IRFunctionDataType},
+};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum DataType {

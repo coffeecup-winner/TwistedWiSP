@@ -4,7 +4,8 @@ use std::{
 };
 
 use godot::prelude::*;
-use twisted_wisp_protocol::WatchIndex;
+
+use twisted_wisp::protocol::WatchIndex;
 
 use crate::{TwistedWisp, TwistedWispFlowNode};
 

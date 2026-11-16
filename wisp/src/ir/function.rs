@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::Instruction;
+use crate::ir::Instruction;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum IRFunctionDataType {

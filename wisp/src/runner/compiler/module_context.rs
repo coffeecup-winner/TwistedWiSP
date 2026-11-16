@@ -5,9 +5,8 @@ use inkwell::{
     types::{FloatType, IntType, PointerType, VoidType},
     AddressSpace,
 };
-use twisted_wisp_ir::IRFunction;
 
-use crate::runner::context::WispContext;
+use crate::{ir::IRFunction, runner::context::WispContext};
 
 use super::{data_layout::DataLayout, error::SignalProcessCreationError};
 

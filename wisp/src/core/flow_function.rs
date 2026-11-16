@@ -9,14 +9,15 @@ use petgraph::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::core::{
-    context::WispContext, CodeFunction, DataType, DefaultInputValue, FunctionInput, FunctionOutput,
-    MathFunctionParser, WispFunction,
-};
-
-use twisted_wisp_ir::{
-    BinaryOpType, CallId, Constant, FunctionOutputIndex, IRFunction, IRFunctionInput,
-    IRFunctionOutput, Instruction, Operand, SourceLocation, TargetLocation, VarRef,
+use crate::{
+    core::{
+        context::WispContext, CodeFunction, DataType, DefaultInputValue, FunctionInput,
+        FunctionOutput, MathFunctionParser, WispFunction,
+    },
+    ir::{
+        BinaryOpType, CallId, Constant, FunctionOutputIndex, IRFunction, IRFunctionInput,
+        IRFunctionOutput, Instruction, Operand, SourceLocation, TargetLocation, VarRef,
+    },
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -557,9 +558,10 @@ impl FlowFunction {
 
 #[cfg(test)]
 mod tests {
-    use twisted_wisp_ir::DataRef;
-
-    use crate::core::{CodeFunction, DataType, FunctionDataItem};
+    use crate::{
+        core::{CodeFunction, DataType, FunctionDataItem},
+        ir::DataRef,
+    };
 
     use super::*;
 

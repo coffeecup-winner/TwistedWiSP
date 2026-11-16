@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
+use crate::ir::{CallId, IRFunction};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use twisted_wisp_ir::{CallId, IRFunction};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SystemInfo {

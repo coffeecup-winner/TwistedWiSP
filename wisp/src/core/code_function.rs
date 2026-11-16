@@ -3,18 +3,20 @@ use std::{
     iter::Peekable,
 };
 
-use crate::core::{
-    DataType, DefaultInputValue, FunctionDataItem, FunctionInput, FunctionOutput, WispContext,
-    WispFunction,
+use crate::{
+    core::{
+        DataType, DefaultInputValue, FunctionDataItem, FunctionInput, FunctionOutput, WispContext,
+        WispFunction,
+    },
+    ir::{
+        BinaryOpType, CallId, ComparisonOpType, Constant, DataRef, FunctionOutputIndex, IRFunction,
+        IRFunctionDataItem, IRFunctionInput, IRFunctionOutput, Instruction, LocalRef, Operand,
+        SignalOutputIndex, SourceLocation, TargetLocation, UnaryOpType, VarRef,
+    },
 };
 
 use log::error;
 use logos::{Lexer, Logos};
-use twisted_wisp_ir::{
-    BinaryOpType, CallId, ComparisonOpType, Constant, DataRef, FunctionOutputIndex, IRFunction,
-    IRFunctionDataItem, IRFunctionInput, IRFunctionOutput, Instruction, LocalRef, Operand,
-    SignalOutputIndex, SourceLocation, TargetLocation, UnaryOpType, VarRef,
-};
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct CodeFunction {
