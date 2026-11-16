@@ -3,6 +3,9 @@ import ctypes
 lib = ctypes.cdll.LoadLibrary('libtwisted_wisp.so')
 
 # Define all the function prototypes
+lib.wisp_enable_logging.argtypes = (ctypes.c_void_p,)
+lib.wisp_enable_logging.restype = None
+
 lib.wisp_engine_create.argtypes = ()
 lib.wisp_engine_create.restype = ctypes.c_void_p
 lib.wisp_engine_destroy.argtypes = (ctypes.c_void_p,)
@@ -20,6 +23,15 @@ lib.wisp_processor_process_one.argtypes = (ctypes.c_void_p, ctypes.POINTER(ctype
 lib.wisp_processor_process_one.restype = None
 lib.wisp_processor_process_all.argtypes = (ctypes.c_void_p, ctypes.POINTER(ctypes.c_float), ctypes.c_size_t)
 lib.wisp_processor_process_all.restype = None
+
+
+ENABLE_LOGGING = True
+
+is_logging_enabled = False
+if ENABLE_LOGGING and not is_logging_enabled:
+    lib.wisp_enable_logging(None)
+    is_logging_enabled = True
+
 
 class TwistedWispEngine:
     def __init__(self):

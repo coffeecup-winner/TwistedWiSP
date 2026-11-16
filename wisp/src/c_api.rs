@@ -2,6 +2,13 @@ use std::ffi::c_char;
 
 use crate::{compiler::SignalProcessor, runner::engine::*};
 
+/// Global API
+
+#[no_mangle]
+pub extern "C" fn wisp_enable_logging() -> bool {
+    TwistedWispEngine::enable_logging()
+}
+
 /// Engine API
 
 #[no_mangle]
