@@ -7,6 +7,34 @@ use std::path::PathBuf;
 pub struct RequestId(pub u64);
 #[derive(Clone, Debug)]
 pub enum EditorCommand {
+    ApplyBuffer {
+        document_id: DocumentId,
+        binding_revision: u64,
+        node_id: EditorNodeId,
+        name: String,
+        path: Option<PathBuf>,
+        req_id: RequestId,
+    },
+    ChooseBuffer {
+        document_id: DocumentId,
+        node_id: EditorNodeId,
+    },
+    LoadBuffer {
+        document_id: DocumentId,
+        node_id: EditorNodeId,
+        path: Option<PathBuf>,
+        req_id: RequestId,
+    },
+    Momentary {
+        document_id: DocumentId,
+        node_id: EditorNodeId,
+        pressed: bool,
+    },
+    MidiLearn {
+        document_id: DocumentId,
+        node_id: Option<EditorNodeId>,
+        req_id: RequestId,
+    },
     Save {
         document_id: DocumentId,
         revision: u64,

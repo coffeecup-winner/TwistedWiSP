@@ -14,6 +14,7 @@ use std::{
 pub enum DialogKind {
     Open,
     Save,
+    Wave,
 }
 #[derive(Clone, Debug)]
 pub struct DialogRequest {
@@ -45,7 +46,11 @@ impl DialogWorker {
                     Err(crossbeam::channel::RecvTimeoutError::Timeout) => continue,
                     Err(_) => break,
                 };
-                let mut dialog = rfd::FileDialog::new().add_filter("TwistedWiSP flow", &["twf"]);
+                let mut dialog = if request.kind == DialogKind::Wave {
+                    rfd::FileDialog::new().add_filter("Waveform audio", &["wav"])
+                } else {
+                    rfd::FileDialog::new().add_filter("TwistedWiSP flow", &["twf"])
+                };
                 if let Some(path) = &request.initial {
                     if let Some(parent) = path.parent() {
                         dialog = dialog.set_directory(parent);
@@ -57,7 +62,7 @@ impl DialogWorker {
                     }
                 }
                 let path = match request.kind {
-                    DialogKind::Open => dialog.pick_file(),
+                    DialogKind::Open | DialogKind::Wave => dialog.pick_file(),
                     DialogKind::Save => dialog.save_file(),
                 };
                 if stopped.load(Ordering::Acquire) {

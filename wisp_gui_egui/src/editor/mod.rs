@@ -11,3 +11,6 @@ pub mod history;
 
 pub mod assets;
 pub mod persistence;
+
+pub mod resources;
+pub mod telemetry;

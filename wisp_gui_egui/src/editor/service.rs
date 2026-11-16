@@ -19,6 +19,8 @@ pub struct EditorServiceHandle {
     pub tx: Sender<EditorCommand>,
     pub rx: Receiver<EditorEvent>,
     pub snapshots: SnapshotMailbox,
+    pub special: super::telemetry::SpecialMailbox,
+    pub graphs_visible: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
 }
@@ -72,10 +74,27 @@ pub fn spawn_service_with_paths(
     let (events, rx) = bounded(128);
     let stop = Arc::new(AtomicBool::new(false));
     let snapshots = Arc::new(Mutex::new(None));
+    let special = Arc::new(Mutex::new(None));
+    let worker_special = special.clone();
+    let graphs_visible = Arc::new(AtomicBool::new(true));
+    let worker_visible = graphs_visible.clone();
     let worker_stop = stop.clone();
     let worker_snapshots = snapshots.clone();
     let thread = thread::spawn(move || {
         let io = super::persistence::IoWorker::spawn();
+        let mut resources = super::resources::Resources::default();
+        let mut special_view = super::telemetry::SpecialSnapshot {
+            midi: "MIDI unavailable (start audio to initialize)".into(),
+            ..Default::default()
+        };
+        let mut last_special: Option<super::telemetry::SpecialSnapshot> = None;
+        let mut hidden_refresh = std::time::Instant::now();
+        let mut watches = std::collections::HashMap::new();
+        let mut queued_jobs = std::collections::VecDeque::new();
+        let mut pressed = std::collections::BTreeSet::new();
+        let mut midi_pending = std::collections::BTreeMap::new();
+        let mut query_after = std::time::Instant::now();
+        let mut next_tick = std::time::Instant::now();
         let mut saving: Option<(DocumentId, super::commands::RequestId, u64)> = None;
         let mut document: Option<EditorDocument> = None;
         let mut next_document = 1;
@@ -91,6 +110,151 @@ pub fn spawn_service_with_paths(
         let mut pending_command = None;
         let mut control_gesture = None;
         while !worker_stop.load(Ordering::Acquire) {
+            for result in resources.poll(document.as_ref()) {
+                match result {
+                    Ok(command) => queued_jobs.push_back(command),
+                    Err((req_id, error)) => {
+                        deliver(
+                            EditorEvent::Response {
+                                req_id,
+                                result: Err(error),
+                            },
+                            &events,
+                            &worker_stop,
+                            &repaint,
+                        );
+                    }
+                }
+            }
+            if std::time::Instant::now() >= next_tick {
+                next_tick = std::time::Instant::now() + Duration::from_millis(33);
+                if let Some(doc) = document.as_mut() {
+                    if special_view.document != Some(doc.id()) {
+                        special_view = super::telemetry::SpecialSnapshot {
+                            document: Some(doc.id()),
+                            midi: "MIDI unavailable (start audio to initialize)".into(),
+                            ..Default::default()
+                        };
+                        watches.clear();
+                        midi_pending.clear();
+                        pressed.clear();
+                    }
+                    if special_view.generation != generation {
+                        special_view.traces.clear();
+                    }
+                    special_view.generation = generation;
+                    special_view.revision = doc.semantic_revision();
+                    special_view.running = status == RuntimeStatus::Running && runtime_current;
+                    special_view.buffers = resources.sync(doc);
+                    let snapshot = doc.snapshot();
+                    let revision_before = snapshot.revision;
+                    special_view
+                        .traces
+                        .retain(|id, _| snapshot.nodes.iter().any(|(n, _)| n == id));
+                    if let Some(live) = runtime.as_mut() {
+                        let valid = |id: &super::document::EditorNodeId| {
+                            snapshot.nodes.iter().any(|(n, v)| {
+                                n == id && matches!(v.function_name.as_str(), "control" | "toggle")
+                            })
+                        };
+                        for target in live.midi_targets() {
+                            let id =
+                                super::document::EditorNodeId(target.saturating_sub(1) as usize);
+                            if !valid(&id) {
+                                live.midi_remove(target);
+                            }
+                        }
+                        midi_pending.retain(|id, _| valid(id));
+                        for observation in live.midi_poll() {
+                            let id = super::document::EditorNodeId(
+                                observation.target.saturating_sub(1) as usize,
+                            );
+                            if valid(&id)
+                                && (midi_pending.contains_key(&id) || midi_pending.len() < 128)
+                            {
+                                special_view.midi = format!(
+                                    "Bound: channel {} CC {}",
+                                    observation.channel + 1,
+                                    observation.controller
+                                );
+                                midi_pending.insert(id, observation.value);
+                            }
+                        }
+                        if runtime_current {
+                            midi_pending.retain(|id, value| {
+                                let value = if snapshot
+                                    .nodes
+                                    .iter()
+                                    .any(|(n, v)| n == id && v.function_name == "toggle")
+                                {
+                                    f32::from(*value > 0.)
+                                } else {
+                                    *value
+                                };
+                                let Ok(call) = doc.runtime_call_index(*id) else {
+                                    return false;
+                                };
+                                if live.scalar_try(doc.flow_name(), call, value).is_err() {
+                                    return true;
+                                }
+                                let _ = doc.observe_midi(*id, value as f64);
+                                false
+                            });
+                        }
+                        if special_view.running
+                            && !watches.is_empty()
+                            && std::time::Instant::now() >= query_after
+                        {
+                            match live.query() {
+                                Ok(batch) => {
+                                    special_view.watch_error = None;
+                                    for (watch, values) in batch.values {
+                                        if let Some(id) = watches.get(&watch) {
+                                            super::telemetry::append(
+                                                special_view.traces.entry(*id).or_default(),
+                                                values.into_iter().take(4096),
+                                            );
+                                        }
+                                    }
+                                }
+                                Err(error) => {
+                                    query_after =
+                                        std::time::Instant::now() + Duration::from_secs(1);
+                                    special_view.watch_error = Some(error.clone());
+                                    special_view.traces.clear();
+                                    deliver(
+                                        EditorEvent::Error(error),
+                                        &events,
+                                        &worker_stop,
+                                        &repaint,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    if doc.snapshot().revision != revision_before {
+                        publish_doc(doc, &worker_snapshots, &repaint);
+                    }
+                }
+                let visible = worker_visible.load(Ordering::Acquire);
+                let important = last_special.as_ref().is_none_or(|last| {
+                    last.document != special_view.document
+                        || last.generation != special_view.generation
+                        || last.revision != special_view.revision
+                        || last.running != special_view.running
+                        || last.midi != special_view.midi
+                        || last.buffers != special_view.buffers
+                        || last.watch_error != special_view.watch_error
+                });
+                if last_special.as_ref() != Some(&special_view)
+                    && (visible || important || std::time::Instant::now() >= hidden_refresh)
+                {
+                    hidden_refresh = std::time::Instant::now() + Duration::from_millis(500);
+                    *worker_special.lock().unwrap() = Some(special_view.clone());
+                    last_special = Some(special_view.clone());
+                    repaint.request_repaint();
+                }
+            }
             if let Ok(result) = io.rx.try_recv()
                 && let Some((document_id, req_id, state)) = saving.take()
             {
@@ -113,6 +277,7 @@ pub fn spawn_service_with_paths(
             }
             let mut command = match pending_command
                 .take()
+                .or_else(|| queued_jobs.pop_front())
                 .map(Ok)
                 .unwrap_or_else(|| commands.recv_timeout(Duration::from_millis(5)))
             {
@@ -140,6 +305,43 @@ pub fn spawn_service_with_paths(
                 }
                 Err(_) => break,
             };
+            if let EditorCommand::ApplyBuffer {
+                document_id,
+                binding_revision,
+                node_id,
+                name,
+                path,
+                req_id,
+            } = command
+            {
+                let Some(doc) = document
+                    .as_ref()
+                    .filter(|d| d.id() == document_id && d.binding_revision() == binding_revision)
+                else {
+                    deliver(
+                        EditorEvent::Response {
+                            req_id,
+                            result: Err("Stale buffer completion".into()),
+                        },
+                        &events,
+                        &worker_stop,
+                        &repaint,
+                    );
+                    continue;
+                };
+                // Scalar/MIDI/geometry edits during decode do not invalidate this
+                // resource operation; topology/binding changes do.
+                command = EditorCommand::Edit {
+                    document_id,
+                    revision: doc.snapshot().revision,
+                    edit: super::document::Edit::Buffer {
+                        node: node_id,
+                        name,
+                        path,
+                    },
+                    req_id,
+                };
+            }
             let control_fences = coalesce_edits(
                 &mut command,
                 &commands,
@@ -147,6 +349,98 @@ pub fn spawn_service_with_paths(
                 control_gesture,
             );
             let event = match command {
+                EditorCommand::ApplyBuffer { .. } => {
+                    EditorEvent::Error("Unexpected buffer transition".into())
+                }
+                EditorCommand::ChooseBuffer { .. } => {
+                    EditorEvent::Error("Buffer chooser belongs to the UI".into())
+                }
+                EditorCommand::LoadBuffer {
+                    document_id,
+                    node_id,
+                    path,
+                    req_id,
+                } => {
+                    let result = document
+                        .as_ref()
+                        .filter(|d| d.id() == document_id)
+                        .ok_or("Stale document".into())
+                        .and_then(|d| resources.relink(d, node_id, path, req_id));
+                    match result {
+                        Ok(()) => continue,
+                        Err(e) => EditorEvent::Response {
+                            req_id,
+                            result: Err(e),
+                        },
+                    }
+                }
+                EditorCommand::Momentary {
+                    document_id,
+                    node_id,
+                    pressed: down,
+                } => {
+                    let result = (|| {
+                        let doc = document
+                            .as_ref()
+                            .filter(|d| d.id() == document_id)
+                            .ok_or("Stale document")?;
+                        if !doc
+                            .snapshot()
+                            .nodes
+                            .iter()
+                            .any(|(id, n)| *id == node_id && n.function_name == "button")
+                        {
+                            return Err("Not a button".to_owned());
+                        }
+                        if down {
+                            pressed.insert(node_id);
+                        } else {
+                            pressed.remove(&node_id);
+                        }
+                        if let Some(live) = runtime.as_mut().filter(|_| runtime_current) {
+                            live.scalar(
+                                doc.flow_name(),
+                                doc.runtime_call_index(node_id)?,
+                                f32::from(down),
+                            )?;
+                        }
+                        Ok::<_, String>(())
+                    })();
+                    match result {
+                        Ok(()) => continue,
+                        Err(e) => EditorEvent::Error(e),
+                    }
+                }
+                EditorCommand::MidiLearn {
+                    document_id,
+                    node_id,
+                    req_id,
+                } => {
+                    let result = (|| {
+                        let doc = document
+                            .as_ref()
+                            .filter(|d| d.id() == document_id)
+                            .ok_or("Stale document")?;
+                        let live = runtime
+                            .as_mut()
+                            .ok_or("MIDI unavailable; start audio first")?;
+                        if let Some(id) = node_id {
+                            if !doc.snapshot().nodes.iter().any(|(n, v)| {
+                                *n == id && matches!(v.function_name.as_str(), "control" | "toggle")
+                            }) {
+                                return Err("Select a root control or toggle".into());
+                            }
+                            live.midi_learn(id.0 as u64 + 1)?;
+                            special_view.midi = "Learning… move a MIDI CC".into();
+                        } else {
+                            live.midi_cancel();
+                            special_view.midi = "Learning canceled".into();
+                        }
+                        Ok::<_, String>(())
+                    })();
+                    EditorEvent::Response { req_id, result }
+                }
+
                 EditorCommand::Save {
                     document_id,
                     revision,
@@ -253,6 +547,7 @@ pub fn spawn_service_with_paths(
                             |mut doc| {
                                 doc.set_data_paths(data_paths.clone());
                                 runtime = None;
+                                watches.clear();
                                 control_gesture = None;
                                 desired_running = false;
                                 next_document += 1;
@@ -261,6 +556,13 @@ pub fn spawn_service_with_paths(
                                     RuntimeStatus::Offline
                                 } else {
                                     RuntimeStatus::Stopped
+                                };
+                                midi_pending.clear();
+                                pressed.clear();
+                                special_view = super::telemetry::SpecialSnapshot {
+                                    document: Some(doc.id()),
+                                    midi: "MIDI unavailable (start audio to initialize)".into(),
+                                    ..Default::default()
                                 };
                                 document = Some(doc);
                             },
@@ -281,11 +583,14 @@ pub fn spawn_service_with_paths(
                             .ok_or("Stale document")?;
                         let old_revision = doc.snapshot().revision;
                         let old_bindings = doc.scalar_bindings()?;
-                        let structural = doc.edit(revision, edit)?;
+                        // Reloading the same authored path refreshes resources without
+                        // manufacturing an undo entry or changing the saved document.
+                        let resource_change = matches!(&edit, super::document::Edit::Buffer { .. });
+                        let structural = doc.edit(revision, edit)? || resource_change;
                         if structural {
                             runtime_current = false;
                         }
-                        if doc.snapshot().revision == old_revision {
+                        if doc.snapshot().revision == old_revision && !resource_change {
                             return Ok(());
                         }
                         publish_doc(doc, &worker_snapshots, &repaint);
@@ -316,11 +621,16 @@ pub fn spawn_service_with_paths(
                                     status = RuntimeStatus::Error;
                                     return Err(e);
                                 }
+                                status = RuntimeStatus::Error;
+                                live.buffers(&resources.bindings(doc)?)?;
                                 if let Err(e) = live.install_prepared() {
                                     runtime = None;
                                     status = RuntimeStatus::Error;
                                     return Err(e);
                                 }
+                                status = RuntimeStatus::Error;
+                                watches = register_watches(doc, live.as_mut())?;
+                                pressed.clear();
                                 generation += 1;
                                 runtime_current = true;
                                 status = RuntimeStatus::Stopped;
@@ -370,6 +680,7 @@ pub fn spawn_service_with_paths(
                         .map(|mut doc| {
                             doc.set_data_paths(data_paths.clone());
                             runtime = None;
+                            watches.clear();
                             control_gesture = None;
                             desired_running = false;
                             generation += 1;
@@ -379,6 +690,13 @@ pub fn spawn_service_with_paths(
                                 RuntimeStatus::Stopped
                             };
                             next_document += 1;
+                            midi_pending.clear();
+                            pressed.clear();
+                            special_view = super::telemetry::SpecialSnapshot {
+                                document: Some(doc.id()),
+                                midi: "MIDI unavailable (start audio to initialize)".into(),
+                                ..Default::default()
+                            };
                             document = Some(doc);
                         });
                     EditorEvent::Response { req_id, result }
@@ -399,7 +717,13 @@ pub fn spawn_service_with_paths(
                             let result = live.scalar(
                                 doc.flow_name(),
                                 doc.runtime_call_index(node_id)?,
-                                value.clamp(0.0, 1.0) as f32,
+                                doc.snapshot()
+                                    .nodes
+                                    .iter()
+                                    .find(|(id, _)| *id == node_id)
+                                    .and_then(|(_, n)| n.control_values.get(&0))
+                                    .copied()
+                                    .unwrap_or(0.) as f32,
                             );
                             runtime_failed = result.is_err();
                             result?;
@@ -466,6 +790,7 @@ pub fn spawn_service_with_paths(
                         );
                         publish_doc(doc, &worker_snapshots, &repaint);
                         live.prepare(&doc.serialize())?;
+                        live.buffers(&resources.bindings(doc)?)?;
                         if let Err(e) = live.install_prepared() {
                             runtime = None;
                             return Err(e);
@@ -477,6 +802,13 @@ pub fn spawn_service_with_paths(
                                 return Err(e);
                             }
                         }
+                        watches = register_watches(doc, live.as_mut())?;
+                        pressed.clear();
+                        special_view.midi = if live.midi_available() {
+                            "MIDI ready".into()
+                        } else {
+                            "MIDI unavailable".into()
+                        };
                         if let Err(e) = live.start() {
                             runtime = None;
                             return Err(e);
@@ -502,6 +834,14 @@ pub fn spawn_service_with_paths(
                 }
                 EditorCommand::DspStop { req_id } => {
                     desired_running = false;
+                    if let (Some(doc), Some(live)) = (document.as_ref(), runtime.as_mut()) {
+                        for id in &pressed {
+                            if let Ok(call) = doc.runtime_call_index(*id) {
+                                let _ = live.scalar(doc.flow_name(), call, 0.);
+                            }
+                        }
+                    }
+                    pressed.clear();
                     let result = runtime.as_mut().map_or(Ok(()), |r| r.stop());
                     status = if result.is_err() {
                         runtime = None;
@@ -549,9 +889,31 @@ pub fn spawn_service_with_paths(
         tx,
         rx,
         snapshots,
+        special,
+        graphs_visible,
         stop,
         thread: Some(thread),
     }
+}
+fn register_watches(
+    doc: &EditorDocument,
+    live: &mut dyn super::runtime::EditorRuntime,
+) -> Result<std::collections::HashMap<wisp::WatchIndex, super::document::EditorNodeId>, String> {
+    let mut result = std::collections::HashMap::new();
+    for (id, node) in doc.snapshot().nodes {
+        if matches!(node.function_name.as_str(), "watch" | "graph") {
+            if result.len() >= 64 {
+                return Err("Watch node limit (64)".into());
+            }
+            let watch = live.watch(
+                doc.flow_name(),
+                doc.runtime_call_index(id)?,
+                node.function_name == "watch",
+            )?;
+            result.insert(watch, id);
+        }
+    }
+    Ok(result)
 }
 /// Collapse queued drag values even when their acknowledgement fences intervene.
 /// Fences are replied to only after the retained value reaches the callback.
@@ -1534,5 +1896,309 @@ mod tests {
             saved_path
         );
         save(path, None, 6).unwrap();
+    }
+    struct SpecializedFake {
+        midi: Arc<wisp::MidiMailbox>,
+        writes: Arc<Mutex<Vec<(u32, f32)>>>,
+        full: Arc<AtomicBool>,
+        queries: Arc<std::sync::atomic::AtomicUsize>,
+        query_fail: Arc<AtomicBool>,
+        watches: Vec<wisp::WatchIndex>,
+    }
+    impl super::super::runtime::EditorRuntime for SpecializedFake {
+        fn configuration(&self) -> (u32, u32) {
+            (44100, 2)
+        }
+        fn prepare(&mut self, _: &str) -> Result<(), String> {
+            self.watches.clear();
+            Ok(())
+        }
+        fn install_prepared(&mut self) -> Result<(), String> {
+            Ok(())
+        }
+        fn scalar(&mut self, _: &str, call: u32, value: f32) -> Result<(), String> {
+            self.writes.lock().unwrap().push((call, value));
+            Ok(())
+        }
+        fn scalar_try(&mut self, root: &str, call: u32, value: f32) -> Result<(), String> {
+            if self.full.load(Ordering::Acquire) {
+                Err("full".into())
+            } else {
+                self.scalar(root, call, value)
+            }
+        }
+        fn watch(&mut self, _: &str, call: u32, _: bool) -> Result<wisp::WatchIndex, String> {
+            let id = wisp::WatchIndex(call);
+            self.watches.push(id);
+            Ok(id)
+        }
+        fn query(&mut self) -> Result<wisp::WatchedDataValues, String> {
+            self.queries.fetch_add(1, Ordering::Relaxed);
+            if self.query_fail.swap(false, Ordering::AcqRel) {
+                return Err("watch timeout".into());
+            }
+            Ok(wisp::WatchedDataValues {
+                values: self
+                    .watches
+                    .iter()
+                    .map(|id| (*id, vec![0.75; 4096]))
+                    .collect(),
+            })
+        }
+        fn midi_available(&self) -> bool {
+            true
+        }
+        fn midi_learn(&mut self, target: u64) -> Result<(), String> {
+            self.midi.learn(target);
+            Ok(())
+        }
+        fn midi_targets(&self) -> Vec<u64> {
+            self.midi.targets()
+        }
+        fn midi_cancel(&mut self) {
+            self.midi.cancel();
+        }
+        fn midi_remove(&mut self, target: u64) {
+            self.midi.remove(target);
+        }
+        fn midi_poll(&mut self) -> Vec<wisp::MidiObservation> {
+            self.midi.poll()
+        }
+        fn start(&mut self) -> Result<(), String> {
+            Ok(())
+        }
+        fn stop(&mut self) -> Result<(), String> {
+            Ok(())
+        }
+        fn healthy(&self) -> bool {
+            true
+        }
+    }
+    #[track_caller]
+    fn wait_for(mut condition: impl FnMut() -> bool) {
+        let end = std::time::Instant::now() + Duration::from_secs(3);
+        while !condition() {
+            assert!(
+                std::time::Instant::now() < end,
+                "service condition timed out"
+            );
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+    #[test]
+    fn real_service_telemetry_midi_retry_and_momentary_state() {
+        use super::super::{document::EditorNodeId, persistence::tests::Temp};
+        let dir = Temp::new();
+        let path = dir.0.join("special.twf");
+        std::fs::write(&path,"[flow]\nname='special'\n[[flow.nodes]]\ntext='control'\nvalue=0.25\n[[flow.nodes]]\ntext='toggle'\nvalue=1.0\n[[flow.nodes]]\ntext='button'\nvalue=1.0\n[[flow.nodes]]\ntext='watch'\n[[flow.nodes]]\ntext='graph'\n").unwrap();
+        let midi = Arc::new(wisp::MidiMailbox::default());
+        let writes = Arc::new(Mutex::new(vec![]));
+        let full = Arc::new(AtomicBool::new(false));
+        let queries = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let query_fail = Arc::new(AtomicBool::new(false));
+        let factory = {
+            let midi = midi.clone();
+            let writes = writes.clone();
+            let full = full.clone();
+            let queries = queries.clone();
+            let query_fail = query_fail.clone();
+            Box::new(move |_: &wisp::TwistedWispEngineConfig| {
+                Ok(Box::new(SpecializedFake {
+                    midi: midi.clone(),
+                    writes: writes.clone(),
+                    full: full.clone(),
+                    queries: queries.clone(),
+                    query_fail: query_fail.clone(),
+                    watches: vec![],
+                })
+                    as Box<dyn super::super::runtime::EditorRuntime>)
+            })
+        };
+        let service = spawn_configured_service(
+            core(),
+            egui::Context::default(),
+            false,
+            Default::default(),
+            factory,
+        );
+        service
+            .submit(EditorCommand::LoadFlow {
+                path,
+                req_id: RequestId(1),
+            })
+            .unwrap();
+        response(&service);
+        service
+            .submit(EditorCommand::DspStart {
+                req_id: RequestId(2),
+            })
+            .unwrap();
+        assert!(matches!(
+            response(&service),
+            EditorEvent::Response { result: Ok(()), .. }
+        ));
+        assert!(writes.lock().unwrap().contains(&(1, 1.)));
+        assert!(writes.lock().unwrap().contains(&(2, 0.))); // stored button 1 never starts pressed
+        wait_for(|| {
+            service
+                .special
+                .lock()
+                .unwrap()
+                .as_ref()
+                .is_some_and(|s| s.running && s.traces.len() == 2)
+        });
+        {
+            let lock = service.special.lock().unwrap();
+            let s = lock.as_ref().unwrap();
+            assert!(
+                s.traces
+                    .values()
+                    .all(|v| v.len() == 4096 && v.back() == Some(&0.75))
+            );
+        }
+        let before = service.snapshots.lock().unwrap().clone().unwrap();
+        service
+            .submit(EditorCommand::MidiLearn {
+                document_id: before.id,
+                node_id: Some(EditorNodeId(1)),
+                req_id: RequestId(3),
+            })
+            .unwrap();
+        response(&service);
+        wait_for(|| {
+            service
+                .special
+                .lock()
+                .unwrap()
+                .as_ref()
+                .is_some_and(|s| s.midi.starts_with("Learning"))
+        });
+        service
+            .submit(EditorCommand::MidiLearn {
+                document_id: before.id,
+                node_id: None,
+                req_id: RequestId(4),
+            })
+            .unwrap();
+        response(&service);
+        midi.cc(0, 7, 127);
+        assert!(midi.poll().is_empty());
+        service
+            .submit(EditorCommand::MidiLearn {
+                document_id: before.id,
+                node_id: Some(EditorNodeId(1)),
+                req_id: RequestId(5),
+            })
+            .unwrap();
+        response(&service);
+        full.store(true, Ordering::Release);
+        midi.cc(0, 7, 127);
+        wait_for(|| {
+            service
+                .special
+                .lock()
+                .unwrap()
+                .as_ref()
+                .is_some_and(|s| s.midi.starts_with("Bound"))
+        });
+        assert_eq!(
+            service.snapshots.lock().unwrap().as_ref().unwrap().nodes[0]
+                .1
+                .control_values[&0],
+            0.25
+        );
+        let write_count = writes.lock().unwrap().len();
+        full.store(false, Ordering::Release);
+        // No second MIDI event: the final pending value must still be retried.
+        wait_for(|| {
+            service
+                .snapshots
+                .lock()
+                .unwrap()
+                .as_ref()
+                .is_some_and(|s| s.nodes[0].1.control_values[&0] == 1.)
+        });
+        assert_eq!(writes.lock().unwrap().len(), write_count + 1);
+        let updated = service.snapshots.lock().unwrap().clone().unwrap();
+        assert!(updated.dirty);
+        assert_eq!(updated.state_id, before.state_id);
+        assert!(!updated.can_undo);
+        service
+            .submit(EditorCommand::Momentary {
+                document_id: before.id,
+                node_id: EditorNodeId(3),
+                pressed: true,
+            })
+            .unwrap();
+        service
+            .submit(EditorCommand::DspStop {
+                req_id: RequestId(6),
+            })
+            .unwrap();
+        response(&service);
+        assert_eq!(writes.lock().unwrap().last(), Some(&(2, 0.)));
+        assert_eq!(
+            service.snapshots.lock().unwrap().as_ref().unwrap().state_id,
+            before.state_id
+        );
+        let generation = service.special.lock().unwrap().as_ref().unwrap().generation;
+        service
+            .submit(EditorCommand::DspStart {
+                req_id: RequestId(7),
+            })
+            .unwrap();
+        response(&service);
+        wait_for(|| {
+            service
+                .special
+                .lock()
+                .unwrap()
+                .as_ref()
+                .is_some_and(|s| s.generation > generation && s.traces.len() == 2)
+        });
+        let previous_queries = queries.load(Ordering::Relaxed);
+        let until = std::time::Instant::now() + Duration::from_millis(120);
+        while std::time::Instant::now() < until {
+            let _ = service.tx.try_send(EditorCommand::Barrier {
+                req_id: RequestId(100),
+            });
+            while service.rx.try_recv().is_ok() {}
+        }
+        wait_for(|| queries.load(Ordering::Relaxed) > previous_queries + 1);
+        while service.rx.try_recv().is_ok() {}
+        query_fail.store(true, Ordering::Release);
+        wait_for(|| {
+            while service.rx.try_recv().is_ok() {}
+            service
+                .special
+                .lock()
+                .unwrap()
+                .as_ref()
+                .is_some_and(|s| s.watch_error.is_some())
+        });
+        service
+            .submit(EditorCommand::Barrier {
+                req_id: RequestId(999),
+            })
+            .unwrap();
+        loop {
+            if matches!(
+                service.rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+                EditorEvent::Response {
+                    req_id: RequestId(999),
+                    ..
+                }
+            ) {
+                break;
+            }
+        }
+        wait_for(|| {
+            service
+                .special
+                .lock()
+                .unwrap()
+                .as_ref()
+                .is_some_and(|s| s.watch_error.is_none() && s.traces.len() == 2)
+        });
     }
 }

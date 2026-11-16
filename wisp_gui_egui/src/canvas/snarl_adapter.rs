@@ -15,6 +15,8 @@ use wisp::core::DataType;
 #[derive(Default)]
 pub struct GraphCanvas {
     snarl: Snarl<NodeSnapshot>,
+    special: crate::editor::telemetry::SpecialSnapshot,
+    buttons: BTreeSet<EditorNodeId>,
     ids: BTreeMap<EditorNodeId, NodeId>,
     document_id: Option<DocumentId>,
     accepted_wires: Vec<(OutPinId, InPinId)>,
@@ -30,6 +32,34 @@ pub struct GraphCanvas {
     view: super::state::CanvasViewState,
 }
 impl GraphCanvas {
+    pub fn set_runtime(&mut self, running: bool, generation: u64) {
+        if self.special.generation != generation {
+            self.special.traces.clear();
+        }
+        self.special.generation = generation;
+        self.special.running = running;
+    }
+    pub fn set_special(&mut self, special: crate::editor::telemetry::SpecialSnapshot) {
+        if special.document == self.document_id {
+            self.special = special;
+        }
+    }
+    pub fn release_buttons(&mut self) -> Vec<EditorCommand> {
+        let buttons = std::mem::take(&mut self.buttons);
+        self.document_id
+            .map(|document_id| {
+                buttons
+                    .into_iter()
+                    .map(|node_id| EditorCommand::Momentary {
+                        document_id,
+                        node_id,
+                        pressed: false,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     pub fn selection(&self) -> &BTreeSet<EditorNodeId> {
         &self.view.selected
     }
@@ -127,6 +157,8 @@ impl GraphCanvas {
             self.ids.clear();
             self.pending_controls.clear();
             self.pending_geometry.clear();
+            self.buttons.clear();
+            self.special = Default::default();
             self.document_id = Some(snapshot.id);
             self.picker = None;
             self.gesture = false;
@@ -215,6 +247,8 @@ impl GraphCanvas {
             picker: &mut self.picker,
             draft: &mut self.draft,
             transform: &mut self.transform,
+            special: &self.special,
+            buttons: &mut self.buttons,
         };
         let response = SnarlWidget::new().id_salt(("flow", document_id.0)).show(
             &mut self.snarl,
@@ -366,6 +400,8 @@ pub struct SnarlAdapter<'a> {
     picker: &'a mut Option<(egui::Vec2, Option<EditorNodeId>)>,
     draft: &'a mut String,
     transform: &'a mut egui::emath::TSTransform,
+    special: &'a crate::editor::telemetry::SpecialSnapshot,
+    buttons: &'a mut BTreeSet<EditorNodeId>,
 }
 impl SnarlAdapter<'_> {
     fn edit(&mut self, edit: Edit) {
@@ -404,12 +440,48 @@ impl SnarlViewer<NodeSnapshot> for SnarlAdapter<'_> {
         ui: &mut Ui,
         snarl: &mut Snarl<NodeSnapshot>,
     ) {
-        if let Some(value) = node_content::show_node_body(&mut snarl[node], ui) {
-            self.commands.push(EditorCommand::SetControlValue {
-                document_id: self.document_id,
-                node_id: snarl[node].id,
-                value,
-            });
+        use node_content::NodeAction;
+        let id = snarl[node].id;
+        if let Some(action) = node_content::show_node_body(&mut snarl[node], ui, self.special) {
+            let command = match action {
+                NodeAction::Scalar(value) => EditorCommand::SetControlValue {
+                    document_id: self.document_id,
+                    node_id: id,
+                    value,
+                },
+                NodeAction::Momentary(pressed) => {
+                    let changed = if pressed {
+                        self.buttons.insert(id)
+                    } else {
+                        self.buttons.remove(&id)
+                    };
+                    if !changed {
+                        return;
+                    }
+                    EditorCommand::Momentary {
+                        document_id: self.document_id,
+                        node_id: id,
+                        pressed,
+                    }
+                }
+                NodeAction::ChooseBuffer => EditorCommand::ChooseBuffer {
+                    document_id: self.document_id,
+                    node_id: id,
+                },
+                NodeAction::Sine => EditorCommand::LoadBuffer {
+                    document_id: self.document_id,
+                    node_id: id,
+                    path: None,
+                    req_id: RequestId(0),
+                },
+                NodeAction::Retry(path) => EditorCommand::LoadBuffer {
+                    document_id: self.document_id,
+                    node_id: id,
+                    path: Some(path),
+                    req_id: RequestId(0),
+                },
+            };
+            self.commands.push(command);
         }
     }
     fn show_input(
@@ -698,6 +770,8 @@ mod tests {
             picker: &mut picker,
             draft: &mut draft,
             transform: &mut transform,
+            special: &Default::default(),
+            buttons: &mut Default::default(),
         };
         viewer.connect(&from, &to, &mut canvas.snarl);
         viewer.disconnect(&from, &to, &mut canvas.snarl);

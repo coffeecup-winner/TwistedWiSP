@@ -32,6 +32,7 @@ pub struct NodeSnapshot {
     pub id: EditorNodeId,
     pub label: String,
     pub function_name: String,
+    pub buffer_name: Option<String>,
     pub node_type: NodeType,
     pub expression: Option<String>,
     pub position: Vec2,
@@ -74,6 +75,11 @@ pub struct DocumentSnapshot {
 /// Owned, atomic edits applied on the service thread.
 #[derive(Clone, Debug)]
 pub enum Edit {
+    Buffer {
+        node: EditorNodeId,
+        name: String,
+        path: Option<PathBuf>,
+    },
     Geometry {
         node: EditorNodeId,
         position: Vec2,
@@ -100,6 +106,10 @@ pub struct EditorDocument {
     asset_base: Option<PathBuf>,
     data_paths: Vec<PathBuf>,
     fingerprint: super::persistence::Fingerprint,
+    binding_revision: u64,
+    external: u64,
+    saved_external: u64,
+    captured_external: u64,
     next_node: usize,
     state: u64,
     next_state: u64,
@@ -349,6 +359,11 @@ impl EditorDocument {
                         id: node_id,
                         label: node.display_text.clone(),
                         function_name: node.name.clone(),
+                        buffer_name: node
+                            .extra_data
+                            .get("buffer")
+                            .and_then(FlowNodeExtraData::as_string)
+                            .map(str::to_owned),
                         node_type,
                         expression: node
                             .display_text
@@ -402,6 +417,10 @@ impl EditorDocument {
         }
         let mut document = Self {
             core_path: core_path.to_owned(),
+            binding_revision: 0,
+            external: 0,
+            saved_external: 0,
+            captured_external: 0,
             asset_base,
             data_paths: vec![],
             fingerprint: if snapshot.source_file.is_some() {
@@ -430,7 +449,8 @@ impl EditorDocument {
         snapshot.state_id = self.state;
         snapshot.can_undo = !self.undo.is_empty();
         snapshot.can_redo = !self.redo.is_empty();
-        snapshot.dirty = self.checkpoint != Some(self.state);
+        snapshot.dirty =
+            self.checkpoint != Some(self.state) || self.external != self.saved_external;
         snapshot
     }
     /// M3 saves a captured state, which can differ from the latest accepted state.
@@ -440,6 +460,9 @@ impl EditorDocument {
     pub fn flow_name(&self) -> &str {
         &self.snapshot.flow_name
     }
+    pub fn binding_revision(&self) -> u64 {
+        self.binding_revision
+    }
     pub fn semantic_revision(&self) -> u64 {
         self.snapshot.semantic_revision
     }
@@ -447,6 +470,12 @@ impl EditorDocument {
         self.snapshot.id
     }
     pub fn set_value(&mut self, id: EditorNodeId, value: f64) -> Result<(), String> {
+        self.set_scalar(id, value, false)
+    }
+    pub fn observe_midi(&mut self, id: EditorNodeId, value: f64) -> Result<(), String> {
+        self.set_scalar(id, value, true)
+    }
+    fn set_scalar(&mut self, id: EditorNodeId, value: f64, midi: bool) -> Result<(), String> {
         if !value.is_finite() {
             return Err("Control value must be finite".into());
         }
@@ -456,14 +485,18 @@ impl EditorDocument {
             .iter_mut()
             .find(|(n, _)| *n == id)
             .ok_or("Unknown node")?;
-        if node.1.node_type != NodeType::Control {
+        if !matches!(node.1.function_name.as_str(), "control" | "toggle") {
             return Err("Node is not a control".into());
         }
-        let value = value.clamp(0.0, 1.0) as f32;
+        let value = if node.1.function_name == "toggle" {
+            f32::from(value > 0.)
+        } else {
+            value.clamp(0.0, 1.0) as f32
+        };
         if node.1.control_values.get(&0) == Some(&(value as f64)) {
             return Ok(());
         }
-        let previous = self.gesture.is_none().then(|| self.memento());
+        let previous = (!midi && self.gesture.is_none()).then(|| self.memento());
         let node = self
             .snapshot
             .nodes
@@ -478,7 +511,9 @@ impl EditorDocument {
             .ok_or("Missing node")?
             .extra_data
             .insert("value".into(), FlowNodeExtraData::Float(value));
-        if let Some(previous) = previous {
+        if midi {
+            self.external += 1;
+        } else if let Some(previous) = previous {
             self.record(previous);
         } else {
             // The gesture already owns its original memento; live samples need
@@ -541,10 +576,38 @@ impl EditorDocument {
         Ok(())
     }
     fn copy_file_state(&mut self, source: &Self) {
+        self.binding_revision = source.binding_revision;
+        self.external = source.external;
+        self.saved_external = source.saved_external;
+        self.captured_external = source.captured_external;
         self.asset_base = source.asset_base.clone();
         self.data_paths = source.data_paths.clone();
         self.fingerprint = source.fingerprint.clone();
         self.refresh_assets();
+    }
+    pub fn buffer_retry_path(&self, id: EditorNodeId) -> Option<PathBuf> {
+        let name = self
+            .snapshot
+            .nodes
+            .iter()
+            .find(|(n, _)| *n == id)?
+            .1
+            .buffer_name
+            .as_ref()?;
+        let authored = self.flow.as_flow()?.buffers().get(name)?.clone()?;
+        let reference = super::assets::resolve(
+            name.clone(),
+            Some(authored.clone()),
+            self.asset_base.as_deref(),
+            &self.data_paths,
+        );
+        reference.resolved.or_else(|| {
+            if authored.is_absolute() {
+                Some(authored)
+            } else {
+                self.asset_base.as_ref().map(|base| base.join(authored))
+            }
+        })
     }
     pub fn set_data_paths(&mut self, paths: Vec<PathBuf>) {
         self.data_paths = paths;
@@ -572,6 +635,7 @@ impl EditorDocument {
         overwrite: Option<super::persistence::Fingerprint>,
     ) -> Result<(super::persistence::SaveJob, u64), String> {
         self.end_gesture();
+        self.captured_external = self.external;
         let path = path
             .or_else(|| self.snapshot.source_file.clone())
             .ok_or("Choose a Save As path for this untitled flow")?;
@@ -597,6 +661,7 @@ impl EditorDocument {
         self.snapshot.source_file = Some(receipt.path.clone());
         self.fingerprint = receipt.fingerprint.clone();
         self.mark_saved(state);
+        self.saved_external = self.captured_external;
     }
     pub fn set_position(&mut self, id: EditorNodeId, position: Vec2) -> Result<(), String> {
         if !position.is_finite() {
@@ -644,43 +709,39 @@ impl EditorDocument {
         if !self.flow.borrow().inputs().is_empty() {
             return Err("DSP root cannot require function inputs".into());
         }
-        // M1 deliberately does not bind arrays. Include nested functions, not only visible buffer nodes.
-        fn arrays(
-            ctx: &WispContext,
-            name: &str,
-            seen: &mut std::collections::HashSet<String>,
-        ) -> bool {
-            if !seen.insert(name.to_owned()) {
-                return false;
+        // Root buffers are bound before installation. Nested buffer state still
+        // requires instance addressing (M6), so retain that narrower gate.
+        for (_, node) in &self.snapshot.nodes {
+            if node.function_name == "buffer" && node.buffer_name.is_none() {
+                return Err("Choose a buffer source first".into());
             }
-            let Some(f) = ctx.get_function(name) else {
-                return false;
-            };
-            let f = f.borrow();
-            if f.inputs().iter().any(|p| p.type_ == DataType::Array)
-                || f.outputs().iter().any(|p| p.type_ == DataType::Array)
-            {
-                return true;
-            }
-            if let Some(flow) = f.as_flow() {
-                if !flow.buffers().is_empty() {
-                    return true;
+            if node.node_type == NodeType::Subflow {
+                fn nested_arrays(
+                    ctx: &WispContext,
+                    name: &str,
+                    seen: &mut std::collections::HashSet<String>,
+                ) -> bool {
+                    if !seen.insert(name.into()) {
+                        return false;
+                    }
+                    let Some(f) = ctx.get_function(name) else {
+                        return false;
+                    };
+                    let f = f.borrow();
+                    if f.inputs().iter().any(|p| p.type_ == DataType::Array)
+                        || f.outputs().iter().any(|p| p.type_ == DataType::Array)
+                    {
+                        return true;
+                    }
+                    f.as_flow().is_some_and(|flow| {
+                        flow.node_indices()
+                            .any(|id| nested_arrays(ctx, &flow.get_node(id).unwrap().name, seen))
+                    })
                 }
-                return flow
-                    .node_indices()
-                    .any(|id| arrays(ctx, &flow.get_node(id).unwrap().name, seen));
+                if nested_arrays(&self.context, &node.function_name, &mut Default::default()) {
+                    return Err("Nested array bindings require instance addressing".into());
+                }
             }
-            false
-        }
-        if arrays(
-            &self.context,
-            &self.snapshot.flow_name,
-            &mut Default::default(),
-        ) {
-            return Err(
-                "Buffer runtime support pending milestone 4; this flow remains editable offline"
-                    .into(),
-            );
         }
         Ok(())
     }
@@ -700,7 +761,15 @@ impl EditorDocument {
             .nodes
             .iter()
             .filter_map(|(id, node)| node.control_values.get(&0).map(|v| (*id, *v as f32)))
-            .map(|(id, value)| self.runtime_call_index(id).map(|call| (call, value)))
+            .map(|(id, value)| {
+                let button = self
+                    .snapshot
+                    .nodes
+                    .iter()
+                    .any(|(n, v)| *n == id && v.function_name == "button");
+                self.runtime_call_index(id)
+                    .map(|call| (call, if button { 0. } else { value }))
+            })
             .collect()
     }
     pub fn reconfigure(
@@ -845,6 +914,7 @@ impl EditorDocument {
             candidate.remap(&target.ids)?;
             candidate.copy_file_state(self);
             let structural = topology(&before.text)? != topology(&target.text)?;
+            candidate.binding_revision += u64::from(structural);
             candidate.next_node = self.next_node;
             candidate.state = target.state;
             candidate.next_state = self.next_state;
@@ -901,7 +971,19 @@ impl EditorDocument {
         };
         let structural = !matches!(edit, Edit::Move(_) | Edit::Geometry { .. });
         let repair = matches!(edit, Edit::Delete(_) | Edit::Disconnect(_));
+        let mut buffer_update = None;
         match edit {
+            Edit::Buffer { node, name, path } => {
+                let ordinal = ordinal(node)?;
+                if nodes[ordinal]["text"].as_str() != Some("buffer") {
+                    return Err("Not a buffer node".into());
+                }
+                nodes[ordinal]
+                    .as_table_mut()
+                    .ok_or("Invalid node")?
+                    .insert("buffer".into(), name.clone().into());
+                buffer_update = Some((name, path));
+            }
             Edit::Geometry {
                 node,
                 position,
@@ -915,7 +997,9 @@ impl EditorDocument {
                     ("w", size.x),
                     ("h", size.y),
                 ] {
-                    n[key] = (v as i64).into();
+                    n.as_table_mut()
+                        .ok_or("Invalid node")?
+                        .insert(key.into(), (v as i64).into());
                 }
             }
             Edit::Create { text, position } => {
@@ -984,8 +1068,12 @@ impl EditorDocument {
                         return Err("Invalid position".into());
                     }
                     let n = &mut nodes[ordinal(id)?];
-                    n["x"] = (p.x.round() as i64).into();
-                    n["y"] = (p.y.round() as i64).into();
+                    n.as_table_mut()
+                        .ok_or("Invalid node")?
+                        .insert("x".into(), (p.x.round() as i64).into());
+                    n.as_table_mut()
+                        .ok_or("Invalid node")?
+                        .insert("y".into(), (p.y.round() as i64).into());
                 }
             }
             Edit::Undo | Edit::Redo => unreachable!(),
@@ -1004,6 +1092,25 @@ impl EditorDocument {
             {
                 return Err(format!("Only one {interface} interface node is supported"));
             }
+        }
+        if let Some((name, path)) = buffer_update {
+            let buffers = value
+                .as_table_mut()
+                .unwrap()
+                .entry("buffers")
+                .or_insert_with(|| toml::Value::Array(vec![]))
+                .as_array_mut()
+                .ok_or("Invalid buffer list")?;
+            buffers.retain(|b| b.get("name").and_then(toml::Value::as_str) != Some(&name));
+            let mut entry = toml::map::Map::new();
+            entry.insert("name".into(), name.into());
+            if let Some(path) = path {
+                entry.insert(
+                    "path".into(),
+                    path.to_str().ok_or("Non UTF-8 buffer path")?.into(),
+                );
+            }
+            buffers.push(toml::Value::Table(entry));
         }
         let text = toml::to_string(&value).map_err(|e| e.to_string())?;
         let original: toml::Value = toml::from_str(&before.text).map_err(|e| e.to_string())?;
@@ -1039,6 +1146,7 @@ impl EditorDocument {
         candidate.snapshot.revision = self.snapshot.revision + 1;
         candidate.snapshot.semantic_revision =
             self.snapshot.semantic_revision + u64::from(structural);
+        candidate.binding_revision += u64::from(structural);
         *self = candidate;
         Ok(structural)
     }
@@ -1177,7 +1285,7 @@ mod tests {
         let cycle = "[flow]\nname='cycle'\n[[flow.nodes]]\ntext='= $0'\n[[flow.edges]]\nfrom=0\nto=0\noutput_index=0\ninput_index=0\n";
         assert!(make(cycle).can_start().unwrap_err().contains("cycle"));
         assert!(load("control.twf").can_start().is_ok());
-        assert!(load("sine.twf").can_start().is_err());
+        assert!(load("sine.twf").can_start().is_ok());
         let mut doc = make(simple);
         let id = doc.snapshot.nodes[0].0;
         doc.set_value(id, 0.7).unwrap();
@@ -1621,5 +1729,67 @@ mod tests {
                 .resolved,
             Some(old.join("sample.wav"))
         );
+    }
+    #[test]
+    fn midi_origin_checkpoints_toggle_and_transient_defaults() {
+        use super::super::persistence::{atomic_write, tests::Temp};
+        let mut doc = empty();
+        let id = add(&mut doc, "control");
+        doc.mark_saved(doc.snapshot().state_id);
+        let before = doc.snapshot();
+        doc.observe_midi(id, 0.5).unwrap();
+        assert!(doc.snapshot().dirty);
+        assert_eq!(doc.snapshot().state_id, before.state_id);
+        assert_eq!(doc.undo.len(), 1);
+        let dir = Temp::new();
+        let (job, captured) = doc
+            .save_capture(Some(dir.0.join("midi.twf")), None)
+            .unwrap();
+        doc.observe_midi(id, 0.6).unwrap();
+        let receipt = atomic_write(
+            &job.path,
+            &job.bytes,
+            job.expected,
+            &std::sync::atomic::AtomicBool::new(false),
+        )
+        .unwrap();
+        doc.saved(captured, &receipt);
+        assert!(doc.snapshot().dirty);
+        let (job, captured) = doc.save_capture(None, None).unwrap();
+        let receipt = atomic_write(
+            &job.path,
+            &job.bytes,
+            job.expected,
+            &std::sync::atomic::AtomicBool::new(false),
+        )
+        .unwrap();
+        doc.saved(captured, &receipt);
+        assert!(!doc.snapshot().dirty);
+        let toggle = add(&mut doc, "toggle");
+        doc.set_value(toggle, 0.2).unwrap();
+        assert_eq!(
+            doc.snapshot()
+                .nodes
+                .iter()
+                .find(|(n, _)| *n == toggle)
+                .unwrap()
+                .1
+                .control_values[&0],
+            1.
+        );
+        apply(&mut doc, Edit::Undo);
+        assert_eq!(
+            doc.snapshot()
+                .nodes
+                .iter()
+                .find(|(n, _)| *n == toggle)
+                .unwrap()
+                .1
+                .control_values[&0],
+            0.
+        );
+        let button = add(&mut doc, "button");
+        assert!(doc.set_value(button, 1.).is_err());
+        assert_eq!(doc.scalar_bindings().unwrap().last().unwrap().1, 0.);
     }
 }

@@ -44,6 +44,9 @@ use crate::{
 pub struct WispGuiApp {
     service: EditorServiceHandle,
     runtime_status: RuntimeStatus,
+    runtime_generation: u64,
+    midi_status: String,
+    buffer_node: Option<crate::editor::document::EditorNodeId>,
     offline: bool,
     operation: Option<RequestId>,
     snapshot: Option<DocumentSnapshot>,
@@ -94,6 +97,9 @@ impl WispGuiApp {
         );
         let mut app = Self {
             service,
+            runtime_generation: 0,
+            midi_status: "MIDI unavailable (start audio first)".into(),
+            buffer_node: None,
             runtime_status: if options.offline {
                 RuntimeStatus::Offline
             } else {
@@ -214,6 +220,9 @@ impl WispGuiApp {
         }
     }
     fn finish_for_save(&mut self, ctx: &egui::Context) {
+        for command in self.canvas.release_buttons() {
+            self.queue(command);
+        }
         for command in self.canvas.finish_for_file_action() {
             self.queue(command);
         }
@@ -293,6 +302,21 @@ impl WispGuiApp {
                         self.file.phase = Phase::Idle;
                         self.action(PendingAction::Open(path), ctx);
                     }
+                    DialogKind::Wave => {
+                        if let (Some(node_id), Some(document_id)) =
+                            (self.buffer_node.take(), document)
+                        {
+                            self.file.cancel();
+                            self.queue(EditorCommand::LoadBuffer {
+                                document_id,
+                                node_id,
+                                path: Some(path),
+                                req_id: RequestId(0),
+                            });
+                        } else {
+                            self.file.cancel();
+                        }
+                    }
                     DialogKind::Save => {
                         self.file.phase = Phase::WaitingForEdits {
                             path: Some(path),
@@ -351,7 +375,14 @@ impl WispGuiApp {
                     }
                 }
                 EditorEvent::Error(error) => self.error(error),
-                EditorEvent::Runtime { status, .. } => self.runtime_status = status,
+                EditorEvent::Runtime {
+                    status, generation, ..
+                } => {
+                    self.runtime_status = status;
+                    self.runtime_generation = generation;
+                    self.canvas
+                        .set_runtime(status == RuntimeStatus::Running, generation);
+                }
             }
         }
 
@@ -376,6 +407,16 @@ impl WispGuiApp {
                 self.canvas.sync(snapshot);
                 self.canvas_revision = Some(revision);
             }
+        }
+        if let Some(special) = self.service.special.lock().unwrap().take()
+            && self.snapshot.as_ref().is_some_and(|s| {
+                special.document == Some(s.id)
+                    && special.generation == self.runtime_generation
+                    && special.revision == s.semantic_revision
+            })
+        {
+            self.midi_status = special.midi.clone();
+            self.canvas.set_special(special);
         }
         self.flush_commands(ctx);
     }
@@ -402,7 +443,20 @@ impl WispGuiApp {
     }
     fn queue(&mut self, command: EditorCommand) {
         let mut command = command;
-        if let EditorCommand::Edit { req_id, .. } = &mut command {
+        if let EditorCommand::ChooseBuffer {
+            document_id,
+            node_id,
+        } = command
+        {
+            if self.snapshot.as_ref().is_some_and(|s| s.id == document_id) && !self.file.busy() {
+                self.buffer_node = Some(node_id);
+                self.choose_path(DialogKind::Wave);
+            }
+            return;
+        }
+        if let EditorCommand::Edit { req_id, .. } | EditorCommand::LoadBuffer { req_id, .. } =
+            &mut command
+        {
             if self.operation.is_some() {
                 return;
             }
@@ -462,6 +516,23 @@ impl eframe::App for WispGuiApp {
     fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.poll(&ctx);
+        self.service.graphs_visible.store(
+            self.tab == CanvasTab::Graph,
+            std::sync::atomic::Ordering::Release,
+        );
+        if self.tab != CanvasTab::Graph
+            || !ctx.input(|i| {
+                i.focused
+                    && (i.pointer.primary_down()
+                        || i.key_down(egui::Key::Space)
+                        || i.key_down(egui::Key::Enter))
+            })
+            || !self.file.editable()
+        {
+            for command in self.canvas.release_buttons() {
+                self.queue(command);
+            }
+        }
         if ctx.input(|i| i.viewport().close_requested())
             && !self.allow_close
             && (self.dirty() || self.file.busy() || !self.queued.is_empty())
@@ -624,6 +695,55 @@ impl eframe::App for WispGuiApp {
                 }
             });
         });
+        egui::Panel::top("midi").show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.small(&self.midi_status);
+                let selection = self.canvas.selection().clone();
+                let eligible = self.snapshot.as_ref().and_then(|s| {
+                    if selection.len() != 1 {
+                        return None;
+                    }
+                    s.nodes
+                        .iter()
+                        .find(|(id, n)| {
+                            selection.contains(id)
+                                && matches!(n.function_name.as_str(), "control" | "toggle")
+                        })
+                        .map(|(id, _)| (s.id, *id))
+                });
+                let learn = ui
+                    .add_enabled(
+                        eligible.is_some() && !self.file.busy(),
+                        egui::Button::new("Learn CC (L)"),
+                    )
+                    .clicked()
+                    || (!ctx.egui_wants_keyboard_input()
+                        && !self.file.busy()
+                        && ctx.input(|i| i.key_pressed(egui::Key::L)));
+                if learn && let Some((document_id, node_id)) = eligible {
+                    let req_id = self.request();
+                    if let Err(e) = self.service.submit(EditorCommand::MidiLearn {
+                        document_id,
+                        node_id: Some(node_id),
+                        req_id,
+                    }) {
+                        self.error(e);
+                    }
+                }
+                if ui.button("Cancel learn").clicked()
+                    && let Some(document_id) = self.snapshot.as_ref().map(|s| s.id)
+                {
+                    let req_id = self.request();
+                    if let Err(e) = self.service.submit(EditorCommand::MidiLearn {
+                        document_id,
+                        node_id: None,
+                        req_id,
+                    }) {
+                        self.error(e);
+                    }
+                }
+            });
+        });
         egui::Panel::bottom("diagnostics").show(ui, |ui| {
             if ui.button("Clear errors").clicked() {
                 self.errors.clear();
@@ -747,13 +867,28 @@ impl eframe::App for WispGuiApp {
                 });
         }
         if let Phase::Entering { kind } = self.file.phase.clone() {
-            egui::Window::new("Flow path")
+            egui::Window::new("File path")
                 .collapsible(false)
                 .show(&ctx, |ui| {
                     ui.text_edit_singleline(&mut self.entry_path);
                     if ui.button("Apply").clicked() && !self.entry_path.trim().is_empty() {
                         let path = PathBuf::from(self.entry_path.trim());
-                        if kind == DialogKind::Save {
+                        if kind == DialogKind::Wave {
+                            if let (Some(node_id), Some(document_id)) = (
+                                self.buffer_node.take(),
+                                self.snapshot.as_ref().map(|s| s.id),
+                            ) {
+                                self.file.cancel();
+                                self.queue(EditorCommand::LoadBuffer {
+                                    document_id,
+                                    node_id,
+                                    path: Some(path),
+                                    req_id: RequestId(0),
+                                });
+                            } else {
+                                self.file.cancel();
+                            }
+                        } else if kind == DialogKind::Save {
                             self.file.phase = Phase::WaitingForEdits {
                                 path: Some(path),
                                 overwrite: None,
