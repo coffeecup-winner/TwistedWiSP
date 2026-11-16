@@ -116,11 +116,11 @@ impl WispContext {
                     CodeFunctionParseResult::Alias(alias, target) => {
                         let func = self
                             .get_function(&target)
-                            .expect("Unknown function alias target")
-                            .clone();
+                            .expect("Unknown function alias target");
                         info!("  - {} (alias of {})", alias, func.borrow().name());
-                        *func.borrow_mut().name_mut() = alias.clone();
-                        self.functions.insert(alias, func.clone());
+                        let alias_func = FunctionHandle::new(func.borrow().clone());
+                        *alias_func.borrow_mut().name_mut() = alias.clone();
+                        self.functions.insert(alias, alias_func);
                     }
                 }
             }
