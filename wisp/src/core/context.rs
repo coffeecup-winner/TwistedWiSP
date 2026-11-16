@@ -4,7 +4,7 @@ use std::{
     path::Path,
 };
 
-use crate::{
+use crate::core::{
     BuiltinFunction, CodeFunction, CodeFunctionParseResult, CodeFunctionParser, DataType,
     DefaultInputValue, FlowFunction, FlowNodeIndex, FunctionInput, FunctionOutput, WispFunction,
 };

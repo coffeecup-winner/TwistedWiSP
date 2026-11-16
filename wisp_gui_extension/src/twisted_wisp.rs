@@ -4,7 +4,7 @@ use godot::prelude::*;
 
 use log::info;
 use serde::{Deserialize, Serialize};
-use twisted_wisp::{FlowFunction, WispContext, WispFunction};
+use twisted_wisp::core::{FlowFunction, WispContext, WispFunction};
 use twisted_wisp_ir::CallId;
 use twisted_wisp_protocol::{DataIndex, WispRunnerClient};
 

@@ -3,7 +3,7 @@ use std::{
     iter::Peekable,
 };
 
-use crate::{
+use crate::core::{
     DataType, DefaultInputValue, FunctionDataItem, FunctionInput, FunctionOutput, WispContext,
     WispFunction,
 };
