@@ -4,8 +4,18 @@
 
 Twisted WiSP is (aiming to be) an signal processing exploration tool, similar to Pure Data or Max/MSP.
 
-This is pre-MVP software. APIs and file formats may change without backward
-compatibility.
+This is pre-MVP software. APIs and file formats may change without backward compatibility.
+
+## AI usage disclaimer
+
+The core of this project and the initial prototype have been written without agentic AI (see commit history).
+
+Ongoing development is done using AI in the following way:
+  - The GUI part (`wisp_gui`) is largely vibe-coded (to detailed spec)
+      - Frequent changes are required and wasting time on AI code review doesn't make sense
+      - An overall manual review/refactoring to be done later once GUI fully stabilizes
+  - The core part (`wisp`) is written manually or using agentic AI but with careful code review
+      - AI adds a lot of value for speeding up the coding process, but everything still needs to be the way I imagine it
 
 ## Architecture overview
 
