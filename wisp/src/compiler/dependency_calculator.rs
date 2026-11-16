@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use crate::{
-    ir::{IRFunction, Instruction},
+    ir::{IRFunction, Instruction, SourceLocation},
     runner::context::WispRuntimeContext,
     utils::dep_prop::DependencyHandle,
 };
@@ -15,7 +15,8 @@ pub fn calculate_dependencies(ir_func: &IRFunction) -> BTreeSet<String> {
 fn calculate_dependencies_core(ir: &[Instruction], dependencies: &mut BTreeSet<String>) {
     for instr in ir {
         match instr {
-            Instruction::Call(_, name, ..) => {
+            Instruction::Call(_, name, ..)
+            | Instruction::Load(_, SourceLocation::LastValue(_, name, _)) => {
                 dependencies.insert(name.clone());
             }
             Instruction::Conditional(_, true_branch, false_branch) => {

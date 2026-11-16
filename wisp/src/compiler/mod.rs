@@ -7,6 +7,6 @@ mod module_context;
 mod processor;
 
 pub use builder::SignalProcessorBuilder;
-pub use data_layout::DataArrayHandle;
+pub use data_layout::{DataArrayHandle, DataLayout, FunctionDataLayout};
 pub use error::SignalProcessCreationError;
 pub use processor::SignalProcessor;
