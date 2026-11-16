@@ -111,7 +111,7 @@ impl SignalProcessorBuilder {
         extern "C" fn wisp_debug(v: f32) {
             debug!("Debug: {}", v);
         }
-        execution_engine.add_global_mapping(&g_wisp_debug, wisp_debug as usize);
+        execution_engine.add_global_mapping(&g_wisp_debug, wisp_debug as *const () as usize);
         // Keep the zero-argument DSP function as a thin adapter to the Rust
         // builtin, passing this processor's stable boxed RNG state address.
         let rng = module.add_global(ectx.llvm().i64_type(), None, "wisp_noise_state");

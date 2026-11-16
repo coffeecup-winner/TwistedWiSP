@@ -123,15 +123,15 @@ impl FunctionHandle {
         FunctionHandle(Rc::new(RefCell::new(func)))
     }
 
-    pub fn borrow(&self) -> Ref<Function> {
+    pub fn borrow(&self) -> Ref<'_, Function> {
         self.0.borrow()
     }
 
-    pub fn borrow_mut(&self) -> RefMut<Function> {
+    pub fn borrow_mut(&self) -> RefMut<'_, Function> {
         self.0.borrow_mut()
     }
 
-    pub fn as_flow(&self) -> Option<Ref<FlowFunction>> {
+    pub fn as_flow(&self) -> Option<Ref<'_, FlowFunction>> {
         Ref::filter_map(self.0.borrow(), |f| match f {
             Function::Flow(f) => Some(f),
             _ => None,
@@ -139,7 +139,7 @@ impl FunctionHandle {
         .ok()
     }
 
-    pub fn as_flow_mut(&self) -> Option<RefMut<FlowFunction>> {
+    pub fn as_flow_mut(&self) -> Option<RefMut<'_, FlowFunction>> {
         RefMut::filter_map(self.0.borrow_mut(), |f| match f {
             Function::Flow(f) => Some(f),
             _ => None,

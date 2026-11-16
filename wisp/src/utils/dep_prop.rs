@@ -75,11 +75,11 @@ impl<T> Property<T> {
         self.tracker.handle()
     }
 
-    pub fn get_untracked(&self) -> Ref<T> {
+    pub fn get_untracked(&self) -> Ref<'_, T> {
         self.value.borrow()
     }
 
-    pub fn get(&self, dependent: DependencyHandle) -> Ref<T> {
+    pub fn get(&self, dependent: DependencyHandle) -> Ref<'_, T> {
         self.tracker.add_dependent(dependent);
         self.value.borrow()
     }

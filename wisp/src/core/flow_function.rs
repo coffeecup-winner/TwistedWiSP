@@ -301,7 +301,7 @@ impl FlowFunction {
         self.graph.remove_node(idx)
     }
 
-    pub fn node_indices(&self) -> NodeIndices<FlowNode> {
+    pub fn node_indices(&self) -> NodeIndices<'_, FlowNode> {
         self.graph.node_indices()
     }
 
@@ -313,7 +313,7 @@ impl FlowFunction {
         self.graph.node_weight_mut(idx)
     }
 
-    pub fn edge_indices(&self) -> EdgeIndices<FlowConnection> {
+    pub fn edge_indices(&self) -> EdgeIndices<'_, FlowConnection> {
         self.graph.edge_indices()
     }
 
