@@ -1,4 +1,4 @@
-# Native egui editor — milestone 1
+# Native egui editor — milestones 1–2
 
 From the repository root:
 
@@ -11,7 +11,15 @@ Startup is stopped and does not open audio/MIDI. **Start DSP** lazily opens audi
 
 `--offline` forbids device initialization. `--help` lists core, audio host/device/channel/buffer/rate and MIDI options. `--core-lib-path PATH` selects another core directory. Repeatable `--data-path` is reserved for milestone 4; WAV binding is not implemented. Flows needing arrays/buffers remain viewable but cannot start DSP.
 
-The graph displays actual `.twf` ports/wires and saved geometry. Pan, zoom, node movement and control sliders are supported. Edits remain in memory; saving, topology editing and undo are later milestones. Replacing or closing an edited document offers discard/cancel. A failed load retains the previous document and playback.
+The graph displays actual `.twf` ports/wires and saved geometry. Use **New** with a unique alphanumeric/underscore name, or **Open** an existing flow. Edits stay in memory; saving is milestone 3. Replacing or closing an edited document offers discard/cancel. A failed load retains the previous document and playback.
+
+- **N** over the graph, or right-click empty space → **Add node…**, opens the searchable function/expression picker at the cursor. Expressions start with `=`. Apply commits; rejected drafts remain editable. Function entries show their kind/port counts, with port details on hover.
+- Drag between output/input pins to connect. Float inputs sum multiple sources; incompatible types, array fan-in and feedback without a lag are rejected. Right-click a wire to disconnect that exact edge, or right-click a pin to disconnect all attached edges. The node menu also offers **Disconnect all**. Command/Ctrl-drag previews/copies attached connections; accepted wires remain until explicitly disconnected, including after a canceled drag.
+- Use snarl's native selection (Shift-drag a selection rectangle; Shift-click node headers adds to selection; Command/Ctrl-click removes from selection). Drag selected node headers to move the group. **Snap (20)** snaps the group's anchor to a 20-unit graph grid on release, preserving relative offsets regardless of zoom.
+- **Delete/Backspace** over the graph deletes the selection and incident wires together. Right-click a node for **Replace…** or **Delete**. Replacement preserves identity/properties; disconnect affected wires first if the new ports are incompatible.
+- **Undo/Redo**, Command/Ctrl-Z, Command/Ctrl-Shift-Z or Command/Ctrl-Y restore accepted edits. Graph shortcuts leave text fields/picker drafts alone. Slider drags and group movement form single history entries. Each history direction retains at most 64 states / 8 MiB; pan/zoom/selection are view state.
+
+Structural edits while DSP is enabled stop, compile, install, initialize controls and resume on the existing device. Compile failure keeps the edited document visible and the last good processor stopped; correct the graph or Undo to recover. Device/install/initialization failure leaves editing/history available; retry Start. Geometry and scalar changes do not compile. Expressions are bounded to 8,192 bytes, at most 64 opening parentheses and argument indices `$0`–`$1023`; malformed/nonfinite literals are rejected.
 
 **Canvas lab** is separate synthetic state. It contains waveform painting from a bounded 2,048-sample ring, a highlighted multiline editor, mixed controls, and a one-level child snarl. Scale buttons exercise 0.25×–2×. The child is explicitly read-only: the public-API nesting experiment routes wheel input over the child to the parent. See the reproducible headless test and completion report in [milestone1.md](../gui_plan/milestone1.md). No snarl fork or vendoring is used.
 
