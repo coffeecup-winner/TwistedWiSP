@@ -3,5 +3,6 @@ resolver = "2"
 members = [
     "wisp",
     "wisp_cli",
-    "wisp_gui_extension",
+    # Temporarily disable the Godot extension
+    # "wisp_gui_extension",
 ]

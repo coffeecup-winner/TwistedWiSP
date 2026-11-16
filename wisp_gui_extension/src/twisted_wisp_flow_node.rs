@@ -171,24 +171,16 @@ impl TwistedWispFlowNode {
     #[func]
     fn function_name(&self) -> String {
         let wisp = self.wisp.bind();
-        let flow = wisp
-            .ctx()
-            .get_function(self.flow.bind().name())
-            .and_then(|f| f.as_flow())
-            .unwrap();
-        let node = flow.get_node(self.idx).expect("Failed to find node");
+        let flow = wisp.engine().ctx_get_flow(self.flow.bind().name()).unwrap();
+        let node = wisp.engine().flow_get_node(flow, self.idx).unwrap();
         node.name.clone()
     }
 
     #[func]
     fn display_name(&self) -> String {
         let wisp = self.wisp.bind();
-        let flow = wisp
-            .ctx()
-            .get_function(self.flow.bind().name())
-            .and_then(|f| f.as_flow())
-            .unwrap();
-        let node = flow.get_node(self.idx).unwrap();
+        let flow = wisp.engine().ctx_get_flow(self.flow.bind().name()).unwrap();
+        let node = wisp.engine().flow_get_node(flow, self.idx).unwrap();
         node.display_text.clone()
     }
 
@@ -196,7 +188,7 @@ impl TwistedWispFlowNode {
     fn learn_midi_cc(&mut self) {
         let mut wisp = self.wisp.bind_mut();
         let watch_idx = wisp
-            .runner_mut()
+            .engine_mut()
             .context_learn_midi_cc(
                 self.flow.bind().name().to_owned(),
                 CallIndex(self.idx.index() as u32),
@@ -210,13 +202,9 @@ impl TwistedWispFlowNode {
     fn add_watch(&mut self) {
         let mut wisp = self.wisp.bind_mut();
         // TODO: Maybe remove this and do flow borrow checking at runtime?
-        let ctx = wisp.ctx();
-        let flow = ctx
-            .get_function(self.flow.bind().name())
-            .and_then(|f| f.as_flow())
-            .unwrap();
-        let ir_functions = flow.get_ir_functions(ctx);
-        let runner = wisp.runner_mut();
+        let flow = wisp.engine().ctx_get_flow(self.flow.bind().name()).unwrap();
+        let ir_functions = wisp.engine().flow_get_ir_functions(flow);
+        let runner = wisp.engine_mut();
         // NOTE: We do not update the watch function as we expect it to never change
         // at runtime and it's a part of the core library
         runner.context_add_or_update_functions(ir_functions);
@@ -259,12 +247,8 @@ impl TwistedWispFlowNode {
         );
 
         let wisp = self.wisp.bind();
-        let flow = wisp
-            .ctx()
-            .get_function(self.flow.bind().name())
-            .and_then(|f| f.as_flow())
-            .unwrap();
-        let node = flow.get_node(self.idx).unwrap();
+        let flow = wisp.engine().ctx_get_flow(self.flow.bind().name()).unwrap();
+        let node = wisp.engine().flow_get_node(flow, self.idx).unwrap();
         match &node.name[..] {
             "control" => {
                 array.push(TwistedWispFlowNodeProperty::Value.get_descriptor());
@@ -281,12 +265,8 @@ impl TwistedWispFlowNode {
     #[func]
     fn get_property_value(&self, name: String) -> Variant {
         let wisp = self.wisp.bind();
-        let flow = wisp
-            .ctx()
-            .get_function(self.flow.bind().name())
-            .and_then(|f| f.as_flow())
-            .unwrap();
-        let node = flow.get_node(self.idx).unwrap();
+        let flow = wisp.engine().ctx_get_flow(self.flow.bind().name()).unwrap();
+        let node = wisp.engine().flow_get_node(flow, self.idx).unwrap();
         let prop = name
             .parse::<TwistedWispFlowNodeProperty>()
             .expect("Invalid property name");
@@ -306,12 +286,8 @@ impl TwistedWispFlowNode {
     #[func]
     fn set_property_value(&mut self, name: String, value: Variant) {
         let mut wisp = self.wisp.bind_mut();
-        let flow = wisp
-            .ctx_mut()
-            .get_function_mut(self.flow.bind().name())
-            .and_then(|f| f.as_flow_mut())
-            .unwrap();
-        let node = flow.get_node_mut(self.idx).unwrap();
+        let flow = wisp.engine().ctx_get_flow(self.flow.bind().name()).unwrap();
+        let node = wisp.engine().flow_get_node(flow, self.idx).unwrap();
         let prop = name
             .parse::<TwistedWispFlowNodeProperty>()
             .expect("Invalid property name");
@@ -343,14 +319,14 @@ impl TwistedWispFlowNode {
         // Handle the property change
 
         match prop {
-            TwistedWispFlowNodeProperty::Value => wisp.runner_mut().context_set_data_value(
+            TwistedWispFlowNodeProperty::Value => wisp.engine_mut().context_set_data_value(
                 self.flow.bind().name().to_owned(),
                 CallIndex(self.idx.index() as u32),
                 DataIndex(0),
                 value.to::<f32>(),
             ),
             TwistedWispFlowNodeProperty::Buffer => {
-                wisp.runner_mut().context_set_data_array(
+                wisp.engine_mut().context_set_data_array(
                     self.flow.bind().name().to_owned(),
                     CallIndex(self.idx.index() as u32),
                     DataIndex(0),
