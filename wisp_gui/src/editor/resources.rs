@@ -437,8 +437,12 @@ mod tests {
     #[test]
     fn builtin_sources_load_without_devices() {
         let core = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../wisp/core");
-        let doc = EditorDocument::load(&core.join("../../wisp_gui/sine.twf"), &core, DocumentId(2))
-            .unwrap();
+        let doc = EditorDocument::load(
+            &core.join("../../wisp_gui/examples/sine.twf"),
+            &core,
+            DocumentId(2),
+        )
+        .unwrap();
         let mut manager = Resources::default();
         manager.sync(&doc);
         wait(&mut manager, &doc);

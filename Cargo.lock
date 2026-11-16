@@ -4845,7 +4845,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "wisp_gui_egui"
+name = "wisp_gui"
 version = "0.1.0"
 dependencies = [
  "clap",

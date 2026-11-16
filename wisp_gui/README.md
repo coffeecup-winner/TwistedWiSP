@@ -3,8 +3,8 @@
 From the repository root:
 
 ```sh
-cargo run -p wisp_gui_egui -- --flow wisp_gui/control.twf
-cargo run -p wisp_gui_egui -- --flow wisp_gui/control.twf --offline
+cargo run -p wisp_gui -- --flow wisp_gui/examples/control.twf
+cargo run -p wisp_gui -- --flow wisp_gui/examples/control.twf --offline
 ```
 
 Startup is stopped and does not open audio/MIDI. **Start DSP** lazily opens audio, compiles the authoritative flow, installs it, restores saved scalar values, then starts playback. Sliders update DSP without recompilation. During a drag, outdated queued values collapse to the newest value instead of trailing behind the pointer. The GUI requests a 512-frame audio buffer by default (about 11.6 ms of buffering at 44.1 kHz), clamped to device support; `--audio-buffer-size` overrides it. Callback period size depends on the backend and may be smaller than the buffer. Actual response also depends on the device/driver output buffering. Stop outputs silence while keeping the callback available for commands. Audio failures are shown in the editor; offline edits remain available. MIDI is optional.
@@ -40,15 +40,15 @@ Dependencies: egui/eframe 0.36.2, egui-snarl 0.12.0, rfd 0.15.4 (MIT, GTK-free X
 ```sh
 cargo check --workspace
 cargo test -p twisted-wisp --lib
-cargo test -p wisp_gui_egui
+cargo test -p wisp_gui
 cargo fmt --all -- --check
-cargo clippy -p wisp_gui_egui --all-targets --no-deps -- -D warnings
+cargo clippy -p wisp_gui --all-targets --no-deps -- -D warnings
 ```
 
 The device-free suite includes real LLVM/JIT output tests. A separate ignored test exercises the native callback:
 
 ```sh
-cargo test -p wisp_gui_egui native_callback_start_scalar_stop_restart -- --ignored
+cargo test -p wisp_gui native_callback_start_scalar_stop_restart -- --ignored
 ```
 
 It needs an output device. On Linux it can also run silently with `ALSA_CONFIG_PATH` pointing to this file:
@@ -61,3 +61,16 @@ pcm.!default {
 ```
 
 Null-output testing verifies callback requests and lifetime behavior, not audible playback. The completion report records the remaining physical-device and windowed visual/interaction checks.
+
+## Configuration
+
+The native GUI uses command-line options; it does not read the old Godot
+`wisp.toml` configuration. For example, from the repository root:
+
+```sh
+cargo run -p wisp_gui -- --flow wisp_gui/examples/beat3.twf --core-lib-path wisp/core --data-path data
+```
+
+`--midi-in-port` selects a MIDI input. Core discovery also accepts `WISP_CORE_PATH`.
+Example/test flow files are preserved in `wisp_gui/examples/`; WAV assets remain
+in `data/`. The Godot frontend and its extension have been removed.

@@ -1067,7 +1067,7 @@ mod tests {
         );
         service
             .submit(EditorCommand::LoadFlow {
-                path: core().join("../../wisp_gui/control.twf"),
+                path: core().join("../../wisp_gui/examples/control.twf"),
                 req_id: RequestId(1),
             })
             .unwrap();
@@ -1174,7 +1174,7 @@ mod tests {
         );
         service
             .submit(EditorCommand::LoadFlow {
-                path: core().join("../../wisp_gui/control.twf"),
+                path: core().join("../../wisp_gui/examples/control.twf"),
                 req_id: RequestId(1),
             })
             .unwrap();
@@ -1208,7 +1208,7 @@ mod tests {
         let service = spawn_editor_service(core(), egui::Context::default());
         service
             .submit(EditorCommand::LoadFlow {
-                path: core().join("../../wisp_gui/control.twf"),
+                path: core().join("../../wisp_gui/examples/control.twf"),
                 req_id: RequestId(1),
             })
             .unwrap();
@@ -1316,7 +1316,7 @@ mod tests {
         );
         service
             .submit(EditorCommand::LoadFlow {
-                path: core().join("../../wisp_gui/control.twf"),
+                path: core().join("../../wisp_gui/examples/control.twf"),
                 req_id: RequestId(1),
             })
             .unwrap();
@@ -1561,7 +1561,7 @@ mod tests {
         );
         service
             .submit(EditorCommand::LoadFlow {
-                path: core().join("../../wisp_gui/control.twf"),
+                path: core().join("../../wisp_gui/examples/control.twf"),
                 req_id: RequestId(1),
             })
             .unwrap();
@@ -1702,7 +1702,7 @@ mod tests {
         let service = spawn_editor_service(core(), egui::Context::default());
         service
             .submit(EditorCommand::LoadFlow {
-                path: core().join("../../wisp_gui/control.twf"),
+                path: core().join("../../wisp_gui/examples/control.twf"),
                 req_id: RequestId(1),
             })
             .unwrap();
@@ -1822,7 +1822,7 @@ mod tests {
         );
         service
             .submit(EditorCommand::LoadFlow {
-                path: core().join("../../wisp_gui/control.twf"),
+                path: core().join("../../wisp_gui/examples/control.twf"),
                 req_id: RequestId(1),
             })
             .unwrap();

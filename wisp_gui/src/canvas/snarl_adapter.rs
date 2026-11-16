@@ -620,7 +620,7 @@ mod tests {
     fn fixture() -> (EditorDocument, GraphCanvas) {
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
         let doc = EditorDocument::load(
-            &root.join("wisp_gui/control.twf"),
+            &root.join("wisp_gui/examples/control.twf"),
             &root.join("wisp/core"),
             DocumentId(1),
         )
@@ -969,7 +969,7 @@ mod tests {
     fn sync_preserves_identity_and_restores_all_wires() {
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
         let doc = EditorDocument::load(
-            &root.join("wisp_gui/control.twf"),
+            &root.join("wisp_gui/examples/control.twf"),
             &root.join("wisp/core"),
             DocumentId(1),
         )

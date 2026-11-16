@@ -1,6 +1,6 @@
 # Reproducible UI CPU measurements
 
-Command: `cargo run --release --locked --offline -p wisp_gui_egui --example benchmark -- wisp/core`.
+Command: `cargo run --release --locked --offline -p wisp_gui --example benchmark -- wisp/core`.
 Measured in a Debian 13 x86_64 KVM container on an AMD EPYC virtual CPU
 (32 online vCPUs), Rust 1.100 / LLVM 18, egui 0.36.2 / published snarl 0.12.0.
 No GPU, compositor or presentation backend participates. These are UI CPU times;

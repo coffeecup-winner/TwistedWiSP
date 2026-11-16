@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use clap::Parser;
-use wisp_gui_egui::app::{Options, WispGuiApp};
+use wisp_gui::app::{Options, WispGuiApp};
 fn main() -> eframe::Result {
     let options = Options::parse();
     if options.check_resources {

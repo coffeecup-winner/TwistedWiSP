@@ -156,7 +156,7 @@ mod tests {
         };
         let mut runtime = live_factory()(&config).unwrap();
         runtime
-            .install(&std::fs::read_to_string(root.join("wisp_gui/control.twf")).unwrap())
+            .install(&std::fs::read_to_string(root.join("wisp_gui/examples/control.twf")).unwrap())
             .unwrap();
         runtime.scalar("control_test", 1, 0.103).unwrap();
         runtime.scalar("control_test", 4, 0.1).unwrap();
@@ -166,7 +166,7 @@ mod tests {
         runtime.scalar("control_test", 4, 0.05).unwrap();
         runtime.start().unwrap();
         runtime.stop().unwrap();
-        let original = std::fs::read_to_string(root.join("wisp_gui/control.twf")).unwrap();
+        let original = std::fs::read_to_string(root.join("wisp_gui/examples/control.twf")).unwrap();
         let malformed = original.replacen("= ($0 + $1 / SampleRate) % 1.0", "= (", 1);
         assert!(runtime.prepare(&malformed).is_err());
         assert!(runtime.healthy());

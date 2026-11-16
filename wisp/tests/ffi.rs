@@ -56,7 +56,7 @@ fn native_transfer_subprocess() {
         wisp_engine_config_destroy(config);
         assert!(!engine.is_null());
         let file = std::ffi::CString::new(format!(
-            "{}/../wisp_gui/control.twf",
+            "{}/../wisp_gui/examples/control.twf",
             env!("CARGO_MANIFEST_DIR")
         ))
         .unwrap();

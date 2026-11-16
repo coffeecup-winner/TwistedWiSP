@@ -1,12 +1,12 @@
 [package]
-name = "wisp_gui_egui"
+name = "wisp_gui"
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Native egui GUI for TwistedWiSP — node-graph editor"
 
 [[bin]]
-name = "wisp_gui_egui"
+name = "wisp_gui"
 path = "src/main.rs"
 
 [dependencies]

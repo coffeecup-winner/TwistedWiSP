@@ -75,7 +75,7 @@ mod tests {
             let mut session = session();
             let text = std::fs::read_to_string(
                 Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("../wisp_gui")
+                    .join("../wisp_gui/examples")
                     .join(fixture),
             )
             .unwrap();

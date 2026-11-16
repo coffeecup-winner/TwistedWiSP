@@ -7,7 +7,7 @@ The application uses WGPU with native X11/Wayland support and XDG portal dialogs
 portal-free path entry remains available. No web runtime is required.
 
 Run `python3 scripts/package-linux.py /tmp/twistedwisp-linux` to build a release
-installation containing `bin/wisp_gui_egui`, `share/twistedwisp/core`, examples,
+installation containing `bin/wisp_gui`, `share/twistedwisp/core`, examples,
 maintained docs, dependency notices/license sources and `ldd` inspection results.
 `--debug` produces a development smoke artifact, not a release distribution.
 The destination must be new. Review `THIRD-PARTY.md` and license files before
@@ -18,9 +18,9 @@ universal/static binary: inspect `shared-libraries.txt` on the target machine.
 Core lookup: explicit `--core-lib-path`, then `WISP_CORE_PATH`, then the executable's
 `../share/twistedwisp/core`, then development checkout locations. Launch from any
 working directory, including after moving the whole installation. Verify with
-`bin/wisp_gui_egui --check-resources` (no display/devices). Examples live in
+`bin/wisp_gui --check-resources` (no display/devices). Examples live in
 `share/twistedwisp/examples`. To run the repository beat example, add
-`--flow wisp_gui/beat3.twf --data-path data` from the checkout root.
+`--flow wisp_gui/examples/beat3.twf --data-path data` from the checkout root.
 
 The generated C header is Cargo output at
 `<target>/<profile>/build/twisted-wisp-*/out/twisted_wisp.h`, never a hardcoded
@@ -29,7 +29,7 @@ checkout target directory. Cargo metadata supplies the configured target path.
 shared library. Install pytest/NumPy in your chosen Python environment; Linux
 headless ABI tests can use the ALSA null config described in the GUI README.
 
-Benchmark: `cargo run --release -p wisp_gui_egui --example benchmark -- wisp/core`.
+Benchmark: `cargo run --release -p wisp_gui --example benchmark -- wisp/core`.
 Fixed valid fixtures are generated before timing; each scenario warms 50 frames
 and measures 300 at 1280×800 / 1×. Output is UI CPU time, not presentation/GPU
 latency. It covers 100/200, 1000/2000 nodes/wires, 16 scopes, idle and scripted

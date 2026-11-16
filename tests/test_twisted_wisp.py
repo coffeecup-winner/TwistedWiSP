@@ -5,7 +5,7 @@ import os
 CORE_PATH = os.environ.get('WISP_CORE_PATH')
 
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-EXAMPLES_PATH = os.path.abspath(os.path.dirname(THIS_DIR) + os.sep + 'wisp_gui')
+EXAMPLES_PATH = os.path.abspath(os.path.dirname(THIS_DIR) + os.sep + 'wisp_gui' + os.sep + 'examples')
 
 def test_init():
     config = TwistedWispConfig()

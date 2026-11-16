@@ -1211,7 +1211,7 @@ mod tests {
     }
     fn load(name: &str) -> EditorDocument {
         EditorDocument::load(
-            &root().join("wisp_gui").join(name),
+            &root().join("wisp_gui/examples").join(name),
             &root().join("wisp/core"),
             DocumentId(1),
         )
@@ -1242,7 +1242,7 @@ mod tests {
     #[test]
     fn validation_and_fixture_sweep() {
         let core = root().join("wisp/core");
-        for entry in std::fs::read_dir(root().join("wisp_gui")).unwrap() {
+        for entry in std::fs::read_dir(root().join("wisp_gui/examples")).unwrap() {
             let path = entry.unwrap().path();
             if path.extension().is_some_and(|s| s == "twf") {
                 EditorDocument::load(&path, &core, DocumentId(1))
@@ -1319,7 +1319,7 @@ mod tests {
     }
     #[test]
     fn edits_update_backend_and_preserve_unknown_fields() {
-        let text = std::fs::read_to_string(root().join("wisp_gui/control.twf"))
+        let text = std::fs::read_to_string(root().join("wisp_gui/examples/control.twf"))
             .unwrap()
             .replacen("w = 237", "w = 237\neditor_note = 'preserve me'", 1);
         let mut doc =
@@ -1601,7 +1601,7 @@ mod tests {
     #[test]
     fn fixture_roundtrips_and_unsupported_metadata() {
         let core = root().join("wisp/core");
-        for entry in std::fs::read_dir(root().join("wisp_gui"))
+        for entry in std::fs::read_dir(root().join("wisp_gui/examples"))
             .unwrap()
             .chain(std::fs::read_dir(&core).unwrap())
         {

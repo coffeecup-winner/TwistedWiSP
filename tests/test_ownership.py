@@ -18,7 +18,7 @@ from tests.twisted_wisp import TwistedWispConfig, TwistedWispEngine, lib
 config = TwistedWispConfig()
 config.set_core_path(os.environ['WISP_CORE_PATH'])
 engine = TwistedWispEngine(config)
-name = engine.context_load_flow_from_file('wisp_gui/phasor_test.twf')
+name = engine.context_load_flow_from_file('wisp_gui/examples/phasor_test.twf')
 processor = engine.engine_compile_signal_processor(name)
 assert processor is not None
 output = np.zeros(2, dtype=np.float32)

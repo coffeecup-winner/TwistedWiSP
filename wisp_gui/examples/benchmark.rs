@@ -1,6 +1,6 @@
 //! Reproducible UI CPU benchmark; never claims GPU/presentation timings.
 use std::{path::Path, time::Instant};
-use wisp_gui_egui::{
+use wisp_gui::{
     canvas::snarl_adapter::GraphCanvas,
     editor::{
         document::{DocumentId, EditorDocument},
@@ -96,7 +96,7 @@ fn main() {
                 // their UI-side copy cost, rather than drawing a static history.
                 if scopes && frame % 2 == 0 {
                     for trace in telemetry.traces.values_mut() {
-                        wisp_gui_egui::editor::telemetry::append(
+                        wisp_gui::editor::telemetry::append(
                             trace,
                             (0..32).map(|i| ((frame * 32 + i) as f32 * 0.03).sin()),
                         );
