@@ -39,16 +39,19 @@ Dependencies: egui/eframe 0.36.2, egui-snarl 0.12.0, rfd 0.15.4 (MIT, GTK-free X
 
 ```sh
 cargo check --workspace
-cargo test -p twisted-wisp --lib
+cargo test -p twisted-wisp
 cargo test -p wisp_gui
 cargo fmt --all -- --check
 cargo clippy -p wisp_gui --all-targets --no-deps -- -D warnings
 ```
 
-The device-free suite includes real LLVM/JIT output tests. A separate ignored test exercises the native callback:
+The device-free suite includes real LLVM/JIT output tests, including the public
+backend tests under `wisp/tests/offline.rs`. Ignored backend and GUI tests exercise
+the native callback:
 
 ```sh
-cargo test -p wisp_gui native_callback_start_scalar_stop_restart -- --ignored
+cargo test -p twisted-wisp --test runtime -- --ignored
+cargo test -p wisp_gui native_callback -- --ignored
 ```
 
 It needs an output device. On Linux it can also run silently with `ALSA_CONFIG_PATH` pointing to this file:

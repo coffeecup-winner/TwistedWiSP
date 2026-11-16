@@ -22,12 +22,13 @@ working directory, including after moving the whole installation. Verify with
 `share/twistedwisp/examples`. To run the repository beat example, add
 `--flow wisp_gui/examples/beat3.twf --data-path data` from the checkout root.
 
-The generated C header is Cargo output at
-`<target>/<profile>/build/twisted-wisp-*/out/twisted_wisp.h`, never a hardcoded
-checkout target directory. Cargo metadata supplies the configured target path.
-`run_tests.py` builds first and exits on failure, then loads the exact resulting
-shared library. Install pytest/NumPy in your chosen Python environment; Linux
-headless ABI tests can use the ALSA null config described in the GUI README.
+Run `cargo test --workspace` for device-free tests. Backend public-API integration
+tests live in `wisp/tests/offline.rs` and `wisp/tests/runtime.rs`; the latter's
+native lifecycle test is ignored by default and runs in a subprocess. Run it with
+`cargo test -p twisted-wisp --test runtime -- --ignored` on a machine with audio
+output, or use the ALSA null configuration described in the GUI README. No Python
+test packages or generated C headers are needed. The packaging script still uses
+Python's standard library.
 
 Benchmark: `cargo run --release -p wisp_gui --example benchmark -- wisp/core`.
 Fixed valid fixtures are generated before timing; each scenario warms 50 frames
@@ -40,9 +41,7 @@ number directly to the 16.7 ms presentation target.
 
 License review of the locked Linux GUI graph: native dependencies are generally
 MIT/Apache/BSD/ISC/Zlib/Unicode licensed. `self_cell` offers Apache-2.0 OR GPL;
-choose Apache-2.0. `cbindgen` is MPL-2.0 and is a build tool, not linked application
-code. Preserve its notices if redistributing that tool/source. Unicode data/code
-notices are included. System libraries such as ALSA/LLVM have separate distribution
+choose Apache-2.0. Unicode data/code notices are included. System libraries such as ALSA/LLVM have separate distribution
 terms; this package records dynamically required libraries rather than bundling
 them. MIT/Apache project notices are included for both workspace crates.
 

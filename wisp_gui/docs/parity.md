@@ -17,7 +17,7 @@ require separate manual acceptance; a headless run cannot establish them.
 | MIDI learn/cancel | atomic mailbox and fake service tests | verified without device; real controller/disconnect pending |
 | Runtime loss/shutdown | runtime transport and service recovery tests | verified in fake/null-device tests; owned workers join; physical device loss pending |
 | Conditional code outputs | compiler | fixed; actual JIT tests cover independent branches, merged values and nested conditionals |
-| C/Python handoff | c_api / tests | fixed; consuming pointer-to-pointer API, wrapper invalidation, subprocess lifetime tests |
+| Processor ownership | Rust offline/runtime integration tests | verified; public C/Python interface removed, consuming Rust installation and lifetime tests retained |
 | Nested flow instances | root-only setters | deferred by user request; no new instance addressing API |
 | Inline graph editing | existing lab wheel reproduction | deferred by user request; published snarl retained, lab remains read-only |
 
