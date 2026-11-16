@@ -101,6 +101,34 @@ mod tests {
             .err();
         assert!(name.is_some());
     }
+    #[test]
+    fn conditional_outputs_follow_both_paths_and_nested_branches() {
+        use crate::core::{CodeFunctionParseResult, CodeFunctionParser, Function};
+        for body in [
+            "if %positive\n store #out, 10\nelse\n store #out, 20\nend",
+            "if %positive\n add %merged, $value, 10\nelse\n sub %merged, 20, $value\nend\n mul %scaled, %merged, 2\n store #out, %scaled",
+            "if %positive\n add %left, $value, 10\n store #out, %left\nelse\n sub %right, 20, $value\n store #out, %right\nend",
+            "if %positive\n cmp.gt %large, $value, 1\n if %large\n store #out, 10\n else\n store #out, 11\n end\nelse\n store #out, 20\nend",
+        ] {
+            let mut session = session();
+            let source = format!("func branch(value: float) -> (out: float)\nbegin\ncmp.gt %positive, $value, 0\n{body}\nend");
+            let CodeFunctionParseResult::Function(function) = CodeFunctionParser::new(&source).parse_function().unwrap() else { panic!() };
+            session.context.add_function(Function::Code(function));
+            let root = session.load_flow_text("[flow]\nname='branches'\n[[flow.nodes]]\ntext='control'\n[[flow.nodes]]\ntext='branch'\n[[flow.nodes]]\ntext='out'\n[[flow.edges]]\nfrom=0\nto=1\noutput_index=0\ninput_index=0\n[[flow.edges]]\nfrom=1\nto=2\noutput_index=0\ninput_index=0\n").unwrap();
+            let mut processor = session.compile(&root).unwrap();
+            for value in [-2., 0.5, 2.] {
+                processor.set_data_value(&root, CallIndex(0), DataIndex(0), value).unwrap();
+                let mut output = [0.; 2];
+                processor.process_one(&mut output);
+                let expected = if body.contains("%merged") {
+                    2. * if value > 0. { value + 10. } else { 20. - value }
+                } else if body.contains("%left") { if value > 0. { value + 10. } else { 20. - value } }
+                else if value <= 0. { 20. } else if body.contains("%large") && value <= 1. { 11. } else { 10. };
+                assert_eq!(output, [expected; 2], "{body}, input={value}");
+            }
+        }
+    }
+
     fn array_flow(operation: &str) -> String {
         format!("[flow]\nname='arrays'\n[[flow.nodes]]\ntext='buffer'\n[[flow.nodes]]\ntext='control'\n[[flow.nodes]]\ntext='{operation}'\n[[flow.nodes]]\ntext='out'\n[[flow.edges]]\nfrom=0\nto=2\noutput_index=0\ninput_index=0\n[[flow.edges]]\nfrom=1\nto=2\noutput_index=0\ninput_index=1\n[[flow.edges]]\nfrom=2\nto=3\noutput_index=0\ninput_index=0\n")
     }

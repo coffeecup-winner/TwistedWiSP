@@ -147,7 +147,12 @@ impl SignalProcessorBuilder {
                 .get_untracked();
 
             // >1 returns is currently not supported
-            assert!(ir_func.outputs().len() < 2);
+            if ir_func.outputs().len() > 1 {
+                return Err(SignalProcessCreationError::CustomLogicalError(format!(
+                    "{}: multiple return values are unsupported",
+                    ir_func.name()
+                )));
+            }
             let mut arg_types: Vec<BasicMetadataTypeEnum> = vec![];
             if rctx
                 .get_function(name)
@@ -593,8 +598,16 @@ impl SignalProcessorBuilder {
                 Conditional(vref, then_branch, else_branch) => {
                     // Generate code
                     let cond = fctx.get_var(vref)?.into_int_value();
+                    let before_vars = fctx.vars.clone();
+                    let before_outputs = fctx.outputs.clone();
+                    let before_locals = fctx.locals.clone();
                     let (then_block_first, then_block_last) =
                         Self::translate_instructions(rctx, ectx, mctx, fctx, then_branch)?;
+                    let then_vars = fctx.vars.clone();
+                    let then_outputs = fctx.outputs.clone();
+                    fctx.vars = before_vars;
+                    fctx.outputs = before_outputs;
+                    fctx.locals = before_locals.clone();
                     let (else_block_first, else_block_last) =
                         Self::translate_instructions(rctx, ectx, mctx, fctx, else_branch)?;
 
@@ -614,6 +627,34 @@ impl SignalProcessorBuilder {
 
                     current_block = next_block;
                     mctx.builder.position_at_end(current_block);
+                    // Only names defined along both paths may escape a branch.
+                    // Pre-existing values naturally supply the unchanged path.
+                    let merge = |left: BasicValueEnum<'ectx>, right: BasicValueEnum<'ectx>| {
+                        if left.get_type() != right.get_type() {
+                            return Err(SignalProcessCreationError::CustomLogicalError(
+                                "Conditional assigns incompatible value types".into(),
+                            ));
+                        }
+                        let phi =
+                            mctx.build("branch_value", |b, n| b.build_phi(left.get_type(), n))?;
+                        phi.add_incoming(&[(&left, then_block_last), (&right, else_block_last)]);
+                        Ok(phi.as_basic_value())
+                    };
+                    let mut vars = std::collections::HashMap::new();
+                    for (key, left) in then_vars {
+                        if let Some(right) = fctx.vars.get(&key) {
+                            vars.insert(key, merge(left, *right)?);
+                        }
+                    }
+                    fctx.vars = vars;
+                    for (output, left) in fctx.outputs.iter_mut().zip(then_outputs) {
+                        *output = match (left, *output) {
+                            (Some(left), Some(right)) => Some(merge(left, right)?),
+                            _ => None,
+                        };
+                    }
+                    // Branch-local allocations are not visible outside their branch.
+                    fctx.locals = before_locals;
                 }
                 Call(id, name, in_vrefs, out_vrefs) => {
                     let callee_func = mctx.get_function(name)?;
