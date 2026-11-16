@@ -1,7 +1,7 @@
 # Linux build and packaging
 
-Build with the repository's Rust toolchain, LLVM 18, C/C++ tools, pkg-config,
-ALSA and Linux windowing/udev development libraries. Set `LLVM_SYS_181_PREFIX`
+Build with the repository's Rust toolchain, LLVM 22.1, C/C++ tools, pkg-config,
+ALSA and Linux windowing/udev development libraries. Set `LLVM_SYS_221_PREFIX`
 for a custom LLVM installation. The GUI uses native WGPU, X11/Wayland and XDG
 portal dialogs; manual path entry is also available.
 

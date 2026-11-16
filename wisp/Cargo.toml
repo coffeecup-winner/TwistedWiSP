@@ -26,7 +26,7 @@ midly = "0.5"
 midir = "0.11"
 # Core
 crossbeam = "0.8"
-inkwell = { version = "0.11", features = ["llvm18-1-prefer-dynamic"] }
+inkwell = { version = "0.11", features = ["llvm22-1-prefer-dynamic"] }
 rand = "0.10"
 # Utilities
 env_logger = "0.11"
