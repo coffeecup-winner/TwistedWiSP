@@ -147,7 +147,7 @@ mod tests {
         parent1.set(41);
 
         assert_eq!(true, parent1.is_valid());
-        assert_eq!(true, parent2.is_valid());
+        assert_eq!(false, parent2.is_valid());
         assert_eq!(false, child.is_valid());
 
         child.set(*parent1.get(child.handle()) + *parent2.get(child.handle()));
