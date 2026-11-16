@@ -904,6 +904,11 @@ mod tests {
         );
         assert!(MathFunctionParser::parse_function("= 1 + $0").is_some());
 
+        let multiline = "= 1\r\n +\t $0";
+        let parsed = MathFunctionParser::parse_function_checked(multiline).unwrap();
+        assert_eq!(parsed.inputs().len(), 1);
+        assert!(MathFunctionParser::parse_function_checked("= 1\n garbage").is_err());
+
         // Unknown symbols (grammar-valid `id`, semantically invalid) are diagnosed, not swallowed.
         let err = MathFunctionParser::parse_function_checked("= sin").unwrap_err();
         assert!(

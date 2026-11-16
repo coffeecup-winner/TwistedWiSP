@@ -1,4 +1,4 @@
-WHITESPACE = _{" "}
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
 
 // r"-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?
 f32 = @{ "-"? ~ ("0" | ('1'..'9') ~ ASCII_DIGIT*) ~ ("." ~ ASCII_DIGIT+)? ~ (^"e" ~ ("+" | "-")? ~ ASCII_DIGIT+)? }

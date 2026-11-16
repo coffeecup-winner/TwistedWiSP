@@ -630,6 +630,50 @@ mod tests {
         (doc, canvas)
     }
     #[test]
+    fn expression_drafts_follow_accepted_source_and_node_kind() {
+        let (mut doc, mut canvas) = fixture();
+        doc.edit(
+            doc.snapshot().revision,
+            Edit::Create {
+                text: "= 1".into(),
+                position: egui::Vec2::ZERO,
+            },
+        )
+        .unwrap();
+        let snapshot = doc.snapshot();
+        let id = snapshot
+            .nodes
+            .iter()
+            .find(|(_, n)| n.expression.as_deref() == Some("= 1"))
+            .unwrap()
+            .0;
+        canvas.sync(&snapshot);
+        let before = doc.serialize();
+        canvas.expressions.get_mut(&id).unwrap().draft_text = "= (".into();
+        assert!(canvas.expressions.get_mut(&id).unwrap().commit().is_none());
+        assert_eq!(doc.serialize(), before);
+        canvas.expressions.get_mut(&id).unwrap().draft_text = "= 2\n+ 3".into();
+        let text = canvas.expressions.get_mut(&id).unwrap().commit().unwrap();
+        doc.edit(doc.snapshot().revision, Edit::Replace { node: id, text })
+            .unwrap();
+        canvas.sync(&doc.snapshot());
+        assert!(!canvas.expressions[&id].conflict);
+        assert_eq!(canvas.expressions[&id].accepted_text, "= 2\n+ 3");
+        doc.edit(
+            doc.snapshot().revision,
+            Edit::Replace {
+                node: id,
+                text: "control".into(),
+            },
+        )
+        .unwrap();
+        canvas.sync(&doc.snapshot());
+        assert!(!canvas.expressions.contains_key(&id));
+        doc.edit(doc.snapshot().revision, Edit::Undo).unwrap();
+        canvas.sync(&doc.snapshot());
+        assert_eq!(canvas.expressions[&id].draft_text, "= 2\n+ 3");
+    }
+    #[test]
     fn pointer_on_node_sublayer_starts_and_ends_a_gesture() {
         let (_, mut canvas) = fixture();
         let ctx = egui::Context::default();
