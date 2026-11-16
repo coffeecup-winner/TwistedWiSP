@@ -30,7 +30,7 @@ use std::{
 enum RuntimeStateMessage {
     StartDsp,
     StopDsp,
-    SetProcessor(SignalProcessor),
+    SetProcessor(Option<SignalProcessor>),
     SetDataValue(String, CallIndex, DataIndex, f32),
     SetDataArray(String, CallIndex, DataIndex, DataArrayHandle),
     WatchDataValue(String, CallIndex, DataIndex, bool),
@@ -40,22 +40,30 @@ enum RuntimeStateMessage {
 
 enum SignalProcessorResponse {
     Ack,
-    Installed(Option<SignalProcessor>),
+    Installed,
     Watch(Option<WatchIndex>),
     WatchData(WatchedDataValues),
 }
 
 struct RuntimeRequest {
     message: RuntimeStateMessage,
-    reply: Option<Sender<Result<SignalProcessorResponse, String>>>,
+    reply: Option<Sender<Result<SignalProcessorResponse, &'static str>>>,
+    deferred: Option<Result<SignalProcessorResponse, &'static str>>,
 }
 
 struct RuntimeTransport {
+    retired: Arc<crossbeam::queue::ArrayQueue<RuntimeRequest>>,
     tx: Sender<RuntimeRequest>,
     failed: Arc<AtomicBool>,
 }
 
 impl RuntimeTransport {
+    fn collect(&self) {
+        while let Some(request) = self.retired.pop() {
+            drop(request);
+        }
+    }
+
     fn request(&self, message: RuntimeStateMessage) -> Result<SignalProcessorResponse, String> {
         self.request_timeout(message, Duration::from_millis(250))
     }
@@ -65,6 +73,7 @@ impl RuntimeTransport {
         message: RuntimeStateMessage,
         timeout: Duration,
     ) -> Result<SignalProcessorResponse, String> {
+        self.collect();
         if self.failed.load(Ordering::Acquire) {
             return Err("Audio device failed; stop and retry audio initialization".into());
         }
@@ -74,60 +83,68 @@ impl RuntimeTransport {
                 RuntimeRequest {
                     message,
                     reply: Some(reply),
+                    deferred: None,
                 },
                 timeout,
             )
             .map_err(|_| "Audio command queue unavailable or full".to_string())?;
-        rx.recv_timeout(timeout)
+        let result = rx
+            .recv_timeout(timeout)
             .map_err(|_| "Audio callback did not acknowledge the request".to_string())?
+            .map_err(str::to_owned);
+        self.collect();
+        result
     }
 }
 
 struct RuntimeState {
+    retired: Arc<crossbeam::queue::ArrayQueue<RuntimeRequest>>,
     processor: Option<SignalProcessor>,
     is_running: bool,
 }
 
 impl RuntimeState {
-    fn apply(&mut self, message: RuntimeStateMessage) -> Result<SignalProcessorResponse, String> {
+    fn apply(
+        &mut self,
+        message: &mut RuntimeStateMessage,
+    ) -> Result<SignalProcessorResponse, &'static str> {
         match message {
             RuntimeStateMessage::StartDsp => {
                 if self.processor.is_none() {
-                    return Err("No processor installed".into());
+                    return Err("No processor installed");
                 }
                 self.is_running = true;
             }
             RuntimeStateMessage::StopDsp => self.is_running = false,
             RuntimeStateMessage::SetProcessor(sp) => {
-                return Ok(SignalProcessorResponse::Installed(
-                    self.processor.replace(sp),
-                ))
+                std::mem::swap(&mut self.processor, sp);
+                return Ok(SignalProcessorResponse::Installed);
             }
             RuntimeStateMessage::SetDataValue(name, call, data, value) => {
                 if !value.is_finite() {
-                    return Err("Nonfinite control value".into());
+                    return Err("Nonfinite control value");
                 }
                 self.processor
                     .as_mut()
-                    .and_then(|p| p.set_data_value(&name, call, data, value))
+                    .and_then(|p| p.set_data_value(name, *call, *data, *value))
                     .ok_or("Invalid scalar address or no processor")?;
             }
             RuntimeStateMessage::SetDataArray(name, call, data, array) => {
                 self.processor
                     .as_mut()
-                    .and_then(|p| p.set_data_array(&name, call, data, array))
+                    .and_then(|p| p.set_data_array(name, *call, *data, array.clone()))
                     .ok_or("Invalid array address or no processor")?;
             }
             RuntimeStateMessage::WatchDataValue(name, call, data, last) => {
                 return Ok(SignalProcessorResponse::Watch(
                     self.processor
                         .as_mut()
-                        .and_then(|p| p.watch_data_value(&name, call, data, last)),
+                        .and_then(|p| p.watch_data_value(name, *call, *data, *last)),
                 ))
             }
             RuntimeStateMessage::UnwatchDataValue(id) => {
                 if let Some(p) = &mut self.processor {
-                    p.unwatch_data_value(id);
+                    p.unwatch_data_value(*id);
                 }
             }
             RuntimeStateMessage::QueryWatchedDataValues => {
@@ -144,12 +161,25 @@ impl RuntimeState {
 
     fn drain(&mut self, rx: &Receiver<RuntimeRequest>) {
         for _ in 0..64 {
-            let Ok(request) = rx.try_recv() else {
+            // One producer, control-thread consumer. Never accept work without
+            // space to retain its payload, retired processor and abandoned reply.
+            if self.retired.is_full() {
+                break;
+            }
+            let Ok(mut request) = rx.try_recv() else {
                 break;
             };
-            let response = self.apply(request.message);
-            if let Some(reply) = request.reply {
-                let _ = reply.try_send(response);
+            let response = self.apply(&mut request.message);
+            if let Some(reply) = &request.reply {
+                if let Err(error) = reply.try_send(response) {
+                    request.deferred = Some(error.into_inner());
+                }
+            } else {
+                request.deferred = Some(response);
+            }
+            // Space was reserved before receiving; this cannot fail.
+            if self.retired.push(request).is_err() {
+                unreachable!("Retirement capacity invariant");
             }
         }
     }
@@ -243,15 +273,57 @@ pub(crate) fn compile_context(
     Ok(processor)
 }
 
+// CPAL may destroy its callback on the backend thread. Return the entire
+// closure state rather than destroying LLVM/resources on that thread.
+struct CallbackOwner {
+    state: Option<RuntimeState>,
+    requests: Receiver<RuntimeRequest>,
+    returned: Sender<(RuntimeState, Receiver<RuntimeRequest>)>,
+}
+impl CallbackOwner {
+    fn process(&mut self, buffer: &mut [f32]) {
+        let state = self.state.as_mut().unwrap();
+        state.drain(&self.requests);
+        state.render(buffer);
+    }
+}
+impl Drop for CallbackOwner {
+    fn drop(&mut self) {
+        if let Some(state) = self.state.take() {
+            // Exactly one return, receiver owned until stream destruction completes.
+            if self
+                .returned
+                .try_send((state, self.requests.clone()))
+                .is_err()
+            {
+                unreachable!("Callback return invariant");
+            }
+        }
+    }
+}
+
 pub struct WispRuntime {
     // Field order is deliberate: stop/drop callback before any other resources.
-    _stream: Stream,
+    _stream: Option<Stream>,
+    state_rx: Receiver<(RuntimeState, Receiver<RuntimeRequest>)>,
     _midi: Option<MidiInputConnection<()>>,
     _device: ConfiguredAudioDevice,
     midi: Arc<crate::MidiMailbox>,
     legacy_midi: HashMap<u64, (String, CallIndex, DataIndex)>,
     legacy_pending: HashMap<u64, f32>,
     transport: RuntimeTransport,
+}
+
+impl Drop for WispRuntime {
+    fn drop(&mut self) {
+        drop(self._stream.take());
+        // Stream destruction joins the backend callback on supported Linux CPAL.
+        // Closure destruction returns its state; processor destruction is here.
+        if let Ok(state) = self.state_rx.recv() {
+            drop(state);
+        }
+        self.transport.collect();
+    }
 }
 
 impl WispRuntime {
@@ -263,14 +335,20 @@ impl WispRuntime {
         let mailbox = Arc::new(crate::MidiMailbox::default());
         let failed = Arc::new(AtomicBool::new(false));
         let stream_failed = failed.clone();
-        let mut state = RuntimeState {
-            processor: None,
-            is_running: false,
+        let retired = Arc::new(crossbeam::queue::ArrayQueue::new(128));
+        let (state_tx, state_rx) = bounded(1);
+        let mut owner = CallbackOwner {
+            state: Some(RuntimeState {
+                retired: retired.clone(),
+                processor: None,
+                is_running: false,
+            }),
+            requests: rx,
+            returned: state_tx,
         };
         let stream = device.build_output_audio_stream(
             move |_, buffer| {
-                state.drain(&rx);
-                state.render(buffer);
+                owner.process(buffer);
             },
             move |_| {
                 stream_failed.store(true, Ordering::Release);
@@ -302,13 +380,18 @@ impl WispRuntime {
             }
         });
         Ok(Self {
-            _stream: stream,
+            _stream: Some(stream),
+            state_rx,
             _midi: midi_connection,
             _device: device,
             midi: mailbox,
             legacy_midi: HashMap::new(),
             legacy_pending: HashMap::new(),
-            transport: RuntimeTransport { tx, failed },
+            transport: RuntimeTransport {
+                tx,
+                failed,
+                retired,
+            },
         })
     }
 
@@ -331,13 +414,10 @@ impl WispRuntime {
     pub fn install_checked(&self, sp: SignalProcessor) -> Result<(), String> {
         match self
             .transport
-            .request(RuntimeStateMessage::SetProcessor(sp))?
+            .request(RuntimeStateMessage::SetProcessor(Some(sp)))?
         {
             // Destruction of the retired processor occurs on the service thread.
-            SignalProcessorResponse::Installed(old) => {
-                drop(old);
-                Ok(())
-            }
+            SignalProcessorResponse::Installed => Ok(()),
             _ => Err("Unexpected install reply".into()),
         }
     }
@@ -444,11 +524,13 @@ impl WispRuntime {
         if !self.healthy() {
             return Err("Audio device failed".into());
         }
+        self.transport.collect();
         self.transport
             .tx
             .try_send(RuntimeRequest {
                 message: RuntimeStateMessage::SetDataValue(name.into(), call, data, value),
                 reply: None,
+                deferred: None,
             })
             .map_err(|_| "Audio queue full".into())
     }
@@ -531,6 +613,7 @@ impl WispRuntime {
                 .try_send(RuntimeRequest {
                     message: RuntimeStateMessage::SetDataValue(name.clone(), *call, *data, *value),
                     reply: None,
+                    deferred: None,
                 })
                 .is_err()
         });
@@ -549,9 +632,82 @@ mod tests {
     use super::*;
 
     #[test]
+    fn abandoned_installs_and_callback_destruction_return_owned_state() {
+        let mut session = crate::OfflineSession::new(
+            44100,
+            1,
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("core"),
+        )
+        .unwrap();
+        let name = session
+            .load_flow_text("[flow]\nname='retirement'\n[[flow.nodes]]\ntext='buffer'\n")
+            .unwrap();
+        let samples: Arc<[f32]> = vec![1., 2.].into();
+        let weak = Arc::downgrade(&samples);
+        let mut old = session.compile(&name).unwrap();
+        old.set_data_array(
+            &name,
+            CallIndex(0),
+            DataIndex(0),
+            DataArrayHandle::from_shared(samples),
+        )
+        .unwrap();
+        let new = session.compile(&name).unwrap();
+        drop(session);
+        let retired = Arc::new(crossbeam::queue::ArrayQueue::new(1));
+        let (tx, requests) = bounded(2);
+        let (returned, states) = bounded(1);
+        // Full retirement storage must leave the replacement queued, not drop
+        // either LLVM owner or switch processors on the callback.
+        retired
+            .push(RuntimeRequest {
+                message: RuntimeStateMessage::StopDsp,
+                reply: None,
+                deferred: None,
+            })
+            .ok()
+            .unwrap();
+        let (reply, abandoned) = bounded(1);
+        drop(abandoned);
+        tx.try_send(RuntimeRequest {
+            message: RuntimeStateMessage::SetProcessor(Some(new)),
+            reply: Some(reply),
+            deferred: None,
+        })
+        .unwrap();
+        let mut owner = CallbackOwner {
+            state: Some(RuntimeState {
+                retired: retired.clone(),
+                processor: Some(old),
+                is_running: false,
+            }),
+            requests,
+            returned,
+        };
+        owner.process(&mut [0.]);
+        assert_eq!(owner.requests.len(), 1);
+        drop(retired.pop());
+        // Simulate a backend that destroys the callback closure on its worker.
+        std::thread::spawn(move || {
+            owner.process(&mut [0.]);
+            drop(owner);
+        })
+        .join()
+        .unwrap();
+        assert!(weak.upgrade().is_some());
+        let packet = retired.pop().unwrap();
+        assert!(packet.deferred.is_some());
+        drop(packet); // Old processor's source is released on this control thread.
+        assert!(weak.upgrade().is_none());
+        drop(states.recv().unwrap());
+    }
+
+    #[test]
     fn full_and_disconnected_transports_fail_within_deadline() {
         let (tx, rx) = bounded(1);
+        let retired = Arc::new(crossbeam::queue::ArrayQueue::new(128));
         let transport = RuntimeTransport {
+            retired: retired.clone(),
             tx,
             failed: Arc::new(AtomicBool::new(false)),
         };
@@ -560,6 +716,7 @@ mod tests {
             .try_send(RuntimeRequest {
                 message: RuntimeStateMessage::StopDsp,
                 reply: None,
+                deferred: None,
             })
             .unwrap();
         assert!(
@@ -574,7 +731,9 @@ mod tests {
     #[test]
     fn transport_times_out_without_callback_and_replies_do_not_cross() {
         let (tx, rx) = bounded(1);
+        let retired = Arc::new(crossbeam::queue::ArrayQueue::new(128));
         let transport = RuntimeTransport {
+            retired: retired.clone(),
             tx,
             failed: Arc::new(AtomicBool::new(false)),
         };
@@ -582,6 +741,7 @@ mod tests {
             .request_timeout(RuntimeStateMessage::StopDsp, Duration::from_millis(2))
             .is_err());
         let mut state = RuntimeState {
+            retired: Arc::new(crossbeam::queue::ArrayQueue::new(128)),
             processor: None,
             is_running: false,
         };
@@ -592,6 +752,7 @@ mod tests {
             .try_send(RuntimeRequest {
                 message: RuntimeStateMessage::StartDsp,
                 reply: Some(reply),
+                deferred: None,
             })
             .unwrap();
         state.drain(&rx);
@@ -607,9 +768,11 @@ mod tests {
         tx.try_send(RuntimeRequest {
             message: RuntimeStateMessage::StopDsp,
             reply: Some(reply),
+            deferred: None,
         })
         .unwrap();
         let mut state = RuntimeState {
+            retired: Arc::new(crossbeam::queue::ArrayQueue::new(128)),
             processor: None,
             is_running: false,
         };
