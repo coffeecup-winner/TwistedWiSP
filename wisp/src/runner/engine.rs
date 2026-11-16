@@ -9,10 +9,7 @@ use crate::{
     core::{FlowFunction, WispContext, WispFunction},
     ir::IRFunction,
     midi::WispMidiIn,
-    runner::{
-        context::{WispEngineContext, WispExecutionContext},
-        runtime::WispRuntime,
-    },
+    runner::{context::WispEngineContext, runtime::WispRuntime},
 };
 
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
@@ -49,7 +46,6 @@ pub struct TwistedWispEngineConfig<'a> {
 pub struct TwistedWispEngine {
     ctx: WispContext,
     wisp: WispEngineContext,
-    execution_context: WispExecutionContext,
     runtime: WispRuntime,
 }
 
@@ -71,7 +67,6 @@ impl TwistedWispEngine {
         }
 
         let midi_in = WispMidiIn::open(config.midi_in_port)?;
-        let execution_context = WispExecutionContext::init();
         let runtime = WispRuntime::init(device, midi_in);
 
         for f in ctx.functions_iter() {
@@ -80,12 +75,7 @@ impl TwistedWispEngine {
             }
         }
 
-        Ok(TwistedWispEngine {
-            ctx,
-            wisp,
-            execution_context,
-            runtime,
-        })
+        Ok(TwistedWispEngine { ctx, wisp, runtime })
     }
 
     pub fn dsp_start(&mut self) {
@@ -239,12 +229,8 @@ impl TwistedWispEngine {
 
     pub fn context_update(&mut self) -> Result<(), SignalProcessCreationError> {
         if let Some(main_function) = self.ctx.main_function() {
-            self.runtime.switch_to_signal_processor(
-                &self.ctx,
-                &self.execution_context,
-                &self.wisp,
-                main_function,
-            )
+            self.runtime
+                .switch_to_signal_processor(&self.ctx, &self.wisp, main_function)
         } else {
             Err(SignalProcessCreationError::NoMainFunction)
         }
