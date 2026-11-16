@@ -169,24 +169,99 @@ lazy_static::lazy_static! {
     };
 }
 
+/// A structured expression parse error.
+///
+/// Returned by [`MathFunctionParser::parse_function_checked`] so the GUI can surface a useful
+/// diagnostic instead of letting a malformed expression panic or drop the worker. The grammar is
+/// unchanged; this only makes the existing fallible path safe and informative.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MathParseError {
+    /// The input did not match the `= expression` grammar (empty body, unbalanced parentheses, …).
+    Grammar(String),
+    /// An argument reference like `$999999999` used an index that does not fit `u32`.
+    ArgumentIndex(String),
+    /// A constant/identifier other than `SampleRate` was used.
+    UnknownSymbol(String),
+    /// A numeric literal was not valid.
+    Number(String),
+}
+impl std::fmt::Display for MathParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Grammar(detail) => write!(f, "invalid expression: {detail}"),
+            Self::ArgumentIndex(index) => write!(f, "invalid argument index {index}"),
+            Self::UnknownSymbol(name) => write!(f, "unknown symbol {name}"),
+            Self::Number(literal) => write!(f, "invalid number {literal}"),
+        }
+    }
+}
+impl std::error::Error for MathParseError {}
+
 impl MathFunctionParser {
+    /// Parse an expression, returning a structured error on failure. Never panics on malformed
+    /// input, oversized argument indices, or unknown symbols. Only invoked on explicit creation or
+    /// commit, never per key press (see milestone 2, section 3).
+    pub fn parse_function_checked(expr_string: &str) -> Result<MathFunction, MathParseError> {
+        if expr_string.len() > 8192 || expr_string.chars().filter(|c| *c == '(').count() > 64 {
+            return Err(MathParseError::Grammar(
+                "Expression exceeds size/depth limit".into(),
+            ));
+        }
+        let pairs = Self::parse(Rule::math_function, expr_string)
+            .map_err(|err| MathParseError::Grammar(err.to_string()))?;
+        Self::validate_tokens(pairs.clone())?;
+        let top = pairs
+            .into_iter()
+            .next()
+            .ok_or_else(|| MathParseError::Grammar("expected an expression after '='".into()))?;
+        let expr = Self::parse_expr(top.into_inner())
+            .ok_or_else(|| MathParseError::Grammar("failed to evaluate expression".into()))?;
+        Ok(MathFunction::new(expr_string.to_owned(), expr))
+    }
+
+    /// Fallible, non-panicking parser. Kept for existing callers; yields `None` on any error.
     pub fn parse_function(expr_string: &str) -> Option<MathFunction> {
-        let mut pairs = Self::parse(Rule::math_function, expr_string).expect("X"); //.ok()?;
-        let expr = Self::parse_expr(pairs.next().unwrap().into_inner())?;
-        Some(MathFunction::new(expr_string.to_owned(), expr))
+        Self::parse_function_checked(expr_string).ok()
+    }
+
+    /// Validate every leaf token left-to-right and report the first offending one. This is what
+    /// turns a grammar-valid but semantically invalid expression (unknown symbol, oversized `$N`)
+    /// into a precise diagnostic rather than a panic.
+    fn validate_tokens(pairs: Pairs<Rule>) -> Result<(), MathParseError> {
+        for pair in pairs {
+            match pair.as_rule() {
+                Rule::f32 => {
+                    if !pair.as_str().parse::<f32>().is_ok_and(|n| n.is_finite()) {
+                        return Err(MathParseError::Number(pair.as_str().to_owned()));
+                    }
+                }
+                Rule::arg => {
+                    let digits = pair.as_str().strip_prefix('$').unwrap_or("");
+                    if digits.is_empty() || !digits.parse::<u32>().is_ok_and(|n| n < 1024) {
+                        return Err(MathParseError::ArgumentIndex(pair.as_str().to_owned()));
+                    }
+                }
+                Rule::id => {
+                    if pair.as_str() != "SampleRate" {
+                        return Err(MathParseError::UnknownSymbol(pair.as_str().to_owned()));
+                    }
+                }
+                Rule::expr => Self::validate_tokens(pair.into_inner())?,
+                _ => {}
+            }
+        }
+        Ok(())
     }
 
     fn parse_expr(pairs: Pairs<Rule>) -> Option<MathExpression> {
         PARSER
             .map_primary(|p| match p.as_rule() {
-                Rule::f32 => Some(MathExpression::Number(p.as_str().parse::<f32>().unwrap())),
-                Rule::arg => Some(MathExpression::Argument(
-                    p.as_str()
-                        .strip_prefix('$')
-                        .unwrap()
-                        .parse::<u32>()
-                        .unwrap(),
-                )),
+                Rule::f32 => p.as_str().parse::<f32>().ok().map(MathExpression::Number),
+                Rule::arg => p
+                    .as_str()
+                    .strip_prefix('$')
+                    .and_then(|digits| digits.parse::<u32>().ok())
+                    .map(MathExpression::Argument),
                 Rule::id => match p.as_str() {
                     "SampleRate" => Some(MathExpression::Constant(Constant::SampleRate)),
                     _ => None,
@@ -195,49 +270,46 @@ impl MathFunctionParser {
                 _ => None,
             })
             .map_infix(|lhs, op, rhs| {
-                enum Result {
-                    BinaryOp(BinaryOpType),
-                    ComparisonOp(ComparisonOpType),
-                }
-                let result = match op.as_rule() {
-                    Rule::add => Result::BinaryOp(BinaryOpType::Add),
-                    Rule::subtract => Result::BinaryOp(BinaryOpType::Subtract),
-                    Rule::multiply => Result::BinaryOp(BinaryOpType::Multiply),
-                    Rule::divide => Result::BinaryOp(BinaryOpType::Divide),
-                    Rule::remainder => Result::BinaryOp(BinaryOpType::Remainder),
-                    Rule::less_than => Result::ComparisonOp(ComparisonOpType::Less),
-                    Rule::less_or_equal => Result::ComparisonOp(ComparisonOpType::LessOrEqual),
-                    Rule::greater_than => Result::ComparisonOp(ComparisonOpType::Greater),
-                    Rule::greater_or_equal => {
-                        Result::ComparisonOp(ComparisonOpType::GreaterOrEqual)
-                    }
-                    Rule::equal => Result::ComparisonOp(ComparisonOpType::Equal),
-                    Rule::not_equal => Result::ComparisonOp(ComparisonOpType::NotEqual),
-                    _ => unreachable!(),
+                let lhs = lhs?;
+                let rhs = rhs?;
+                let kind = match op.as_rule() {
+                    Rule::add => Kind::Binary(BinaryOpType::Add),
+                    Rule::subtract => Kind::Binary(BinaryOpType::Subtract),
+                    Rule::multiply => Kind::Binary(BinaryOpType::Multiply),
+                    Rule::divide => Kind::Binary(BinaryOpType::Divide),
+                    Rule::remainder => Kind::Binary(BinaryOpType::Remainder),
+                    Rule::less_than => Kind::Comparison(ComparisonOpType::Less),
+                    Rule::less_or_equal => Kind::Comparison(ComparisonOpType::LessOrEqual),
+                    Rule::greater_than => Kind::Comparison(ComparisonOpType::Greater),
+                    Rule::greater_or_equal => Kind::Comparison(ComparisonOpType::GreaterOrEqual),
+                    Rule::equal => Kind::Comparison(ComparisonOpType::Equal),
+                    Rule::not_equal => Kind::Comparison(ComparisonOpType::NotEqual),
+                    _ => return None,
                 };
-                match result {
-                    Result::BinaryOp(type_) => Some(MathExpression::BinaryOp(
-                        type_,
-                        Box::new(lhs?),
-                        Box::new(rhs?),
-                    )),
-                    Result::ComparisonOp(type_) => Some(MathExpression::ComparisonOp(
-                        type_,
-                        Box::new(lhs?),
-                        Box::new(rhs?),
-                    )),
-                }
+                Some(match kind {
+                    Kind::Binary(op) => MathExpression::BinaryOp(op, Box::new(lhs), Box::new(rhs)),
+                    Kind::Comparison(op) => {
+                        MathExpression::ComparisonOp(op, Box::new(lhs), Box::new(rhs))
+                    }
+                })
             })
-            .map_prefix(|op, rhs| match op.as_rule() {
-                Rule::unary_minus => Some(MathExpression::BinaryOp(
-                    BinaryOpType::Subtract,
-                    Box::new(MathExpression::Number(0.0)),
-                    Box::new(rhs?),
-                )),
-                _ => unreachable!(),
+            .map_prefix(|op, rhs| {
+                let rhs = rhs?;
+                (op.as_rule() == Rule::unary_minus).then(|| {
+                    MathExpression::BinaryOp(
+                        BinaryOpType::Subtract,
+                        Box::new(MathExpression::Number(0.0)),
+                        Box::new(rhs),
+                    )
+                })
             })
             .parse(pairs)
     }
+}
+
+enum Kind {
+    Binary(BinaryOpType),
+    Comparison(ComparisonOpType),
 }
 
 #[cfg(test)]
@@ -821,5 +893,48 @@ mod tests {
             ],
             func.ir
         );
+    }
+
+    #[test]
+    fn parse_function_checked_classifies_failures_without_panicking() {
+        // Valid input still parses.
+        assert_eq!(
+            MathFunctionParser::parse_function_checked("= 1 + $0").map(|f| f.inputs().len()),
+            Ok(1)
+        );
+        assert!(MathFunctionParser::parse_function("= 1 + $0").is_some());
+
+        // Unknown symbols (grammar-valid `id`, semantically invalid) are diagnosed, not swallowed.
+        let err = MathFunctionParser::parse_function_checked("= sin").unwrap_err();
+        assert!(
+            matches!(err, MathParseError::UnknownSymbol(ref s) if s == "sin"),
+            "{err:?}"
+        );
+        assert!(MathFunctionParser::parse_function("= sin").is_none());
+
+        // Oversized argument index no longer panics.
+        let big = format!("= ${} + 1", "9".repeat(20));
+        let err = MathFunctionParser::parse_function_checked(&big).unwrap_err();
+        assert!(
+            matches!(err, MathParseError::ArgumentIndex(ref s) if s.starts_with('$')),
+            "{err:?}"
+        );
+
+        // Empty / unbalanced bodies are grammar errors, not panics.
+        for bad in ["=", "", "= (1 + 2", "= sin($0)"] {
+            assert!(
+                matches!(
+                    MathFunctionParser::parse_function_checked(bad).unwrap_err(),
+                    MathParseError::Grammar(_)
+                ),
+                "{bad:?}"
+            );
+            assert!(MathFunctionParser::parse_function(bad).is_none(), "{bad:?}");
+        }
+
+        // Diagnostics are stable strings usable in the GUI status line.
+        assert!(MathParseError::UnknownSymbol("x".into())
+            .to_string()
+            .contains("x"));
     }
 }
