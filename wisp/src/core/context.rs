@@ -114,9 +114,9 @@ impl WispContext {
                         self.add_function(Function::Code(func));
                     }
                     CodeFunctionParseResult::Alias(alias, target) => {
-                        let func = self
-                            .get_function(&target)
-                            .expect("Unknown function alias target");
+                        let func = self.get_function(&target).ok_or_else(|| {
+                            into_err(format!("Unknown function alias target: {target}"))
+                        })?;
                         info!("  - {} (alias of {})", alias, func.borrow().name());
                         let alias_func = FunctionHandle::new(func.borrow().clone());
                         *alias_func.borrow_mut().name_mut() = alias.clone();
@@ -130,8 +130,12 @@ impl WispContext {
 
     pub fn load_function(&mut self, file_path: &Path) -> Result<String, Box<dyn Error>> {
         let text = std::fs::read_to_string(file_path)?;
-        // TODO: Load flow or code function
-        let func = FlowFunction::load(&text, self).expect("Failed to parse the flow function data");
+        self.load_flow_text(&text)
+    }
+
+    pub fn load_flow_text(&mut self, text: &str) -> Result<String, Box<dyn Error>> {
+        let func = FlowFunction::load(text, self)
+            .ok_or_else(|| into_err("Invalid flow definition or edge endpoints".into()))?;
         let flow_name = func.name().to_owned();
         info!("Loading function: {}", flow_name);
         self.add_function(func);

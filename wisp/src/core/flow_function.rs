@@ -91,7 +91,9 @@ struct FileFormat {
 #[derive(Debug, Serialize, Deserialize)]
 struct FileFormatFlow {
     name: String,
+    #[serde(default)]
     nodes: Vec<FileFormatNode>,
+    #[serde(default)]
     edges: Vec<FileFormatEdge>,
 }
 
@@ -218,6 +220,11 @@ impl FlowFunction {
     {
         let format = toml::from_str::<FileFormat>(s).ok()?;
         let mut flow = FlowFunction::new(format.flow.name);
+        if format.flow.edges.iter().any(|e| {
+            e.from as usize >= format.flow.nodes.len() || e.to as usize >= format.flow.nodes.len()
+        }) {
+            return None;
+        }
         for n in format.flow.nodes {
             let node_idx = flow.add_node(&n.text);
             let node = flow.get_node_mut(node_idx).unwrap();
