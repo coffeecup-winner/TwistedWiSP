@@ -10,28 +10,28 @@ edition = "2021"
 # ===== Core =====
 indexmap = { version = "2.2", features = ["serde"] }
 lazy_static = "1.4"
-logos = "0.14.0"
+logos = "0.16"
 pest = "2.7"
 pest_derive = "2.7"
-petgraph = "0.6.4"
+petgraph = "0.8"
 serde = { version = "1", features = ["derive"] }
-toml = "0.8"
+toml = "1.2"
 
 # ===== Runner =====
 # Audio
-cpal = "0.15.3"
+cpal = "0.18"
 hound = "3.5"
 # MIDI
 midly = "0.5"
-midir = "0.10"
+midir = "0.11"
 # Core
 crossbeam = "0.8"
 inkwell = { version = "0.5.0", features = ["llvm18-0-prefer-dynamic"] }
-rand = "0.8"
+rand = "0.10"
 # Utilities
 env_logger = "0.11"
 log = "0.4"
-ringbuffer = "0.15.0"
-string-error = "0.1.0"
-thiserror = "1"
+ringbuffer = "0.16"
+string-error = "0.1"
+thiserror = "2.0"
 

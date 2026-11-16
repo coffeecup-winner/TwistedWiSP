@@ -1,6 +1,6 @@
 use cpal::{
     traits::{DeviceTrait, HostTrait},
-    BufferSize, Device, SampleFormat, SampleRate, Stream, StreamConfig, SupportedBufferSize,
+    BufferSize, Device, SampleFormat, Stream, StreamConfig, SupportedBufferSize,
 };
 use log::{error, info};
 
@@ -32,12 +32,12 @@ impl ConfiguredAudioDevice {
     }
 
     pub fn sample_rate(&self) -> u32 {
-        self.config.sample_rate.0
+        self.config.sample_rate
     }
 
     pub fn build_output_audio_stream<
         F: FnMut(u32, &mut [f32]) + Send + 'static,
-        E: FnMut(cpal::StreamError) + Send + 'static,
+        E: FnMut(cpal::Error) + Send + 'static,
     >(
         &self,
         mut process_audio: F,
@@ -45,7 +45,7 @@ impl ConfiguredAudioDevice {
     ) -> Result<Stream, Box<dyn std::error::Error>> {
         let num_output_channels = self.num_output_channels();
         let output_stream = self.device.build_output_stream(
-            &self.config,
+            self.config,
             move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
                 process_audio(num_output_channels, data);
             },
@@ -83,7 +83,7 @@ impl ConfiguredAudioDevice {
         let device = if let Some(device_name) = preferred_device {
             let mut device = None;
             for dev in host.output_devices()? {
-                if dev.name()? == device_name {
+                if dev.description()?.name() == device_name {
                     device = Some(dev);
                     break;
                 }
@@ -99,7 +99,7 @@ impl ConfiguredAudioDevice {
             host.default_output_device()
         }
         .ok_or("No output audio device is available")?;
-        info!("Selected audio device: {}", device.name()?);
+        info!("Selected audio device: {}", device.description()?.name());
 
         Ok(device)
     }
@@ -114,7 +114,7 @@ impl ConfiguredAudioDevice {
         let config = choose_config(&ranges, channels, buffer, rate)?;
         info!(
             "Audio: {} channels, {} Hz, buffer {:?}",
-            config.channels, config.sample_rate.0, config.buffer_size
+            config.channels, config.sample_rate, config.buffer_size
         );
         Ok(config)
     }
@@ -137,15 +137,15 @@ fn choose_config(
         .min_by_key(|r| {
             (
                 r.channels().abs_diff(wanted_channels),
-                if wanted_rate < r.min_sample_rate().0 {
-                    r.min_sample_rate().0 - wanted_rate
+                if wanted_rate < r.min_sample_rate() {
+                    r.min_sample_rate() - wanted_rate
                 } else {
-                    wanted_rate.saturating_sub(r.max_sample_rate().0)
+                    wanted_rate.saturating_sub(r.max_sample_rate())
                 },
             )
         })
         .ok_or("No F32 audio output configuration is supported")?;
-    let rate = wanted_rate.clamp(best.min_sample_rate().0, best.max_sample_rate().0);
+    let rate = wanted_rate.clamp(best.min_sample_rate(), best.max_sample_rate());
     if best.channels() != wanted_channels || rate != wanted_rate {
         info!(
             "Requested audio configuration unsupported; using {} channels at {} Hz",
@@ -153,7 +153,7 @@ fn choose_config(
             rate
         );
     }
-    let mut config: StreamConfig = (*best).with_sample_rate(SampleRate(rate)).into();
+    let mut config: StreamConfig = (*best).with_sample_rate(rate).into();
     config.buffer_size = match (buffer, best.buffer_size()) {
         (Some(n), SupportedBufferSize::Range { min, max }) => {
             BufferSize::Fixed(n.clamp(*min, *max))
@@ -173,8 +173,8 @@ mod tests {
     ) -> cpal::SupportedStreamConfigRange {
         cpal::SupportedStreamConfigRange::new(
             channels,
-            SampleRate(min),
-            SampleRate(max),
+            min,
+            max,
             SupportedBufferSize::Range { min: 64, max: 1024 },
             format,
         )
@@ -187,7 +187,7 @@ mod tests {
         ];
         let c = choose_config(&ranges, Some(2), Some(1), Some(44100)).unwrap();
         assert_eq!(c.channels, 1);
-        assert_eq!(c.sample_rate.0, 48000);
+        assert_eq!(c.sample_rate, 48000);
         assert_eq!(c.buffer_size, BufferSize::Fixed(64));
         assert!(choose_config(&ranges[..1], None, None, None).is_err());
         assert!(choose_config(&ranges, Some(0), None, None).is_err());

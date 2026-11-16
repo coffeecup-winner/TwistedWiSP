@@ -218,7 +218,9 @@ impl SignalProcessor {
                     let value = self.data[watch.data_offset as usize];
                     match watch.data {
                         WatchedData::LastValue(ref mut v) => *v = value.as_float(),
-                        WatchedData::Buffer(ref mut buffer) => buffer.push(value.as_float()),
+                        WatchedData::Buffer(ref mut buffer) => {
+                            buffer.enqueue(value.as_float());
+                        }
                     }
                 }
             }
