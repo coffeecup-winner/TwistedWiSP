@@ -48,8 +48,8 @@ pub struct Options {
     pub audio_device: Option<String>,
     #[arg(long, value_parser = clap::value_parser!(u16).range(1..))]
     pub audio_output_channels: Option<u16>,
-    /// Requested audio block size; devices may clamp this to their supported range.
-    #[arg(long, default_value = "256", value_parser = clap::value_parser!(u32).range(1..))]
+    /// Requested audio buffer size; devices may clamp this to their supported range.
+    #[arg(long, default_value = "512", value_parser = clap::value_parser!(u32).range(1..))]
     pub audio_buffer_size: Option<u32>,
     #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
     pub audio_sample_rate: Option<u32>,
