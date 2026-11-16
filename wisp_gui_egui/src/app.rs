@@ -9,12 +9,35 @@ use crate::{
 };
 use std::path::PathBuf;
 
+/// Prefer an installed relocatable layout, then the development checkout.
+fn default_core_path() -> PathBuf {
+    if let Some(path) = std::env::var_os("WISP_CORE_PATH") {
+        return path.into();
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(bin) = exe.parent() {
+            let installed = bin.join("../share/twistedwisp/core");
+            if installed.is_dir() {
+                return installed;
+            }
+            let checkout = bin.join("../../wisp/core");
+            if checkout.is_dir() {
+                return checkout;
+            }
+        }
+    }
+    PathBuf::from("wisp/core")
+}
+
 #[derive(Clone, Debug, clap::Parser)]
 #[command(about = "TwistedWiSP native graph editor ")]
 pub struct Options {
+    /// Validate core resources without a window or devices.
+    #[arg(long)]
+    pub check_resources: bool,
     #[arg(long)]
     pub flow: Option<PathBuf>,
-    #[arg(long, default_value_os_t = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../wisp/core"))]
+    #[arg(long, default_value_os_t = default_core_path())]
     pub core_lib_path: PathBuf,
     /// Forbid audio and MIDI initialization.
     #[arg(long)]

@@ -3,6 +3,13 @@ use clap::Parser;
 use wisp_gui_egui::app::{Options, WispGuiApp};
 fn main() -> eframe::Result {
     let options = Options::parse();
+    if options.check_resources {
+        wisp::OfflineSession::new(44100, 2, &options.core_lib_path).map_err(|error| {
+            eframe::Error::AppCreation(Box::new(std::io::Error::other(error.to_string())))
+        })?;
+        println!("Core resources OK: {}", options.core_lib_path.display());
+        return Ok(());
+    }
     let _ = env_logger::Builder::from_env(
         env_logger::Env::default().filter_or("TWISTED_WISP_LOG", "info"),
     )
