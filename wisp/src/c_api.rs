@@ -28,7 +28,7 @@ pub unsafe extern "C" fn wisp_engine_config_set_core_path(
     config: *mut TwistedWispEngineConfig,
     core_path: *const c_char,
 ) {
-    if !config.is_null() {
+    if !config.is_null() && !core_path.is_null() {
         unsafe {
             (*config).core_path = Some(
                 std::ffi::CStr::from_ptr(core_path)
@@ -71,6 +71,9 @@ pub unsafe extern "C" fn wisp_context_load_flow_from_file(
     engine: *mut TwistedWispEngine,
     file_name: *const c_char,
 ) -> *mut c_char {
+    if file_name.is_null() {
+        return std::ptr::null_mut();
+    }
     if let Some(engine) = unsafe { engine.as_mut() } {
         if let Ok(name) = engine.ctx_load_flow_from_file(
             unsafe { std::ffi::CStr::from_ptr(file_name) }
@@ -104,6 +107,9 @@ pub unsafe extern "C" fn wisp_engine_compile_signal_processor(
     engine: *mut TwistedWispEngine,
     function: *const c_char,
 ) -> *mut SignalProcessor {
+    if function.is_null() {
+        return std::ptr::null_mut();
+    }
     if let Some(engine) = unsafe { engine.as_mut() } {
         if let Ok(sp) = engine.runtime_compile_signal_processor(
             unsafe { std::ffi::CStr::from_ptr(function) }
@@ -121,8 +127,39 @@ pub unsafe extern "C" fn wisp_engine_switch_to_signal_processor(
     engine: *mut TwistedWispEngine,
     processor: *mut SignalProcessor,
 ) {
-    if let Some(engine) = unsafe { engine.as_mut() } {
-        engine.runtime_switch_to_signal_processor(unsafe { processor.read() });
+    if !processor.is_null() {
+        if let Some(engine) = unsafe { engine.as_mut() } {
+            // Legacy transfer consumes the allocation, including on install failure.
+            engine.runtime_switch_to_signal_processor(*unsafe { Box::from_raw(processor) });
+        }
+    }
+}
+
+/// Consumes a nonnull processor for a valid engine and clears the caller's handle.
+/// False with an unchanged handle means invalid/null arguments; false with a null
+/// handle means installation failed after consumption. Stale pointers are invalid.
+#[no_mangle]
+pub unsafe extern "C" fn wisp_engine_take_signal_processor(
+    engine: *mut TwistedWispEngine,
+    processor: *mut *mut SignalProcessor,
+) -> bool {
+    let (Some(engine), Some(handle)) = (unsafe { engine.as_mut() }, unsafe { processor.as_mut() })
+    else {
+        return false;
+    };
+    if handle.is_null() {
+        return false;
+    }
+    let owned = *unsafe { Box::from_raw(*handle) };
+    *handle = std::ptr::null_mut();
+    engine.runtime_install_checked(owned).is_ok()
+}
+
+/// Frees a string returned by wisp_context_load_flow_from_file, exactly once.
+#[no_mangle]
+pub unsafe extern "C" fn wisp_string_destroy(value: *mut c_char) {
+    if !value.is_null() {
+        drop(unsafe { std::ffi::CString::from_raw(value) });
     }
 }
 
@@ -141,8 +178,11 @@ pub unsafe extern "C" fn wisp_processor_process_one(
     output: *mut f32,
     size: usize,
 ) {
-    if let Some(processor) = unsafe { processor.as_mut() } {
-        unsafe { processor.process_one(std::slice::from_raw_parts_mut(output, size)) }
+    if !output.is_null() && size <= isize::MAX as usize / std::mem::size_of::<f32>() {
+        if let Some(processor) = unsafe { processor.as_mut() } {
+            let _ = processor
+                .process_one_checked(unsafe { std::slice::from_raw_parts_mut(output, size) });
+        }
     }
 }
 
@@ -152,7 +192,10 @@ pub unsafe extern "C" fn wisp_processor_process_all(
     output: *mut f32,
     size: usize,
 ) {
-    if let Some(processor) = unsafe { processor.as_mut() } {
-        unsafe { processor.process_all(std::slice::from_raw_parts_mut(output, size)) }
+    if !output.is_null() && size <= isize::MAX as usize / std::mem::size_of::<f32>() {
+        if let Some(processor) = unsafe { processor.as_mut() } {
+            let _ = processor
+                .process_all_checked(unsafe { std::slice::from_raw_parts_mut(output, size) });
+        }
     }
 }

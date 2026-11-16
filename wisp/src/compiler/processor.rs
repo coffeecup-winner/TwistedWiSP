@@ -125,6 +125,26 @@ impl SignalProcessor {
         &self.name
     }
 
+    pub fn output_channels(&self) -> usize {
+        self.num_outputs
+    }
+
+    pub fn process_one_checked(&mut self, output: &mut [f32]) -> Result<(), &'static str> {
+        if output.len() < self.num_outputs {
+            return Err("Output buffer is too small");
+        }
+        self.process_one(output);
+        Ok(())
+    }
+
+    pub fn process_all_checked(&mut self, output: &mut [f32]) -> Result<(), &'static str> {
+        if !output.len().is_multiple_of(self.num_outputs) {
+            return Err("Output buffer must contain complete frames");
+        }
+        self.process_all(output);
+        Ok(())
+    }
+
     pub fn process_all(&mut self, output: &mut [f32]) {
         // TODO: Return error instead?
         assert_eq!(0, output.len() % self.num_outputs);
