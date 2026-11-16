@@ -9,7 +9,7 @@ pub extern "C" fn wisp_engine_create() -> *mut TwistedWispEngine {
 }
 
 #[no_mangle]
-pub extern "C" fn wisp_engine_destroy(engine: *mut TwistedWispEngine) {
+pub unsafe extern "C" fn wisp_engine_destroy(engine: *mut TwistedWispEngine) {
     if !engine.is_null() {
         drop(unsafe { Box::from_raw(engine) })
     }
