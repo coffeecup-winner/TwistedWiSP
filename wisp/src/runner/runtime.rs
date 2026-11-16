@@ -23,7 +23,7 @@ use crate::{
         DataArrayHandle, SignalProcessCreationError, SignalProcessor, SignalProcessorBuilder,
     },
     midi::WispMidiIn,
-    runner::context::{WispContext, WispExecutionContext},
+    runner::context::{WispEngineContext, WispExecutionContext},
     CallIndex,
 };
 
@@ -297,7 +297,7 @@ impl WispRuntime {
     pub fn switch_to_signal_processor(
         &mut self,
         ectx: &WispExecutionContext,
-        ctx: &WispContext,
+        ctx: &WispEngineContext,
         top_level: &str,
     ) -> Result<(), SignalProcessCreationError> {
         let (sp, ee) = self.builder.create_signal_processor(ectx, ctx, top_level)?;

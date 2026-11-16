@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::{
     ir::{DataRef, IRFunction, IRFunctionDataType, Instruction, SourceLocation},
-    runner::context::WispContext,
+    runner::context::WispEngineContext,
     CallIndex,
 };
 
@@ -67,7 +67,7 @@ pub struct DataLayout {
 }
 
 impl DataLayout {
-    pub fn calculate(top_level_func: &IRFunction, wctx: &WispContext) -> Self {
+    pub fn calculate(top_level_func: &IRFunction, wctx: &WispEngineContext) -> Self {
         let mut data_layout = HashMap::new();
         let mut called_functions = HashSet::new();
         if let Some(function_data_layout) = Self::calculate_function_data_layout(
@@ -90,7 +90,7 @@ impl DataLayout {
 
     fn calculate_function_data_layout(
         func: &IRFunction,
-        wctx: &WispContext,
+        wctx: &WispEngineContext,
         data_layout: &mut HashMap<String, FunctionDataLayout>,
         called_functions: &mut HashSet<String>,
     ) -> Option<FunctionDataLayout> {
@@ -136,7 +136,7 @@ impl DataLayout {
 
     fn calculate_children_data_sizes(
         insns: &[Instruction],
-        wctx: &WispContext,
+        wctx: &WispEngineContext,
         data_layout: &mut HashMap<String, FunctionDataLayout>,
         called_functions: &mut HashSet<String>,
         sizes: &mut BTreeMap<CallIndex, (String, u32)>,
