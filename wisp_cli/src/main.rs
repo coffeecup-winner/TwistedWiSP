@@ -58,7 +58,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     wisp.runtime_switch_to_signal_processor(sp);
-    wisp.dsp_start();
+    wisp.runtime_dsp_start();
 
     loop {
         std::thread::sleep(std::time::Duration::from_millis(50));
