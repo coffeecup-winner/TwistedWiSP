@@ -4,11 +4,6 @@ use cpal::Stream;
 use crossbeam::channel::{Receiver, Sender};
 use inkwell::{
     context::Context,
-    execution_engine::ExecutionEngine,
-    llvm_sys::{
-        execution_engine::{LLVMDisposeExecutionEngine, LLVMExecutionEngineRef},
-        target::{LLVMDisposeTargetData, LLVMTargetDataRef},
-    },
     types::{FloatType, IntType, PointerType, VoidType},
     AddressSpace,
 };
@@ -112,42 +107,11 @@ impl WispExecutionContext {
     }
 }
 
-// We need this separate holder for the EE reference because inkwell's ExecutionEngine
-// has a lifetime parameter to ensure that the context is not dropped before the EE,
-// but we're doing it ourselves and having this lifetime parameter makes things
-// unnecessarily complicated for the users.
-struct ExecutionEngineRef {
-    ee: LLVMExecutionEngineRef,
-    target_data: LLVMTargetDataRef,
-}
-
-impl ExecutionEngineRef {
-    pub fn new(ee: ExecutionEngine) -> Self {
-        let ee_ref = ee.as_mut_ptr();
-        let target_data = ee.get_target_data().as_mut_ptr();
-        std::mem::forget(ee);
-        ExecutionEngineRef {
-            ee: ee_ref,
-            target_data,
-        }
-    }
-}
-
-impl Drop for ExecutionEngineRef {
-    fn drop(&mut self) {
-        unsafe {
-            LLVMDisposeExecutionEngine(self.ee);
-            LLVMDisposeTargetData(self.target_data);
-        }
-    }
-}
-
 pub struct WispRuntime {
     _device: ConfiguredAudioDevice,
     _stream: Stream,
     _midi_in_connection: MidiInputConnection<(MidiState, Receiver<MidiStateMessage>)>,
     ectx: WispExecutionContext,
-    ee_ref: Option<ExecutionEngineRef>,
     builder: SignalProcessorBuilder,
     midi_state_tx: Sender<MidiStateMessage>,
     runtime_tx: Sender<RuntimeStateMessage>,
@@ -317,7 +281,6 @@ impl WispRuntime {
             _stream: stream,
             _midi_in_connection: midi_in_connection,
             ectx: WispExecutionContext::init(),
-            ee_ref: None,
             builder: SignalProcessorBuilder::new(),
             midi_state_tx,
             runtime_tx,
@@ -343,13 +306,12 @@ impl WispRuntime {
         rctx: &mut WispRuntimeContext,
         top_level: &str,
     ) -> Result<(), SignalProcessCreationError> {
-        let (sp, ee) = self
+        let sp = self
             .builder
             .build_signal_processor(ctx, &self.ectx, rctx, top_level)?;
         self.runtime_tx
             .send(RuntimeStateMessage::SetProcessor(sp))
             .expect("The processor channel is disconnected");
-        self.ee_ref = Some(ExecutionEngineRef::new(ee));
         Ok(())
     }
 
