@@ -39,16 +39,23 @@ enum WatchedData {
 // unnecessarily complicated for the users.
 struct ExecutionEngineRef {
     ee: LLVMExecutionEngineRef,
+    // Dropped after LLVMDisposeExecutionEngine in Drop, never shared with another compiler.
+    context_owner: Option<crate::runner::runtime::WispExecutionContext>,
 }
 
 impl ExecutionEngineRef {
     pub fn new(ee: ExecutionEngine) -> Self {
         let ee_ref = ee.as_mut_ptr();
         std::mem::forget(ee);
-        ExecutionEngineRef { ee: ee_ref }
+        ExecutionEngineRef {
+            ee: ee_ref,
+            context_owner: None,
+        }
     }
 }
 
+// The execution engine and its exclusively owned, immutable context move together.
+// They are not accessed concurrently: compilation finishes before transfer to audio.
 unsafe impl Send for ExecutionEngineRef {}
 
 impl Drop for ExecutionEngineRef {
@@ -97,6 +104,13 @@ impl SignalProcessor {
         }
     }
 
+    pub(crate) fn retain_execution_context(
+        &mut self,
+        context: crate::runner::runtime::WispExecutionContext,
+    ) {
+        self._ee.context_owner = Some(context);
+    }
+
     pub fn name(&self) -> &str {
         &self.name
     }
@@ -118,11 +132,16 @@ impl SignalProcessor {
 
             self.process_one(chunk);
 
-            self.elapsed_ticks += 1;
+            self.elapsed_ticks = self.elapsed_ticks.wrapping_add(1);
         }
     }
 
     pub fn process_one(&mut self, output: &mut [f32]) {
+        assert!(
+            output.len() >= self.num_outputs,
+            "Output buffer is too small"
+        );
+        output[..self.num_outputs].fill(0.0);
         self.ctx.p_output = output.as_mut_ptr();
         unsafe {
             (self.function)(self.data.as_mut_ptr());
@@ -171,13 +190,15 @@ impl SignalProcessor {
         &self,
         name: &str,
         prefix: &str,
-        mut current_offset: u32,
+        current_offset: u32,
         layout: &mut HashMap<String, u32>,
     ) {
         let data_layout = self.data_layout.get(name).unwrap();
         for (id, offset) in &data_layout.own_data_items {
-            current_offset += offset.offset;
-            layout.insert(format!("{}{}@{}", prefix, name, id.0), current_offset);
+            layout.insert(
+                format!("{}{}@{}", prefix, name, id.0),
+                current_offset + offset.offset,
+            );
         }
         for (id, (child_name, offset)) in &data_layout.children_data_items {
             self.build_data_layout(
@@ -193,13 +214,23 @@ impl SignalProcessor {
         &mut self,
         name: &str,
         call_idx: CallIndex,
-        _data_idx: DataIndex,
+        data_idx: DataIndex,
         value: f32,
     ) -> Option<()> {
-        let data_layout = self.data_layout.get(name)?;
-        let (_, child_offset) = data_layout.children_data_items.get(&call_idx)?;
-        // TODO: Add data index within child using idx
-        let data = self.data.get_mut(*child_offset as usize)?;
+        if name != self.name {
+            return None;
+        }
+        let layout = self.data_layout.get(name)?;
+        let (child, base) = layout.children_data_items.get(&call_idx)?;
+        let item = self
+            .data_layout
+            .get(child)?
+            .own_data_items
+            .get(&crate::ir::DataRef(data_idx.0))?;
+        if !matches!(item.type_, crate::ir::IRFunctionDataType::Float) {
+            return None;
+        }
+        let data = self.data.get_mut((*base + item.offset) as usize)?;
         *data = DataValue::new_float(value);
         Some(())
     }
@@ -208,13 +239,23 @@ impl SignalProcessor {
         &mut self,
         name: &str,
         call_idx: CallIndex,
-        _data_idx: DataIndex,
+        data_idx: DataIndex,
         array: DataArrayHandle,
     ) -> Option<()> {
-        let data_layout = self.data_layout.get(name)?;
-        let (_, child_offset) = data_layout.children_data_items.get(&call_idx)?;
-        // TODO: Add data index within child using idx
-        let data = self.data.get_mut(*child_offset as usize)?;
+        if name != self.name {
+            return None;
+        }
+        let layout = self.data_layout.get(name)?;
+        let (child, base) = layout.children_data_items.get(&call_idx)?;
+        let item = self
+            .data_layout
+            .get(child)?
+            .own_data_items
+            .get(&crate::ir::DataRef(data_idx.0))?;
+        if !matches!(item.type_, crate::ir::IRFunctionDataType::Array) {
+            return None;
+        }
+        let data = self.data.get_mut((*base + item.offset) as usize)?;
         *data = DataValue::new_array(array);
         Some(())
     }
@@ -223,21 +264,32 @@ impl SignalProcessor {
         &mut self,
         name: &str,
         call_idx: CallIndex,
-        _data_idx: DataIndex,
+        data_idx: DataIndex,
         only_last_value: bool,
     ) -> Option<WatchIndex> {
-        let data_layout = self.data_layout.get(name)?;
-        let (_, child_offset) = data_layout.children_data_items.get(&call_idx)?;
-        // TODO: Add data index within child using idx
+        if name != self.name {
+            return None;
+        }
+        let layout = self.data_layout.get(name)?;
+        let (child, base) = layout.children_data_items.get(&call_idx)?;
+        let item = self
+            .data_layout
+            .get(child)?
+            .own_data_items
+            .get(&crate::ir::DataRef(data_idx.0))?;
+        if !matches!(item.type_, crate::ir::IRFunctionDataType::Float) {
+            return None;
+        }
+        let child_offset = base + item.offset;
         let idx = WatchIndex(self.watch_id_gen);
         self.watch_id_gen += 1;
         self.watches.insert(
             idx,
             Watch {
-                data_offset: *child_offset,
+                data_offset: child_offset,
                 rate: 1,
                 data: if only_last_value {
-                    WatchedData::LastValue(self.data.get(*child_offset as usize)?.as_float())
+                    WatchedData::LastValue(self.data.get(child_offset as usize)?.as_float())
                 } else {
                     WatchedData::Buffer(AllocRingBuffer::new(4096))
                 },

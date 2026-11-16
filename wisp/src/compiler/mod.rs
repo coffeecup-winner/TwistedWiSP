@@ -10,3 +10,5 @@ pub use builder::SignalProcessorBuilder;
 pub use data_layout::{DataArrayHandle, DataLayout, FunctionDataLayout};
 pub use error::SignalProcessCreationError;
 pub use processor::SignalProcessor;
+
+pub(crate) use dependency_calculator::calculate_dependencies as dependencies;

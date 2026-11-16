@@ -29,30 +29,46 @@ fn calculate_dependencies_core(ir: &[Instruction], dependencies: &mut BTreeSet<S
 }
 
 pub fn calculate_active_set(
-    rtcx: &WispRuntimeContext,
+    rctx: &WispRuntimeContext,
     top_level: &str,
     dep_handle: DependencyHandle,
-) -> Vec<String> {
-    let mut visited = BTreeSet::new();
-    let mut stack = Vec::new();
-    let mut result = Vec::new();
-
-    stack.push(top_level.to_owned());
-
-    while let Some(name) = stack.pop() {
-        if visited.contains(&name) {
-            continue;
+) -> Result<Vec<String>, super::SignalProcessCreationError> {
+    fn visit(
+        rctx: &WispRuntimeContext,
+        name: &str,
+        handle: DependencyHandle,
+        visiting: &mut BTreeSet<String>,
+        done: &mut BTreeSet<String>,
+        result: &mut Vec<String>,
+    ) -> Result<(), super::SignalProcessCreationError> {
+        if done.contains(name) {
+            return Ok(());
         }
-        visited.insert(name.clone());
-
-        let func = rtcx.get_function(&name).unwrap();
-        let dependencies = func.dependencies().get(dep_handle.clone());
-        for dependency in dependencies.iter() {
-            stack.push(dependency.clone());
+        if !visiting.insert(name.to_owned()) {
+            return Err(super::SignalProcessCreationError::CustomLogicalError(
+                format!("Recursive dependency: {name}"),
+            ));
         }
-
-        result.push(name);
+        let f = rctx
+            .get_function(name)
+            .ok_or_else(|| super::SignalProcessCreationError::UnknownFunction(name.into()))?;
+        for child in f.dependencies().get(handle.clone()).iter() {
+            visit(rctx, child, handle.clone(), visiting, done, result)?;
+        }
+        visiting.remove(name);
+        done.insert(name.into());
+        result.push(name.into());
+        Ok(())
     }
-
-    result
+    let mut result = vec![];
+    visit(
+        rctx,
+        top_level,
+        dep_handle,
+        &mut BTreeSet::new(),
+        &mut BTreeSet::new(),
+        &mut result,
+    )?;
+    result.reverse(); // builder walks in reverse to calculate children first
+    Ok(result)
 }

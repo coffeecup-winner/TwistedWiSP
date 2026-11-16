@@ -58,9 +58,19 @@ impl SignalProcessorBuilder {
 
         // Phase 2: Calculate the active set of functions to compile
 
-        rctx.active_set().update(|dep_handle| {
-            dependency_calculator::calculate_active_set(rctx, top_level, dep_handle)
+        let mut dependency_error = None;
+        rctx.active_set().update(|handle| {
+            match dependency_calculator::calculate_active_set(rctx, top_level, handle) {
+                Ok(active) => active,
+                Err(error) => {
+                    dependency_error = Some(error);
+                    vec![]
+                }
+            }
         });
+        if let Some(error) = dependency_error {
+            return Err(error);
+        }
 
         // Phase 3: Calculate the data layout
 
@@ -96,7 +106,8 @@ impl SignalProcessorBuilder {
             p_output: std::ptr::null_mut(),
         });
         execution_engine.add_global_mapping(&g_output, &mut spctx.p_output as *mut _ as usize);
-        execution_engine.add_global_mapping(&g_empty_array, [0u32].as_ptr() as usize);
+        static EMPTY_ARRAY: [u32; 1] = [0];
+        execution_engine.add_global_mapping(&g_empty_array, EMPTY_ARRAY.as_ptr() as usize);
         extern "C" fn wisp_debug(v: f32) {
             debug!("Debug: {}", v);
         }
@@ -151,7 +162,7 @@ impl SignalProcessorBuilder {
             let ir_func = func.ir_function().get_untracked();
 
             // TODO: Instead, check explicitly for builtin functions using a function attribute
-            if !ir_func.ir.is_empty() {
+            if ir_func.name() != "noise" {
                 self.build_function(rctx, ectx, &mut mctx, &ir_func)?;
             }
         }
@@ -166,22 +177,32 @@ impl SignalProcessorBuilder {
         let p_data = entry.get_first_param().ok_or_else(|| {
             SignalProcessCreationError::InvalidNumberOfInputs("wisp_entry".into(), 1, 0)
         })?;
+        let top = rctx
+            .get_function(top_level)
+            .ok_or_else(|| SignalProcessCreationError::UnknownFunction(top_level.into()))?;
+        if !top.ir_function().get_untracked().inputs().is_empty() {
+            return Err(SignalProcessCreationError::CustomLogicalError(
+                "DSP root must not require function arguments".into(),
+            ));
+        }
+        let args = if top.data_layout().get_untracked().is_some() {
+            vec![p_data.into()]
+        } else {
+            vec![]
+        };
         mctx.build("entry", |b, n| {
-            b.build_call(
-                mctx.module.get_function(top_level).unwrap(),
-                &[BasicMetadataValueEnum::PointerValue(
-                    p_data.into_pointer_value(),
-                )],
-                n,
-            )
+            b.build_call(mctx.module.get_function(top_level).unwrap(), &args, n)
         })?;
         mctx.build("exit", |b, _| b.build_return(None))?;
 
-        if cfg!(debug_assertions) {
+        if log::log_enabled!(log::Level::Debug) {
             debug!("===== BEFORE =====");
             module.print_to_stderr();
         }
 
+        module
+            .verify()
+            .map_err(|e| SignalProcessCreationError::CustomLogicalError(e.to_string()))?;
         // Optimization passes
         {
             // TODO: Cache target machine?
@@ -208,12 +229,15 @@ impl SignalProcessorBuilder {
                 .run_passes(PASSES, &target_machine, options)
                 .expect("Failed to run optimization passes");
 
-            if cfg!(debug_assertions) {
+            if log::log_enabled!(log::Level::Debug) {
                 debug!("===== AFTER =====");
                 module.print_to_stderr();
             }
         }
 
+        module
+            .verify()
+            .map_err(|e| SignalProcessCreationError::CustomLogicalError(e.to_string()))?;
         let function = unsafe { execution_engine.get_function("wisp_entry") }
             .map_err(|_| SignalProcessCreationError::LoadFunction)?;
         Ok(SignalProcessor::new(
@@ -317,12 +341,14 @@ impl SignalProcessorBuilder {
                         }
                         Data(dref) => {
                             let p_data = fctx.get_data_argument()?;
-                            let p_data_item = unsafe {
-                                p_data.const_gep(
+                            let p_data_item = mctx.build("data_address", |b, n| unsafe {
+                                b.build_gep(
                                     ectx.data_t(),
+                                    p_data,
                                     &[ectx.i32_t().const_int(dref.0 as u64, false)],
+                                    n,
                                 )
-                            };
+                            })?;
                             mctx.build("load_data_item", |b, n| {
                                 b.build_load(
                                     match fctx.func.data[dref.0 as usize].type_ {
@@ -368,15 +394,17 @@ impl SignalProcessorBuilder {
                                 })?;
 
                             let p_func_data = fctx.get_data_argument()?;
-                            let p_data_item = unsafe {
-                                p_func_data.const_gep(
+                            let p_data_item = mctx.build("lag_address", |b, n| unsafe {
+                                b.build_gep(
                                     ectx.data_t(),
+                                    p_func_data,
                                     &[ectx.i32_t().const_int(
                                         (child_offset + child_data_item.offset) as u64,
                                         false,
                                     )],
+                                    n,
                                 )
-                            };
+                            })?;
 
                             mctx.build("load_data_item", |b, n| {
                                 b.build_load(ectx.f32_t(), p_data_item, n)
@@ -395,12 +423,14 @@ impl SignalProcessorBuilder {
                         }
                         Data(dref) => {
                             let p_data = fctx.get_data_argument()?;
-                            let p_data_item = unsafe {
-                                p_data.const_gep(
+                            let p_data_item = mctx.build("data_address", |b, n| unsafe {
+                                b.build_gep(
                                     ectx.data_t(),
+                                    p_data,
                                     &[ectx.i32_t().const_int(dref.0 as u64, false)],
+                                    n,
                                 )
-                            };
+                            })?;
                             mctx.build("store_data_item", |b, _| {
                                 b.build_store(p_data_item, value)
                             })?;
@@ -423,12 +453,14 @@ impl SignalProcessorBuilder {
                             let p_output = mctx.build("load_output", |b, n| {
                                 b.build_load(ectx.pf32_t(), pp_output.as_pointer_value(), n)
                             })?;
-                            let output = unsafe {
-                                p_output.into_pointer_value().const_gep(
+                            let output = mctx.build("output_address", |b, n| unsafe {
+                                b.build_gep(
                                     ectx.f32_t(),
+                                    p_output.into_pointer_value(),
                                     &[ectx.i32_t().const_int(idx.0 as u64, false)],
+                                    n,
                                 )
-                            };
+                            })?;
                             mctx.build("output", |b, _| b.build_store(output, value))?;
                         }
                     }
@@ -448,7 +480,11 @@ impl SignalProcessorBuilder {
                                 b.build_gep(
                                     ectx.f32_t(),
                                     array,
-                                    &[idx.const_add(ectx.i32_t().const_int(1, false))],
+                                    &[b.build_int_add(
+                                        idx,
+                                        ectx.i32_t().const_int(1, false),
+                                        "array_offset",
+                                    )?],
                                     n,
                                 )?
                             },
@@ -473,7 +509,11 @@ impl SignalProcessorBuilder {
                                 b.build_gep(
                                     ectx.f32_t(),
                                     array,
-                                    &[idx.const_add(ectx.i32_t().const_int(1, false))],
+                                    &[b.build_int_add(
+                                        idx,
+                                        ectx.i32_t().const_int(1, false),
+                                        "array_offset",
+                                    )?],
                                     n,
                                 )?
                             },
@@ -620,12 +660,14 @@ impl SignalProcessorBuilder {
                         .and_then(|l| l.children_data_items.get(&CallIndex(id.0)))
                     {
                         let p_func_data = fctx.get_data_argument()?;
-                        let p_callee_data = unsafe {
-                            p_func_data.const_gep(
+                        let p_callee_data = mctx.build("child_address", |b, n| unsafe {
+                            b.build_gep(
                                 ectx.data_t(),
+                                p_func_data,
                                 &[ectx.i32_t().const_int(*offset as u64, false)],
+                                n,
                             )
-                        };
+                        })?;
                         args.insert(0, BasicMetadataValueEnum::PointerValue(p_callee_data));
                     }
 
