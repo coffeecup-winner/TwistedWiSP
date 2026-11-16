@@ -3,11 +3,9 @@ use std::collections::HashMap;
 use ringbuffer::{AllocRingBuffer, RingBuffer};
 
 use crate::{
+    compiler::DataArrayHandle,
     ir::CallId,
-    runner::{
-        compiler::DataArrayHandle,
-        engine::{DataIndex, WatchIndex, WatchedDataValues},
-    },
+    runner::engine::{DataIndex, WatchIndex, WatchedDataValues},
 };
 
 use super::data_layout::{DataLayout, DataValue};

@@ -18,15 +18,13 @@ use midly::{
 };
 
 use crate::{
-    ir::CallId,
-    runner::{
-        audio::device::ConfiguredAudioDevice,
-        compiler::{
-            DataArrayHandle, SignalProcessCreationError, SignalProcessor, SignalProcessorBuilder,
-        },
-        context::{WispContext, WispExecutionContext},
-        midi::WispMidiIn,
+    audio::device::ConfiguredAudioDevice,
+    compiler::{
+        DataArrayHandle, SignalProcessCreationError, SignalProcessor, SignalProcessorBuilder,
     },
+    ir::CallId,
+    midi::WispMidiIn,
+    runner::context::{WispContext, WispExecutionContext},
 };
 
 use super::engine::{DataIndex, WatchIndex, WatchedDataValues};
