@@ -6,3 +6,5 @@ pub mod document;
 pub mod service;
 
 pub mod runtime;
+
+pub mod history;
