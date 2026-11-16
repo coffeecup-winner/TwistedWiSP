@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use twisted_wisp::{
     core::{FlowFunction, WispContext, WispFunction},
     ir::CallId,
-    protocol::{DataIndex, WispRunnerClient},
+    DataIndex, TwistedWispEngine, TwistedWispEngineConfig,
 };
 
 use crate::{logger::GodotLogger, TwistedWispFlow};
@@ -18,7 +18,7 @@ use crate::{logger::GodotLogger, TwistedWispFlow};
 pub struct TwistedWisp {
     base: Base<RefCounted>,
     config: TwistedWispConfig,
-    runner: Option<WispRunnerClient>,
+    runner: Option<TwistedWispEngine>,
     ctx: Option<WispContext>,
 }
 
@@ -65,8 +65,16 @@ impl TwistedWisp {
         info!("Loaded the config");
 
         info!("Initializing server");
-        let mut runner =
-            WispRunnerClient::init(Some(512), Some(48000), config.midi_in_port.as_deref());
+        let engine_config = TwistedWispEngineConfig {
+            audio_host: None,
+            audio_device: None,
+            audio_output_channels: None,
+            audio_buffer_size: Some(512),
+            audio_sample_rate: Some(48000),
+            midi_in_port: config.midi_in_port.as_deref(),
+        };
+        let mut runner = TwistedWispEngine::create(engine_config)
+            .expect("Failed to create the Twisted WiSP engine");
         let sys_info = runner.get_system_info();
 
         let mut ctx = WispContext::new(sys_info.num_channels);
@@ -92,7 +100,7 @@ impl TwistedWisp {
         &self.config
     }
 
-    pub fn runner_mut(&mut self) -> &mut WispRunnerClient {
+    pub fn runner_mut(&mut self) -> &mut TwistedWispEngine {
         self.runner.as_mut().unwrap()
     }
 
@@ -174,10 +182,12 @@ impl TwistedWisp {
         let runner = self.runner_mut();
         runner.context_add_or_update_functions(ir_functions);
         for (name, path) in buffers {
-            runner.context_load_wave_file(flow_name.clone(), name, path);
+            runner
+                .context_load_wave_file(flow_name.clone(), name, path)
+                .expect("Failed to load a wave file");
         }
         runner.context_set_main_function(flow_name.clone());
-        runner.context_update();
+        runner.context_update().expect("Failed to update context");
         for (idx, buffer_name) in buffer_nodes {
             runner.context_set_data_array(
                 flow_name.clone(),

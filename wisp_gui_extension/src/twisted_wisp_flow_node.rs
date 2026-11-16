@@ -5,7 +5,7 @@ use godot::prelude::*;
 use twisted_wisp::{
     core::{FlowNodeExtraData, FlowNodeIndex, WispFunction},
     ir::CallId,
-    protocol::{DataIndex, WatchIndex},
+    DataIndex, WatchIndex,
 };
 
 use crate::{TwistedWisp, TwistedWispFlow};
@@ -221,7 +221,7 @@ impl TwistedWispFlowNode {
         // NOTE: We do not update the watch function as we expect it to never change
         // at runtime and it's a part of the core library
         runner.context_add_or_update_functions(ir_functions);
-        runner.context_update();
+        runner.context_update().expect("Failed to update context");
         let watch_idx = runner
             .context_watch_data_value(
                 self.flow.bind().name().to_owned(),
