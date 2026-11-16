@@ -21,13 +21,11 @@ struct Args {
     #[arg(short = 'm', long)]
     midi_in_port: Option<String>,
     #[arg(short, long)]
-    server: bool,
-
-    // Non-server mode
-    #[arg(short, long)]
     core_lib_path: Option<PathBuf>,
     #[arg()]
     file_name: PathBuf,
+    #[arg(short, long)]
+    process_one: bool,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -51,19 +49,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut sp = wisp
         .runtime_compile_signal_processor(name)
         .expect("Failed to compile signal processor");
-    let mut data = [0.0; 2];
-    sp.process_one(&mut data);
-    dbg!(data);
 
-    // wisp.context_set_main_function(name);
-    // wisp.context_update().expect("Failed to update context");
+    if args.process_one {
+        let mut data = [0.0; 2];
+        sp.process_one(&mut data);
+        println!("{:?}", data);
+        return Ok(());
+    }
 
-    // wisp.dsp_start();
+    wisp.runtime_switch_to_signal_processor(sp);
+    wisp.dsp_start();
 
-    // loop {
-    //     std::thread::sleep(std::time::Duration::from_millis(50));
-    //     // Wait until Ctrl+C
-    // }
-
-    Ok(())
+    loop {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        // Wait until Ctrl+C
+    }
 }

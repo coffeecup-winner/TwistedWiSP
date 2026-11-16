@@ -19,14 +19,12 @@ lib.wisp_engine_create.argtypes = (ctypes.c_void_p,)
 lib.wisp_engine_create.restype = ctypes.c_void_p
 lib.wisp_engine_destroy.argtypes = (ctypes.c_void_p,)
 lib.wisp_engine_destroy.restype = None
-lib.wisp_engine_compile_signal_processor.argtypes = (ctypes.c_void_p, ctypes.c_char_p)
-lib.wisp_engine_compile_signal_processor.restype = ctypes.c_void_p
-lib.wisp_context_set_main_function.argtypes = (ctypes.c_void_p, ctypes.c_char_p)
-lib.wisp_context_set_main_function.restype = None
 lib.wisp_context_load_flow_from_file.argtypes = (ctypes.c_void_p, ctypes.c_char_p)
 lib.wisp_context_load_flow_from_file.restype = ctypes.c_char_p
-lib.wisp_context_update.argtypes = (ctypes.c_void_p,)
-lib.wisp_context_update.restype = None
+lib.wisp_engine_compile_signal_processor.argtypes = (ctypes.c_void_p, ctypes.c_char_p)
+lib.wisp_engine_compile_signal_processor.restype = ctypes.c_void_p
+lib.wisp_engine_switch_to_signal_processor.argtypes = (ctypes.c_void_p, ctypes.c_void_p)
+lib.wisp_engine_switch_to_signal_processor.restype = None
 
 lib.wisp_processor_destroy.argtypes = (ctypes.c_void_p,)
 lib.wisp_processor_destroy.restype = None
@@ -74,11 +72,8 @@ class TwistedWispEngine:
     def context_load_flow_from_file(self, file_path: str) -> str:
         return lib.wisp_context_load_flow_from_file(self.__wisp, file_path.encode('utf-8')).decode('utf-8')
 
-    def context_set_main_function(self, function_name: str):
-        lib.wisp_context_set_main_function(self.__wisp, function_name.encode('utf-8'))
-
-    def context_update(self):
-        lib.wisp_context_update(self.__wisp)
+    def switch_to_signal_processor(self, sp):
+        lib.wisp_engine_switch_to_signal_processor(self.__wisp, sp._handle())
 
 class TwistedWispProcessor:
     def __init__(self, engine, signal_processor):
@@ -88,6 +83,9 @@ class TwistedWispProcessor:
 
     def __del__(self):
         lib.wisp_processor_destroy(self.__processor)
+
+    def _handle(self):
+        return self.__processor
 
     def process_one(self, buffer: np.array):
         lib.wisp_processor_process_one(self.__processor, buffer, buffer.size)

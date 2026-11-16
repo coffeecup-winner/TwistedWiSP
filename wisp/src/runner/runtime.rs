@@ -318,15 +318,11 @@ impl WispRuntime {
 
     pub fn switch_to_signal_processor(
         &mut self,
-        ctx: &WispContext,
-        rctx: &mut WispRuntimeContext,
-        top_level: &str,
-    ) -> Result<(), SignalProcessCreationError> {
-        let sp = self.compile(ctx, rctx, top_level)?;
+        sp: SignalProcessor,
+    ) {
         self.runtime_tx
             .send(RuntimeStateMessage::SetProcessor(sp))
             .expect("The processor channel is disconnected");
-        Ok(())
     }
 
     pub fn set_data_value(&mut self, name: &str, id: CallIndex, idx: DataIndex, value: f32) {
