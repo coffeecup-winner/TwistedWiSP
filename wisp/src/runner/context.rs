@@ -57,8 +57,9 @@ impl WispRuntimeContext {
     }
 
     pub fn add_function(&mut self, func: IRFunction) {
+        log::debug!("Adding function {}", func.name());
         if let Some(f) = self.functions.get_mut(func.name()) {
-            // TODO: Check if the function didn't change?
+            // TODO: Check if the function didn't change
             f.ir_function().set(func);
         } else {
             self.functions

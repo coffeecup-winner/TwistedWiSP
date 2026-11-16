@@ -27,11 +27,13 @@ struct Args {
     #[arg(short, long)]
     core_lib_path: Option<PathBuf>,
     #[arg()]
-    file_name: Option<PathBuf>,
+    file_name: PathBuf,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
+
+    TwistedWispEngine::enable_logging();
 
     let config = TwistedWispEngineConfig {
         audio_host: args.audio_host,
@@ -44,13 +46,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let mut wisp = TwistedWispEngine::create(&config)?;
 
-    wisp.context_set_main_function("phasor".to_string());
-    wisp.context_update().expect("Failed to update context");
+    let name = wisp.ctx_load_flow_from_file(args.file_name.to_str().unwrap())?;
 
-    wisp.dsp_start();
+    let mut sp = wisp
+        .context_compile_signal_processor(name)
+        .expect("Failed to compile signal processor");
+    let mut data = [0.0; 2];
+    sp.process_one(&mut data);
+    dbg!(data);
 
-    loop {
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        // Wait until Ctrl+C
-    }
+    // wisp.context_set_main_function(name);
+    // wisp.context_update().expect("Failed to update context");
+
+    // wisp.dsp_start();
+
+    // loop {
+    //     std::thread::sleep(std::time::Duration::from_millis(50));
+    //     // Wait until Ctrl+C
+    // }
+
+    Ok(())
 }
