@@ -1,3 +1,4 @@
+import struct
 from .twisted_wisp import *
 
 def test_init():
@@ -7,6 +8,8 @@ def test_init():
 
 def test_basic():
     engine = TwistedWispEngine()
-    engine.context_set_main_function(b'phasor')
-    engine.context_update()
-    del engine
+    sp = engine.engine_compile_signal_processor(b'phasor')
+    assert sp is not None
+    floatlist = [0.0, 0.0]
+    sp.process_one(struct.pack('%sf' % len(floatlist), *floatlist)                   
+)

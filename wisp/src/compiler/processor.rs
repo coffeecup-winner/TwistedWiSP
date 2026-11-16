@@ -75,7 +75,7 @@ pub struct SignalProcessor {
     name: String,
     data_layout: DataLayout,
     num_outputs: usize,
-    // Fields below are mutable and need to be copy over to the new instance
+    // Fields below are mutable and need to be copied over to the new instance
     data: Vec<DataValue>,
     watch_id_gen: u32,
     watches: HashMap<WatchIndex, Watch>,
@@ -110,7 +110,7 @@ impl SignalProcessor {
         &self.name
     }
 
-    pub fn process(&mut self, output: &mut [f32]) {
+    pub fn process_all(&mut self, output: &mut [f32]) {
         // TODO: Return error instead?
         assert_eq!(0, output.len() % self.num_outputs);
         for chunk in output.chunks_mut(self.num_outputs) {

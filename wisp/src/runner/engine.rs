@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     audio::device::ConfiguredAudioDevice,
-    compiler::SignalProcessCreationError,
+    compiler::{SignalProcessCreationError, SignalProcessor},
     core::{FlowFunction, WispContext, WispFunction},
     ir::IRFunction,
     midi::WispMidiIn,
@@ -229,6 +229,14 @@ impl TwistedWispEngine {
 
     pub fn context_unload_wave_file(&mut self, name: String, buffer_name: String) {
         self.ctx.unload_wave_file(&name, &buffer_name);
+    }
+
+    pub fn context_compile_signal_processor(
+        &mut self,
+        main_function: String,
+    ) -> Result<SignalProcessor, SignalProcessCreationError> {
+        self.runtime
+            .compile(&self.ctx, &mut self.rctx, &main_function)
     }
 
     pub fn context_update(&mut self) -> Result<(), SignalProcessCreationError> {
