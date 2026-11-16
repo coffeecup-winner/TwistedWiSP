@@ -66,6 +66,12 @@ impl Drop for ExecutionEngineRef {
     }
 }
 
+struct OwnedArray {
+    source: DataArrayHandle,
+    samples: Box<[f32]>,
+    #[cfg(test)]
+    lifetime: std::sync::Arc<()>,
+}
 pub struct SignalProcessor {
     _ee: ExecutionEngineRef,
     ctx: Box<SignalProcessorContext>,
@@ -75,6 +81,9 @@ pub struct SignalProcessor {
     num_outputs: usize,
     // Fields below are mutable and need to be copied over to the new instance
     data: Vec<DataValue>,
+    // Keep replaced bindings too: another DSP state slot may have retained a
+    // pointer to the previous allocation. All storage is exclusive to this processor.
+    arrays: Vec<OwnedArray>,
     watch_id_gen: u32,
     watches: HashMap<WatchIndex, Watch>,
     elapsed_ticks: u32,
@@ -98,6 +107,7 @@ impl SignalProcessor {
             data_layout,
             num_outputs: num_outputs as usize,
             data,
+            arrays: vec![],
             watch_id_gen: 0,
             watches: HashMap::new(),
             elapsed_ticks: 0,
@@ -152,9 +162,13 @@ impl SignalProcessor {
         let other_layout = other.get_data_layout();
         let own_layout = self.get_data_layout();
 
+        let own_floats = self.float_offsets();
+        let other_floats = other.float_offsets();
         for (key, offset) in other_layout.iter() {
-            if own_layout.contains_key(key) {
-                self.data[own_layout[key] as usize] = other.data[*offset as usize];
+            if let Some(own_offset) = own_layout.get(key) {
+                if own_floats.contains(own_offset) && other_floats.contains(offset) {
+                    self.data[*own_offset as usize] = other.data[*offset as usize];
+                }
             }
         }
 
@@ -165,7 +179,10 @@ impl SignalProcessor {
 
         for (idx, watch) in other.watches {
             let key = &other_offset_to_layout_key[&watch.data_offset];
-            if let Some(offset) = own_layout.get(key) {
+            if let Some(offset) = own_layout
+                .get(key)
+                .filter(|offset| own_floats.contains(offset))
+            {
                 self.watches.insert(
                     idx,
                     Watch {
@@ -180,6 +197,28 @@ impl SignalProcessor {
         self.elapsed_ticks = other.elapsed_ticks;
     }
 
+    fn float_offsets(&self) -> std::collections::HashSet<u32> {
+        fn collect(
+            layouts: &DataLayout,
+            name: &str,
+            base: u32,
+            result: &mut std::collections::HashSet<u32>,
+        ) {
+            if let Some(layout) = layouts.get(name) {
+                for item in layout.own_data_items.values() {
+                    if matches!(item.type_, crate::ir::IRFunctionDataType::Float) {
+                        result.insert(base + item.offset);
+                    }
+                }
+                for (child, offset) in layout.children_data_items.values() {
+                    collect(layouts, child, base + offset, result);
+                }
+            }
+        }
+        let mut result = Default::default();
+        collect(&self.data_layout, &self.name, 0, &mut result);
+        result
+    }
     fn get_data_layout(&self) -> HashMap<String, u32> {
         let mut layout = HashMap::new();
         self.build_data_layout(&self.name, "", 0, &mut layout);
@@ -256,7 +295,26 @@ impl SignalProcessor {
             return None;
         }
         let data = self.data.get_mut((*base + item.offset) as usize)?;
-        *data = DataValue::new_array(array);
+        if let Some(existing) = self
+            .arrays
+            .iter_mut()
+            .find(|existing| existing.source.same_source(&array))
+        {
+            *data = DataValue::new_array(existing.samples.as_mut_ptr());
+            return Some(());
+        }
+        let length = u32::try_from(array.samples().len()).ok()?;
+        let mut storage = Vec::with_capacity(array.samples().len() + 1);
+        storage.push(f32::from_bits(length));
+        storage.extend_from_slice(array.samples());
+        let mut storage = storage.into_boxed_slice();
+        *data = DataValue::new_array(storage.as_mut_ptr());
+        self.arrays.push(OwnedArray {
+            source: array,
+            samples: storage,
+            #[cfg(test)]
+            lifetime: std::sync::Arc::new(()),
+        });
         Some(())
     }
 
@@ -320,5 +378,41 @@ impl SignalProcessor {
             values.insert(*idx, history);
         }
         WatchedDataValues { values }
+    }
+}
+
+#[cfg(test)]
+mod array_tests {
+    use crate::{CallIndex, DataArrayHandle, DataIndex, OfflineSession};
+    #[test]
+    fn private_arrays_are_released_with_their_processor() {
+        let mut session = OfflineSession::new(
+            44100,
+            1,
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("core"),
+        )
+        .unwrap();
+        let root = session
+            .load_flow_text("[flow]\nname='lifetime'\n[[flow.nodes]]\ntext='buffer'\n")
+            .unwrap();
+        let mut p = session.compile(&root).unwrap();
+        let source = DataArrayHandle::from(&[1., 2.][..]);
+        p.set_data_array(&root, CallIndex(0), DataIndex(0), source.clone())
+            .unwrap();
+        let old = std::sync::Arc::downgrade(&p.arrays[0].lifetime);
+        p.set_data_array(
+            &root,
+            CallIndex(0),
+            DataIndex(0),
+            DataArrayHandle::from(&[3., 4.][..]),
+        )
+        .unwrap();
+        assert!(old.upgrade().is_some()); // Rebinding cannot free retained DSP aliases.
+        let current = std::sync::Arc::downgrade(&p.arrays[1].lifetime);
+        drop(session);
+        assert!(current.upgrade().is_some());
+        drop(p);
+        assert!(old.upgrade().is_none());
+        assert!(current.upgrade().is_none());
     }
 }

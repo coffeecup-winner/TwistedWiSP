@@ -7,22 +7,24 @@ use crate::{
     CallIndex,
 };
 
-#[derive(Debug, Clone, Copy)]
-#[allow(dead_code)] // Only used by the JIT-compiled code
-struct DataArray {
-    length: u32,
-    data: *mut f32,
+/// Immutable source samples. Binding copies these into exclusively processor-owned
+/// mutable storage; cloning a handle never aliases DSP writes.
+#[derive(Debug, Clone)]
+pub struct DataArrayHandle(std::sync::Arc<[f32]>);
+impl From<&[f32]> for DataArrayHandle {
+    fn from(value: &[f32]) -> Self {
+        Self(value.into())
+    }
 }
-
-#[derive(Debug, Clone, Copy)]
-#[repr(transparent)]
-pub struct DataArrayHandle(*mut DataArray);
-// Safety is guaranteed by never removing or modifying the data array while it's still in use
-unsafe impl Send for DataArrayHandle {}
-
-impl<'a> From<&'a [f32]> for DataArrayHandle {
-    fn from(value: &'a [f32]) -> Self {
-        DataArrayHandle(value.as_ptr() as *mut DataArray)
+impl DataArrayHandle {
+    pub fn from_shared(samples: std::sync::Arc<[f32]>) -> Self {
+        Self(samples)
+    }
+    pub(crate) fn same_source(&self, other: &Self) -> bool {
+        std::sync::Arc::ptr_eq(&self.0, &other.0)
+    }
+    pub fn samples(&self) -> &[f32] {
+        &self.0
     }
 }
 
@@ -30,8 +32,9 @@ impl<'a> From<&'a [f32]> for DataArrayHandle {
 #[repr(C)]
 pub union DataValue {
     float: f32,
-    array: DataArrayHandle,
+    array: *mut f32,
 }
+// Raw array slots travel only with the processor owning their allocations.
 unsafe impl Send for DataValue {}
 
 impl DataValue {
@@ -39,7 +42,7 @@ impl DataValue {
         DataValue { float: value }
     }
 
-    pub fn new_array(array: DataArrayHandle) -> DataValue {
+    pub(crate) fn new_array(array: *mut f32) -> DataValue {
         DataValue { array }
     }
 
@@ -173,7 +176,8 @@ impl DataLayout {
             data[item.offset as usize] = match item.type_ {
                 IRFunctionDataType::Float => DataValue::new_float(0.0),
                 IRFunctionDataType::Array => {
-                    DataValue::new_array(DataArrayHandle::from(&[0f32][..]))
+                    static EMPTY: [f32; 1] = [0.0];
+                    DataValue::new_array(EMPTY.as_ptr() as *mut f32)
                 }
             };
         }

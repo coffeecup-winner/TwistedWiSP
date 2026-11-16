@@ -14,3 +14,5 @@ pub use runner::engine::*;
 mod offline;
 pub use compiler::{SignalProcessCreationError, SignalProcessor};
 pub use offline::OfflineSession;
+
+pub use compiler::DataArrayHandle;

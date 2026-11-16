@@ -20,19 +20,12 @@ use string_error::into_err;
 
 use super::{Function, FunctionHandle};
 
-#[derive(Debug, Clone)]
-struct WispDataArray {
-    #[allow(dead_code)] // Only read by the JIT-compiled code
-    data: Vec<f32>,
-    array: DataArrayHandle,
-}
-
 #[derive(Debug)]
 pub struct WispContext {
     num_outputs: u32,
     sample_rate: u32,
     functions: HashMap<String, FunctionHandle>,
-    data_arrays: HashMap<String, HashMap<String, WispDataArray>>,
+    data_arrays: HashMap<String, HashMap<String, DataArrayHandle>>,
 }
 
 impl WispContext {
@@ -191,19 +184,17 @@ impl WispContext {
         }
     }
 
-    pub fn add_data_array(&mut self, name: &str, array_name: String, mut data: Vec<f32>) {
-        data.insert(0, f32::from_bits(data.len() as u32));
-        let array = DataArrayHandle::from(&data[..]);
+    pub fn add_data_array(&mut self, name: &str, array_name: String, data: Vec<f32>) {
         self.data_arrays
             .entry(name.into())
             .or_default()
-            .insert(array_name, WispDataArray { data, array });
+            .insert(array_name, DataArrayHandle::from(data.as_slice()));
     }
 
     pub fn get_data_array(&mut self, name: &str, array_name: &str) -> Option<DataArrayHandle> {
         self.data_arrays
             .get(name)
-            .and_then(|m| m.get(array_name).map(|a| a.array))
+            .and_then(|m| m.get(array_name).cloned())
     }
 
     pub fn load_wave_file(
