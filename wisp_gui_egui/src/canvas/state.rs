@@ -6,3 +6,9 @@ pub enum CanvasTab {
     Graph,
     Lab,
 }
+
+/// Selection is view state; native slab IDs never leave the canvas adapter.
+#[derive(Default)]
+pub struct CanvasViewState {
+    pub selected: std::collections::BTreeSet<crate::editor::document::EditorNodeId>,
+}

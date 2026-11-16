@@ -37,6 +37,7 @@ pub struct Options {
 }
 enum PendingAction {
     Open(PathBuf),
+    New(String),
     Close,
 }
 pub struct WispGuiApp {
@@ -54,7 +55,8 @@ pub struct WispGuiApp {
     next_req: u64,
     pending: Option<PendingAction>,
     allow_close: bool,
-    edited_document: Option<crate::editor::document::DocumentId>,
+    new_name: String,
+    awaiting: std::collections::BTreeSet<u64>,
     queued: Vec<EditorCommand>,
 }
 impl WispGuiApp {
@@ -97,7 +99,8 @@ impl WispGuiApp {
             next_req: 1,
             pending: None,
             allow_close: false,
-            edited_document: None,
+            new_name: "untitled".into(),
+            awaiting: Default::default(),
             queued: vec![],
         };
         if let Some(path) = options.flow {
@@ -128,9 +131,12 @@ impl WispGuiApp {
         self.errors.push(message);
     }
     fn dirty(&self) -> bool {
-        self.snapshot
-            .as_ref()
-            .is_some_and(|s| s.dirty || self.edited_document == Some(s.id))
+        self.snapshot.as_ref().is_some_and(|s| {
+            s.dirty
+                || self.operation.is_some()
+                || !self.queued.is_empty()
+                || !self.awaiting.is_empty()
+        })
     }
     fn action(&mut self, action: PendingAction, ctx: &egui::Context) {
         if self.dirty() || !self.queued.is_empty() {
@@ -142,18 +148,28 @@ impl WispGuiApp {
     fn perform(&mut self, action: PendingAction, ctx: &egui::Context) {
         match action {
             PendingAction::Open(path) => self.open(path),
+            PendingAction::New(name) => {
+                let req_id = self.request();
+                match self.service.submit(EditorCommand::NewFlow { name, req_id }) {
+                    Ok(()) => self.operation = Some(req_id),
+                    Err(e) => self.error(e),
+                }
+            }
             PendingAction::Close => {
                 self.allow_close = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
         }
     }
-    fn poll(&mut self, ctx: &egui::Context) {
+    fn poll(&mut self, _ctx: &egui::Context) {
         while let Ok(event) = self.service.rx.try_recv() {
             match event {
                 EditorEvent::Response { req_id, result } => {
+                    self.awaiting.remove(&req_id.0);
                     if self.operation == Some(req_id) {
                         self.operation = None;
+                        self.canvas.edit_result(result.is_ok());
+                        self.canvas_revision = None;
                     }
                     if let Err(error) = result {
                         self.error(error);
@@ -168,9 +184,7 @@ impl WispGuiApp {
             self.snapshot = Some(snapshot);
         }
         // Do not overwrite local slider state with older service snapshots during a drag.
-        if !ctx.input(|i| i.pointer.any_down())
-            && let Some(snapshot) = &self.snapshot
-        {
+        if let Some(snapshot) = &self.snapshot {
             let revision = (snapshot.id, snapshot.revision);
             if self.canvas_revision != Some(revision) {
                 self.canvas.sync(snapshot);
@@ -178,10 +192,15 @@ impl WispGuiApp {
             }
         }
         let queued = std::mem::take(&mut self.queued);
-        for command in queued {
+        let mut commands = queued.into_iter();
+        while let Some(command) = commands.next() {
             match self.service.tx.try_send(command) {
                 Ok(()) => {}
-                Err(crossbeam::channel::TrySendError::Full(command)) => self.queued.push(command),
+                Err(crossbeam::channel::TrySendError::Full(command)) => {
+                    self.queued.push(command);
+                    self.queued.extend(commands);
+                    break;
+                }
                 Err(crossbeam::channel::TrySendError::Disconnected(_)) => {
                     self.error("Editor service disconnected".into());
                     break;
@@ -189,17 +208,30 @@ impl WispGuiApp {
             }
         }
         if !self.queued.is_empty() {
-            ctx.request_repaint_after(std::time::Duration::from_millis(16));
+            _ctx.request_repaint_after(std::time::Duration::from_millis(16));
         }
     }
     fn queue(&mut self, command: EditorCommand) {
-        if let Some(snapshot) = self.snapshot.as_mut() {
-            snapshot.dirty = true;
-            self.edited_document = Some(snapshot.id);
+        let mut command = command;
+        if let EditorCommand::Edit { req_id, .. } = &mut command {
+            if self.operation.is_some() {
+                return;
+            }
+            *req_id = self.request();
+            self.operation = Some(*req_id);
         }
         // Keep the newest value/position per node while the bounded worker queue is busy.
-        self.queued.retain(|old| !same_edit(old, &command));
+        if self
+            .queued
+            .last()
+            .is_some_and(|old| same_edit(old, &command))
+        {
+            self.queued.pop();
+        }
         self.queued.push(command);
+        let req_id = self.request();
+        self.awaiting.insert(req_id.0);
+        self.queued.push(EditorCommand::Barrier { req_id });
     }
 }
 impl eframe::App for WispGuiApp {
@@ -215,11 +247,25 @@ impl eframe::App for WispGuiApp {
         }
         egui::Panel::top("toolbar").show(ui, |ui| {
             ui.horizontal(|ui| {
+                ui.text_edit_singleline(&mut self.new_name);
+                if ui
+                    .add_enabled(
+                        self.operation.is_none()
+                            && self.queued.is_empty()
+                            && self.awaiting.is_empty(),
+                        egui::Button::new("New"),
+                    )
+                    .clicked()
+                {
+                    self.action(PendingAction::New(self.new_name.clone()), &ctx);
+                }
                 ui.label("Flow:");
                 ui.text_edit_singleline(&mut self.load_path);
                 if ui
                     .add_enabled(
-                        self.operation.is_none() && self.queued.is_empty(),
+                        self.operation.is_none()
+                            && self.queued.is_empty()
+                            && self.awaiting.is_empty(),
                         egui::Button::new("Open"),
                     )
                     .clicked()
@@ -232,6 +278,39 @@ impl eframe::App for WispGuiApp {
                 ui.selectable_value(&mut self.tab, CanvasTab::Graph, "Graph");
                 ui.selectable_value(&mut self.tab, CanvasTab::Lab, "Canvas lab");
                 ui.separator();
+                ui.checkbox(&mut self.canvas.snap, "Snap (20)");
+                for (label, edit, enabled) in [
+                    (
+                        "Undo",
+                        crate::editor::document::Edit::Undo,
+                        self.snapshot.as_ref().is_some_and(|s| s.can_undo),
+                    ),
+                    (
+                        "Redo",
+                        crate::editor::document::Edit::Redo,
+                        self.snapshot.as_ref().is_some_and(|s| s.can_redo),
+                    ),
+                ] {
+                    if ui
+                        .add_enabled(
+                            enabled
+                                && self.operation.is_none()
+                                && self.queued.is_empty()
+                                && self.awaiting.is_empty(),
+                            egui::Button::new(label),
+                        )
+                        .clicked()
+                        && let Some(s) = &self.snapshot
+                    {
+                        self.queue(EditorCommand::Edit {
+                            document_id: s.id,
+                            revision: s.revision,
+                            edit,
+                            req_id: RequestId(0),
+                        });
+                    }
+                }
+
                 let running = self.runtime_status == RuntimeStatus::Running;
                 let valid = self
                     .snapshot
@@ -293,6 +372,33 @@ impl eframe::App for WispGuiApp {
                     }
                 });
         });
+        if self.tab == CanvasTab::Graph
+            && !self.canvas.picker_open()
+            && !ctx.egui_wants_keyboard_input()
+            && self.operation.is_none()
+            && self.queued.is_empty()
+        {
+            let undo = ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Z));
+            let redo = ctx.input(|i| {
+                i.modifiers.command
+                    && (i.key_pressed(egui::Key::Y)
+                        || (i.modifiers.shift && i.key_pressed(egui::Key::Z)))
+            });
+            if (undo || redo)
+                && let Some(s) = &self.snapshot
+            {
+                self.queue(EditorCommand::Edit {
+                    document_id: s.id,
+                    revision: s.revision,
+                    edit: if redo {
+                        crate::editor::document::Edit::Redo
+                    } else {
+                        crate::editor::document::Edit::Undo
+                    },
+                    req_id: RequestId(0),
+                });
+            }
+        }
         egui::CentralPanel::default().show(ui, |ui| match self.tab {
             CanvasTab::Graph => {
                 ui.add_enabled_ui(self.operation.is_none(), |ui| {
@@ -301,7 +407,12 @@ impl eframe::App for WispGuiApp {
                     }
                 });
             }
-            CanvasTab::Lab => self.lab.show(ui),
+            CanvasTab::Lab => {
+                if let Some(command) = self.canvas.finish_gesture() {
+                    self.queue(command);
+                }
+                self.lab.show(ui);
+            }
         });
         if self.pending.is_some() {
             egui::Window::new("Discard unsaved changes?")
