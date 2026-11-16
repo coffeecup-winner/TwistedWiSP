@@ -20,7 +20,7 @@ use crate::{
     },
 };
 
-use super::Function;
+use super::{Function, FunctionHandle};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -78,7 +78,7 @@ pub struct FlowFunction {
     graph: FlowGraph,
     ir_function: RefCell<Option<IRFunction>>,
     math_function_id_gen: u32,
-    math_functions: HashMap<String, Function>,
+    math_functions: HashMap<String, FunctionHandle>,
     buffers: HashMap<String, Option<PathBuf>>,
 }
 
@@ -138,7 +138,7 @@ impl WispFunction for FlowFunction {
         *self.ir_function.borrow_mut() = Some(self.compile_to_ir(ctx));
         let mut result = vec![self.ir_function.borrow().clone().unwrap()];
         for math_function in self.math_functions.values() {
-            result.extend(math_function.get_ir_functions(ctx));
+            result.extend(math_function.borrow().get_ir_functions(ctx));
         }
         result
     }
@@ -278,8 +278,10 @@ impl FlowFunction {
                 };
             self.math_function_id_gen += 1;
             let name = math_function.name().to_owned();
-            self.math_functions
-                .insert(math_function.name().to_owned(), math_function);
+            self.math_functions.insert(
+                math_function.name().to_owned(),
+                FunctionHandle::new(math_function),
+            );
             name
         } else {
             display_text.to_owned()
@@ -312,12 +314,8 @@ impl FlowFunction {
         self.graph.edge_indices()
     }
 
-    pub fn get_function(&self, name: &str) -> Option<&Function> {
-        self.math_functions.get(name)
-    }
-
-    pub fn get_function_mut(&mut self, name: &str) -> Option<&mut Function> {
-        self.math_functions.get_mut(name)
+    pub fn get_function(&self, name: &str) -> Option<FunctionHandle> {
+        self.math_functions.get(name).cloned()
     }
 
     pub fn get_connection(
@@ -392,7 +390,11 @@ impl FlowFunction {
 
         let filtered_graph = EdgeFiltered::from_fn(&self.graph, |e| {
             let name = &self.graph.node_weight(e.source()).unwrap().name;
-            ctx.get_function(name).unwrap().lag_value().is_none()
+            ctx.get_function(name)
+                .unwrap()
+                .borrow()
+                .lag_value()
+                .is_none()
         });
 
         let mut vref_id = 0;
@@ -407,7 +409,7 @@ impl FlowFunction {
                 .expect("Failed to find function");
 
             let mut inputs = vec![];
-            for (idx, input) in func.inputs().iter().enumerate() {
+            for (idx, input) in func.borrow().inputs().iter().enumerate() {
                 // Add all incoming signals to the input list
                 for e in self.graph.edges_directed(n, Direction::Incoming) {
                     if e.weight().input_index != idx as u32 {
@@ -417,17 +419,17 @@ impl FlowFunction {
                         .get_function(&self.graph.node_weight(e.source()).unwrap().name)
                         .unwrap();
                     // Custom flow input processing
-                    if source_func.name() == "inputs" {
+                    if source_func.borrow().name() == "inputs" {
                         inputs.push(Operand::Arg(e.weight().output_index));
                         continue;
                     }
-                    if let Some(dref) = source_func.lag_value() {
+                    if let Some(dref) = source_func.borrow().lag_value() {
                         let vref = VarRef(vref_id);
                         instructions.push(Instruction::Load(
                             vref,
                             SourceLocation::LastValue(
                                 CallId(e.source().index() as u32),
-                                source_func.name().into(),
+                                source_func.borrow().name().into(),
                                 dref,
                             ),
                         ));
@@ -438,7 +440,7 @@ impl FlowFunction {
                             .get(&(e.source(), e.weight().output_index))
                             .expect("Failed to find incoming signal's var ref");
                         inputs.push(Operand::Var(vref));
-                    }
+                    };
                 }
                 // If there are several signals for this input, combine them
                 while inputs.len() > idx + 1 {
@@ -465,7 +467,7 @@ impl FlowFunction {
                         }
                         DefaultInputValue::Skip => {
                             assert!(
-                                func.lag_value().is_some(),
+                                func.borrow().lag_value().is_some(),
                                 "Input skip mode must not be used on non-lag functions"
                             );
                             // Skip this call
@@ -479,7 +481,7 @@ impl FlowFunction {
                 }
             }
 
-            if func.lag_value().is_some() {
+            if func.borrow().lag_value().is_some() {
                 // For lag calls we don't need any outputs
                 lag_calls.push(Instruction::Call(
                     CallId(n.index() as u32),
@@ -487,10 +489,10 @@ impl FlowFunction {
                     inputs,
                     vec![],
                 ))
-            } else if func.name() == "inputs" {
+            } else if func.borrow().name() == "inputs" {
                 // Custom flow input processing
                 // Do nothing - inputs are already handled above
-            } else if func.name() == "outputs" {
+            } else if func.borrow().name() == "outputs" {
                 // Custom flow output processing
                 for (idx, input) in inputs.into_iter().enumerate() {
                     instructions.push(Instruction::Store(
@@ -500,7 +502,7 @@ impl FlowFunction {
                 }
             } else {
                 let mut outputs = vec![];
-                for (idx, _) in func.outputs().iter().enumerate() {
+                for (idx, _) in func.borrow().outputs().iter().enumerate() {
                     let vref = VarRef(vref_id);
                     outputs.push(vref);
                     vref_id += 1;

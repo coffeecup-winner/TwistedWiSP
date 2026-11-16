@@ -1,4 +1,8 @@
-use std::fmt::Debug;
+use std::{
+    cell::{Ref, RefCell, RefMut},
+    fmt::Debug,
+    rc::Rc,
+};
 
 use crate::{
     core::{context::WispContext, FlowFunction},
@@ -109,6 +113,39 @@ pub enum Function {
     Code(super::CodeFunction),
     Flow(super::FlowFunction),
     Math(super::MathFunction),
+}
+
+#[derive(Debug, Clone)]
+pub struct FunctionHandle(Rc<RefCell<Function>>);
+
+impl FunctionHandle {
+    pub fn new(func: Function) -> Self {
+        FunctionHandle(Rc::new(RefCell::new(func)))
+    }
+
+    pub fn borrow(&self) -> Ref<Function> {
+        self.0.borrow()
+    }
+
+    pub fn borrow_mut(&self) -> RefMut<Function> {
+        self.0.borrow_mut()
+    }
+
+    pub fn as_flow(&self) -> Option<Ref<FlowFunction>> {
+        Ref::filter_map(self.0.borrow(), |f| match f {
+            Function::Flow(f) => Some(f),
+            _ => None,
+        })
+        .ok()
+    }
+
+    pub fn as_flow_mut(&self) -> Option<RefMut<FlowFunction>> {
+        RefMut::filter_map(self.0.borrow_mut(), |f| match f {
+            Function::Flow(f) => Some(f),
+            _ => None,
+        })
+        .ok()
+    }
 }
 
 impl WispFunction for Function {

@@ -18,7 +18,7 @@ use crate::{
 use log::info;
 use string_error::into_err;
 
-use super::Function;
+use super::{Function, FunctionHandle};
 
 #[derive(Debug, Clone)]
 struct WispDataArray {
@@ -31,7 +31,7 @@ struct WispDataArray {
 pub struct WispContext {
     num_outputs: u32,
     sample_rate: u32,
-    functions: HashMap<String, Function>,
+    functions: HashMap<String, FunctionHandle>,
     data_arrays: HashMap<String, HashMap<String, WispDataArray>>,
 }
 
@@ -114,13 +114,13 @@ impl WispContext {
                         self.add_function(Function::Code(func));
                     }
                     CodeFunctionParseResult::Alias(alias, target) => {
-                        let mut func = self
+                        let func = self
                             .get_function(&target)
                             .expect("Unknown function alias target")
                             .clone();
-                        info!("  - {} (alias of {})", alias, func.name());
-                        *func.name_mut() = alias;
-                        self.add_function(func);
+                        info!("  - {} (alias of {})", alias, func.borrow().name());
+                        *func.borrow_mut().name_mut() = alias.clone();
+                        self.functions.insert(alias, func.clone());
                     }
                 }
             }
@@ -146,54 +146,37 @@ impl WispContext {
         self.sample_rate
     }
 
-    pub fn add_function(&mut self, func: Function) -> Option<Function> {
-        self.functions.insert(func.name().into(), func)
+    pub fn add_function(&mut self, func: Function) -> Option<FunctionHandle> {
+        self.functions
+            .insert(func.name().into(), FunctionHandle::new(func))
     }
 
-    pub fn remove_function(&mut self, name: &str) -> Option<Function> {
+    pub fn remove_function(&mut self, name: &str) -> Option<FunctionHandle> {
         self.functions.remove(name)
     }
 
-    pub fn functions_iter(&self) -> hash_map::Values<'_, String, Function> {
+    pub fn functions_iter(&self) -> hash_map::Values<'_, String, FunctionHandle> {
         self.functions.values()
     }
 
-    pub fn get_function(&self, name: &str) -> Option<&Function> {
+    pub fn get_function(&self, name: &str) -> Option<FunctionHandle> {
         if let Some((flow_name, _)) = name.split_once(':') {
-            self.get_function(flow_name)
-                .and_then(|f| f.as_flow())
-                .and_then(|f| f.get_function(name))
+            self.get_function(flow_name)?.as_flow()?.get_function(name)
         } else {
-            self.functions.get(name)
-        }
-    }
-
-    pub fn get_function_mut(&mut self, name: &str) -> Option<&mut Function> {
-        if let Some((flow_name, _)) = name.split_once(':') {
-            self.get_function_mut(flow_name)
-                .and_then(|f| f.as_flow_mut())
-                .and_then(|f| f.get_function_mut(name))
-        } else {
-            self.functions.get_mut(name)
+            self.functions.get(name).cloned()
         }
     }
 
     pub fn flow_add_node(&mut self, flow_name: &str, node_text: &str) -> (FlowNodeIndex, String) {
-        let flow = self
-            .get_function_mut(flow_name)
-            .unwrap()
-            .as_flow_mut()
-            .unwrap();
+        let func = self.get_function(flow_name).unwrap();
+        let mut flow = func.as_flow_mut().unwrap();
         let idx = flow.add_node(node_text);
         (idx, flow.get_node(idx).unwrap().name.clone())
     }
 
     pub fn flow_remove_node(&mut self, flow_name: &str, node_idx: FlowNodeIndex) -> Option<String> {
-        let flow = self
-            .get_function_mut(flow_name)
-            .unwrap()
-            .as_flow_mut()
-            .unwrap();
+        let func = self.get_function(flow_name).unwrap();
+        let mut flow = func.as_flow_mut().unwrap();
         if let Some(node) = flow.remove_node(node_idx) {
             if node.name.starts_with("$math") {
                 self.remove_function(&node.name);
