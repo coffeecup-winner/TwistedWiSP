@@ -171,16 +171,16 @@ impl RuntimeState {
 
     fn render(&mut self, buffer: &mut [f32]) {
         buffer.fill(0.0);
-        if self.is_running {
-            if let Some(p) = &mut self.processor {
-                p.process_all(buffer);
-                for value in buffer {
-                    *value = if value.is_finite() {
-                        value.clamp(-1.0, 1.0)
-                    } else {
-                        0.0
-                    };
-                }
+        if self.is_running
+            && let Some(p) = &mut self.processor
+        {
+            p.process_all(buffer);
+            for value in buffer {
+                *value = if value.is_finite() {
+                    value.clamp(-1.0, 1.0)
+                } else {
+                    0.0
+                };
             }
         }
     }
