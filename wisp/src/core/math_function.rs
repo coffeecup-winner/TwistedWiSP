@@ -1,7 +1,7 @@
 use pest::{
+    Parser,
     iterators::Pairs,
     pratt_parser::{Assoc, Op, PrattParser},
-    Parser,
 };
 use pest_derive::Parser;
 
@@ -936,8 +936,10 @@ mod tests {
         }
 
         // Diagnostics are stable strings usable in the GUI status line.
-        assert!(MathParseError::UnknownSymbol("x".into())
-            .to_string()
-            .contains("x"));
+        assert!(
+            MathParseError::UnknownSymbol("x".into())
+                .to_string()
+                .contains("x")
+        );
     }
 }

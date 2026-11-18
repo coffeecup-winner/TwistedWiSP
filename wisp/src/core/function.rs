@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    core::{context::WispContext, FlowFunction},
+    core::{FlowFunction, context::WispContext},
     ir::{DataRef, IRFunction, IRFunctionDataType},
 };
 

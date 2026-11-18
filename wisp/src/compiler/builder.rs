@@ -1,20 +1,20 @@
 use inkwell::{
+    OptimizationLevel,
     basic_block::BasicBlock,
     intrinsics::Intrinsic,
     passes::PassBuilderOptions,
     targets::{CodeModel, RelocMode, Target, TargetMachine},
     types::{BasicMetadataTypeEnum, BasicType},
     values::{AnyValue, BasicMetadataValueEnum, BasicValue, BasicValueEnum},
-    OptimizationLevel,
 };
 use log::debug;
 
 use crate::{
+    CallIndex,
     compiler::dependency_calculator,
     core::WispContext,
     ir::{IRFunction, IRFunctionDataType, Instruction, Operand},
     runner::{context::WispRuntimeContext, runtime::WispExecutionContext},
-    CallIndex,
 };
 
 use super::{

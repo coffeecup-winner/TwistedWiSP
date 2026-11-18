@@ -1,8 +1,8 @@
 //! Hardware-independent source loading and compilation for tests and offline hosts.
 use crate::{
+    SignalProcessor,
     core::WispContext,
     runner::{context::WispRuntimeContext, runtime::compile_context},
-    SignalProcessor,
 };
 use std::path::Path;
 pub struct OfflineSession {
@@ -51,18 +51,24 @@ mod tests {
         let name = session.load_flow_text("[flow]\nname='test'\n[[flow.nodes]]\ntext='control'\n[[flow.nodes]]\ntext='out'\n[[flow.edges]]\nfrom=0\nto=1\noutput_index=0\ninput_index=0\n").unwrap();
         let mut processor = session.compile(&name).unwrap();
         drop(session);
-        assert!(processor
-            .set_data_value(&name, CallIndex(0), DataIndex(0), 0.25)
-            .is_some());
+        assert!(
+            processor
+                .set_data_value(&name, CallIndex(0), DataIndex(0), 0.25)
+                .is_some()
+        );
         let mut output = [0.0; 2];
         processor.process_one(&mut output);
         assert_eq!(output, [0.25, 0.25]);
-        assert!(processor
-            .set_data_value(&name, CallIndex(0), DataIndex(8), 1.0)
-            .is_none());
-        assert!(processor
-            .set_data_value("wrong-root", CallIndex(0), DataIndex(0), 1.0)
-            .is_none());
+        assert!(
+            processor
+                .set_data_value(&name, CallIndex(0), DataIndex(8), 1.0)
+                .is_none()
+        );
+        assert!(
+            processor
+                .set_data_value("wrong-root", CallIndex(0), DataIndex(0), 1.0)
+                .is_none()
+        );
         processor
             .set_data_value(&name, CallIndex(0), DataIndex(0), 0.75)
             .unwrap();
@@ -111,26 +117,43 @@ mod tests {
             "if %positive\n cmp.gt %large, $value, 1\n if %large\n store #out, 10\n else\n store #out, 11\n end\nelse\n store #out, 20\nend",
         ] {
             let mut session = session();
-            let source = format!("func branch(value: float) -> (out: float)\nbegin\ncmp.gt %positive, $value, 0\n{body}\nend");
-            let CodeFunctionParseResult::Function(function) = CodeFunctionParser::new(&source).parse_function().unwrap() else { panic!() };
+            let source = format!(
+                "func branch(value: float) -> (out: float)\nbegin\ncmp.gt %positive, $value, 0\n{body}\nend"
+            );
+            let CodeFunctionParseResult::Function(function) =
+                CodeFunctionParser::new(&source).parse_function().unwrap()
+            else {
+                panic!()
+            };
             session.context.add_function(Function::Code(function));
             let root = session.load_flow_text("[flow]\nname='branches'\n[[flow.nodes]]\ntext='control'\n[[flow.nodes]]\ntext='branch'\n[[flow.nodes]]\ntext='out'\n[[flow.edges]]\nfrom=0\nto=1\noutput_index=0\ninput_index=0\n[[flow.edges]]\nfrom=1\nto=2\noutput_index=0\ninput_index=0\n").unwrap();
             let mut processor = session.compile(&root).unwrap();
             for value in [-2., 0.5, 2.] {
-                processor.set_data_value(&root, CallIndex(0), DataIndex(0), value).unwrap();
+                processor
+                    .set_data_value(&root, CallIndex(0), DataIndex(0), value)
+                    .unwrap();
                 let mut output = [0.; 2];
                 processor.process_one(&mut output);
                 let expected = if body.contains("%merged") {
                     2. * if value > 0. { value + 10. } else { 20. - value }
-                } else if body.contains("%left") { if value > 0. { value + 10. } else { 20. - value } }
-                else if value <= 0. { 20. } else if body.contains("%large") && value <= 1. { 11. } else { 10. };
+                } else if body.contains("%left") {
+                    if value > 0. { value + 10. } else { 20. - value }
+                } else if value <= 0. {
+                    20.
+                } else if body.contains("%large") && value <= 1. {
+                    11.
+                } else {
+                    10.
+                };
                 assert_eq!(output, [expected; 2], "{body}, input={value}");
             }
         }
     }
 
     fn array_flow(operation: &str) -> String {
-        format!("[flow]\nname='arrays'\n[[flow.nodes]]\ntext='buffer'\n[[flow.nodes]]\ntext='control'\n[[flow.nodes]]\ntext='{operation}'\n[[flow.nodes]]\ntext='out'\n[[flow.edges]]\nfrom=0\nto=2\noutput_index=0\ninput_index=0\n[[flow.edges]]\nfrom=1\nto=2\noutput_index=0\ninput_index=1\n[[flow.edges]]\nfrom=2\nto=3\noutput_index=0\ninput_index=0\n")
+        format!(
+            "[flow]\nname='arrays'\n[[flow.nodes]]\ntext='buffer'\n[[flow.nodes]]\ntext='control'\n[[flow.nodes]]\ntext='{operation}'\n[[flow.nodes]]\ntext='out'\n[[flow.edges]]\nfrom=0\nto=2\noutput_index=0\ninput_index=0\n[[flow.edges]]\nfrom=1\nto=2\noutput_index=0\ninput_index=1\n[[flow.edges]]\nfrom=2\nto=3\noutput_index=0\ninput_index=0\n"
+        )
     }
     #[test]
     fn checked_array_jit_indices_interpolation_and_owned_bindings() {
@@ -223,7 +246,10 @@ mod tests {
     fn checked_writes_and_mutable_arrays_are_private_to_processors() {
         let mut session = session();
         let source = crate::DataArrayHandle::from(&[10., 20.][..]);
-        let text=array_flow("read").replace("[[flow.edges]]\nfrom=1\nto=2\noutput_index=0\ninput_index=1\n","")+"\n[[flow.nodes]]\ntext='write'\n[[flow.nodes]]\ntext='control'\n[[flow.edges]]\nfrom=0\nto=4\noutput_index=0\ninput_index=0\n[[flow.edges]]\nfrom=1\nto=4\noutput_index=0\ninput_index=1\n[[flow.edges]]\nfrom=5\nto=4\noutput_index=0\ninput_index=2\n";
+        let text = array_flow("read").replace(
+            "[[flow.edges]]\nfrom=1\nto=2\noutput_index=0\ninput_index=1\n",
+            "",
+        ) + "\n[[flow.nodes]]\ntext='write'\n[[flow.nodes]]\ntext='control'\n[[flow.edges]]\nfrom=0\nto=4\noutput_index=0\ninput_index=0\n[[flow.edges]]\nfrom=1\nto=4\noutput_index=0\ninput_index=1\n[[flow.edges]]\nfrom=5\nto=4\noutput_index=0\ninput_index=2\n";
         let root = session.load_flow_text(&text).unwrap();
         let mut first = session.compile(&root).unwrap();
         let mut second = session.compile(&root).unwrap();

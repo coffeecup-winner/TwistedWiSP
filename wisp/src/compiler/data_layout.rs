@@ -2,10 +2,10 @@ use super::data_storage::{DataAddress, DataStorage, DataValue};
 use std::collections::{BTreeMap, HashMap};
 
 use crate::{
+    CallIndex,
     ir::{DataRef, IRFunction, IRFunctionDataType, Instruction, SourceLocation},
     runner::context::WispRuntimeContext,
     utils::dep_prop::DependencyHandle,
-    CallIndex,
 };
 
 /// Immutable source samples. Binding copies these into exclusively processor-owned

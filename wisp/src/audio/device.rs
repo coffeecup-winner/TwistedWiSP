@@ -1,6 +1,6 @@
 use cpal::{
-    traits::{DeviceTrait, HostTrait},
     BufferSize, Device, SampleFormat, Stream, StreamConfig, SupportedBufferSize,
+    traits::{DeviceTrait, HostTrait},
 };
 use log::{error, info};
 
@@ -71,7 +71,9 @@ impl ConfiguredAudioDevice {
             match host {
                 Some(host) => host,
                 None => {
-                    error!("Failed to find the preferred audio host '{host_name}', falling back to default");
+                    error!(
+                        "Failed to find the preferred audio host '{host_name}', falling back to default"
+                    );
                     cpal::default_host()
                 }
             }

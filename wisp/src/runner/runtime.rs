@@ -1,27 +1,27 @@
 use super::engine::{DataIndex, WatchIndex, WatchedDataValues};
 use crate::compiler::{Watch, WatchBatch};
 use crate::{
+    CallIndex,
     audio::device::ConfiguredAudioDevice,
     compiler::{SignalProcessCreationError, SignalProcessor, SignalProcessorBuilder},
     core::{WispContext, WispFunction},
     midi::WispMidiIn,
     runner::context::WispRuntimeContext,
-    CallIndex,
 };
-use cpal::{traits::StreamTrait, Stream};
-use crossbeam::channel::{bounded, Receiver, Sender};
+use cpal::{Stream, traits::StreamTrait};
+use crossbeam::channel::{Receiver, Sender, bounded};
 use inkwell::{
+    AddressSpace,
     context::Context,
     types::{FloatType, IntType, PointerType, VoidType},
-    AddressSpace,
 };
 use midir::MidiInputConnection;
-use midly::{live::LiveEvent, MidiMessage};
+use midly::{MidiMessage, live::LiveEvent};
 use std::{
     collections::HashSet,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
     time::Duration,
 };
@@ -131,7 +131,7 @@ impl RuntimeState {
                     self.processor
                         .as_mut()
                         .and_then(|p| p.watch_prepared(name, *call, *data, last)),
-                ))
+                ));
             }
             RuntimeStateMessage::QueryWatchedDataValues(batch) => {
                 let mut batch = batch.take().ok_or("Missing watch storage")?;
@@ -655,9 +655,11 @@ mod tests {
             matches!(transport.request_timeout(RuntimeStateMessage::StopDsp, Duration::from_millis(2)), Err(e) if e.contains("queue"))
         );
         drop(rx);
-        assert!(transport
-            .request_timeout(RuntimeStateMessage::StopDsp, Duration::from_millis(2))
-            .is_err());
+        assert!(
+            transport
+                .request_timeout(RuntimeStateMessage::StopDsp, Duration::from_millis(2))
+                .is_err()
+        );
     }
 
     #[test]
@@ -669,9 +671,11 @@ mod tests {
             tx,
             failed: Arc::new(AtomicBool::new(false)),
         };
-        assert!(transport
-            .request_timeout(RuntimeStateMessage::StopDsp, Duration::from_millis(2))
-            .is_err());
+        assert!(
+            transport
+                .request_timeout(RuntimeStateMessage::StopDsp, Duration::from_millis(2))
+                .is_err()
+        );
         let mut state = RuntimeState {
             retired: Arc::new(crossbeam::queue::ArrayQueue::new(128)),
             processor: None,

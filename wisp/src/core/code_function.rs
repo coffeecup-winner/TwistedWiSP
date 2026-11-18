@@ -1103,10 +1103,12 @@ mod tests {
         let mut parser = CodeFunctionParser::new("func good() -> () begin end\n? trailing");
         assert!(parser.parse_next().unwrap().is_some());
         assert!(parser.parse_next().is_err());
-        assert!(CodeFunctionParser::new("// final comment")
-            .parse_next()
-            .unwrap()
-            .is_none());
+        assert!(
+            CodeFunctionParser::new("// final comment")
+                .parse_next()
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]

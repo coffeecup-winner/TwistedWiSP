@@ -7,9 +7,9 @@ use inkwell::{
 use ringbuffer::{AllocRingBuffer, RingBuffer};
 
 use crate::{
+    CallIndex,
     compiler::DataArrayHandle,
     runner::engine::{DataIndex, WatchIndex, WatchedDataValues},
-    CallIndex,
 };
 
 use super::{

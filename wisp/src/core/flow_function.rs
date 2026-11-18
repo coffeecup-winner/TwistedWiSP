@@ -2,17 +2,17 @@ use std::{cell::RefCell, collections::HashMap, path::PathBuf};
 
 use indexmap::IndexMap;
 use petgraph::{
+    Directed, Direction,
     graph::{EdgeIndex, NodeIndex},
     stable_graph::{EdgeIndices, NodeIndices, StableGraph},
     visit::{EdgeFiltered, EdgeRef, Topo, Walker},
-    Directed, Direction,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{
     core::{
-        context::WispContext, CodeFunction, DataType, DefaultInputValue, FunctionInput,
-        FunctionOutput, MathFunctionParser, WispFunction,
+        CodeFunction, DataType, DefaultInputValue, FunctionInput, FunctionOutput,
+        MathFunctionParser, WispFunction, context::WispContext,
     },
     ir::{
         BinaryOpType, CallId, Constant, FunctionOutputIndex, IRFunction, IRFunctionInput,
