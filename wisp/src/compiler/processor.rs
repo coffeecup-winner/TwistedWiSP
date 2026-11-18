@@ -12,7 +12,10 @@ use crate::{
     CallIndex,
 };
 
-use super::data_layout::{DataLayout, DataValue};
+use super::{
+    data_layout::DataLayout,
+    data_storage::{DataAddress, DataStorage, DataValue},
+};
 
 pub struct SignalProcessorContext {
     pub p_output: *mut f32,
@@ -35,7 +38,7 @@ pub(crate) unsafe extern "C" fn noise(state: *mut u64) -> f32 {
     bits as f32 * (2.0 / 16_777_215.0) - 1.0
 }
 
-type ProcessFn = unsafe extern "C" fn(*mut DataValue);
+type ProcessFn = unsafe extern "C" fn(*const DataAddress<DataValue>);
 
 pub(crate) struct Watch {
     data_offset: u32,
@@ -115,26 +118,6 @@ impl Drop for ExecutionEngineRef {
     }
 }
 
-pub(crate) struct OwnedArray {
-    source: DataArrayHandle,
-    samples: Box<[f32]>,
-    #[cfg(test)]
-    lifetime: std::sync::Arc<()>,
-}
-impl OwnedArray {
-    pub(crate) fn prepare(source: DataArrayHandle) -> Option<Self> {
-        let length = u32::try_from(source.samples().len()).ok()?;
-        let mut samples = Vec::with_capacity(source.samples().len() + 1);
-        samples.push(f32::from_bits(length));
-        samples.extend_from_slice(source.samples());
-        Some(Self {
-            source,
-            samples: samples.into_boxed_slice(),
-            #[cfg(test)]
-            lifetime: std::sync::Arc::new(()),
-        })
-    }
-}
 pub struct SignalProcessor {
     _ee: ExecutionEngineRef,
     ctx: Box<SignalProcessorContext>,
@@ -142,15 +125,15 @@ pub struct SignalProcessor {
     name: String,
     data_layout: DataLayout,
     num_outputs: usize,
-    // Fields below are mutable and need to be copied over to the new instance
-    data: Vec<DataValue>,
-    // Keep replaced bindings too: another DSP state slot may have retained a
-    // pointer to the previous allocation. All storage is exclusive to this processor.
-    arrays: Vec<OwnedArray>,
+    bindings: Vec<DataAddress<DataValue>>,
+    storage: DataStorage,
     watch_id_gen: u32,
     watches: HashMap<WatchIndex, Watch>,
     elapsed_ticks: u32,
 }
+
+// Processing and state updates require exclusive access to this processor.
+unsafe impl Send for SignalProcessor {}
 
 impl SignalProcessor {
     pub fn new(
@@ -161,7 +144,8 @@ impl SignalProcessor {
         data_layout: DataLayout,
         num_outputs: u32,
     ) -> Self {
-        let data = data_layout.create_data(name);
+        let mut storage = DataStorage::new();
+        let bindings = data_layout.create_bindings(name, &mut storage);
         SignalProcessor {
             _ee: ExecutionEngineRef::new(ee),
             ctx,
@@ -169,8 +153,8 @@ impl SignalProcessor {
             name: name.to_string(),
             data_layout,
             num_outputs: num_outputs as usize,
-            data,
-            arrays: Vec::with_capacity(128),
+            bindings,
+            storage,
             watch_id_gen: 0,
             watches: HashMap::with_capacity(128),
             elapsed_ticks: 0,
@@ -215,7 +199,8 @@ impl SignalProcessor {
             // Capture watch values before processing to have 0-based sample index
             for watch in &mut self.watches.values_mut() {
                 if self.elapsed_ticks.is_multiple_of(watch.rate) {
-                    let value = self.data[watch.data_offset as usize];
+                    // This processor keeps the bound cells alive and executes DSP serially.
+                    let value = unsafe { self.bindings[watch.data_offset as usize].read() };
                     match watch.data {
                         WatchedData::LastValue(ref mut v) => *v = value.as_float(),
                         WatchedData::Buffer(ref mut buffer) => {
@@ -239,7 +224,7 @@ impl SignalProcessor {
         output[..self.num_outputs].fill(0.0);
         self.ctx.p_output = output.as_mut_ptr();
         unsafe {
-            (self.function)(self.data.as_mut_ptr());
+            (self.function)(self.bindings.as_ptr());
         }
     }
 
@@ -263,8 +248,9 @@ impl SignalProcessor {
         if !matches!(item.type_, crate::ir::IRFunctionDataType::Float) {
             return None;
         }
-        let data = self.data.get_mut((*base + item.offset) as usize)?;
-        *data = DataValue::new_float(value);
+        let address = self.bindings.get((*base + item.offset) as usize)?;
+        // The arena owns this cell and &mut self excludes concurrent processing.
+        unsafe { address.write(DataValue::new_float(value)) };
         Some(())
     }
 
@@ -275,22 +261,6 @@ impl SignalProcessor {
         data_idx: DataIndex,
         array: DataArrayHandle,
     ) -> Option<()> {
-        self.bind_prepared(
-            name,
-            call_idx,
-            data_idx,
-            &mut Some(OwnedArray::prepare(array)?),
-        )
-    }
-
-    pub(crate) fn bind_prepared(
-        &mut self,
-        name: &str,
-        call_idx: CallIndex,
-        data_idx: DataIndex,
-        prepared: &mut Option<OwnedArray>,
-    ) -> Option<()> {
-        let array = &prepared.as_ref()?.source;
         if name != self.name {
             return None;
         }
@@ -304,21 +274,10 @@ impl SignalProcessor {
         if !matches!(item.type_, crate::ir::IRFunctionDataType::Array) {
             return None;
         }
-        let data = self.data.get_mut((*base + item.offset) as usize)?;
-        if let Some(existing) = self
-            .arrays
-            .iter_mut()
-            .find(|existing| existing.source.same_source(array))
-        {
-            *data = DataValue::new_array(existing.samples.as_mut_ptr());
-            return Some(());
-        }
-        if self.arrays.len() == 128 {
-            return None;
-        }
-        let mut storage = prepared.take()?;
-        *data = DataValue::new_array(storage.samples.as_mut_ptr());
-        self.arrays.push(storage);
+        let address = self.bindings.get((*base + item.offset) as usize)?;
+        let samples = self.storage.alloc_array(array).as_ptr();
+        // The arena owns both allocations and &mut self excludes concurrent processing.
+        unsafe { address.write(DataValue::new_array(samples)) };
         Some(())
     }
 
@@ -351,7 +310,9 @@ impl SignalProcessor {
         let mut watch = prepared.take()?;
         watch.data_offset = child_offset;
         if let WatchedData::LastValue(value) = &mut watch.data {
-            *value = self.data.get(child_offset as usize)?.as_float();
+            let address = self.bindings.get(child_offset as usize)?;
+            // This processor owns the cell and is the only writer.
+            *value = unsafe { address.read() }.as_float();
         }
         self.watches.insert(idx, watch);
         Some(idx)
@@ -393,16 +354,19 @@ mod array_tests {
         let source = DataArrayHandle::from(&[1., 2.][..]);
         p.set_data_array(&root, CallIndex(0), DataIndex(0), source.clone())
             .unwrap();
-        let old = std::sync::Arc::downgrade(&p.arrays[0].lifetime);
-        p.set_data_array(
-            &root,
-            CallIndex(0),
-            DataIndex(0),
-            DataArrayHandle::from(&[3., 4.][..]),
-        )
-        .unwrap();
-        assert!(old.upgrade().is_some()); // Rebinding cannot free retained DSP aliases.
-        let current = std::sync::Arc::downgrade(&p.arrays[1].lifetime);
+        let old = p.storage.array_lifetime(0);
+        // Rebinding past the old cap must also keep every prior allocation alive.
+        for value in 1..=128 {
+            p.set_data_array(
+                &root,
+                CallIndex(0),
+                DataIndex(0),
+                DataArrayHandle::from(&[value as f32][..]),
+            )
+            .unwrap();
+        }
+        assert!(old.upgrade().is_some());
+        let current = p.storage.array_lifetime(128);
         drop(session);
         assert!(current.upgrade().is_some());
         drop(p);

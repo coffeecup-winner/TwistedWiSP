@@ -384,14 +384,19 @@ impl SignalProcessorBuilder {
                         }
                         Data(dref) => {
                             let p_data = fctx.get_data_argument()?;
-                            let p_data_item = mctx.build("data_address", |b, n| unsafe {
+                            let p_binding = mctx.build("data_binding", |b, n| unsafe {
                                 b.build_gep(
-                                    ectx.data_t(),
+                                    ectx.pf32_t(),
                                     p_data,
                                     &[ectx.i32_t().const_int(dref.0 as u64, false)],
                                     n,
                                 )
                             })?;
+                            let p_data_item = mctx
+                                .build("load_binding", |b, n| {
+                                    b.build_load(ectx.pf32_t(), p_binding, n)
+                                })?
+                                .into_pointer_value();
                             mctx.build("load_data_item", |b, n| {
                                 b.build_load(
                                     match fctx.func.data[dref.0 as usize].type_ {
@@ -437,9 +442,9 @@ impl SignalProcessorBuilder {
                                 })?;
 
                             let p_func_data = fctx.get_data_argument()?;
-                            let p_data_item = mctx.build("lag_address", |b, n| unsafe {
+                            let p_binding = mctx.build("lag_binding", |b, n| unsafe {
                                 b.build_gep(
-                                    ectx.data_t(),
+                                    ectx.pf32_t(),
                                     p_func_data,
                                     &[ectx.i32_t().const_int(
                                         (child_offset + child_data_item.offset) as u64,
@@ -449,6 +454,11 @@ impl SignalProcessorBuilder {
                                 )
                             })?;
 
+                            let p_data_item = mctx
+                                .build("load_binding", |b, n| {
+                                    b.build_load(ectx.pf32_t(), p_binding, n)
+                                })?
+                                .into_pointer_value();
                             mctx.build("load_data_item", |b, n| {
                                 b.build_load(ectx.f32_t(), p_data_item, n)
                             })?
@@ -466,14 +476,19 @@ impl SignalProcessorBuilder {
                         }
                         Data(dref) => {
                             let p_data = fctx.get_data_argument()?;
-                            let p_data_item = mctx.build("data_address", |b, n| unsafe {
+                            let p_binding = mctx.build("data_binding", |b, n| unsafe {
                                 b.build_gep(
-                                    ectx.data_t(),
+                                    ectx.pf32_t(),
                                     p_data,
                                     &[ectx.i32_t().const_int(dref.0 as u64, false)],
                                     n,
                                 )
                             })?;
+                            let p_data_item = mctx
+                                .build("load_binding", |b, n| {
+                                    b.build_load(ectx.pf32_t(), p_binding, n)
+                                })?
+                                .into_pointer_value();
                             mctx.build("store_data_item", |b, _| {
                                 b.build_store(p_data_item, value)
                             })?;
@@ -712,7 +727,7 @@ impl SignalProcessorBuilder {
                         let p_func_data = fctx.get_data_argument()?;
                         let p_callee_data = mctx.build("child_address", |b, n| unsafe {
                             b.build_gep(
-                                ectx.data_t(),
+                                ectx.pf32_t(),
                                 p_func_data,
                                 &[ectx.i32_t().const_int(*offset as u64, false)],
                                 n,

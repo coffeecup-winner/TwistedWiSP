@@ -216,11 +216,6 @@ impl WispExecutionContext {
     pub fn pf32_t(&self) -> PointerType<'_> {
         self.context.ptr_type(AddressSpace::default())
     }
-
-    // Data-wide type
-    pub fn data_t(&self) -> IntType<'_> {
-        self.context.i64_type()
-    }
 }
 
 /// A fresh LLVM context is transferred into each compiled artifact's owner.

@@ -1,3 +1,4 @@
+use super::data_storage::{DataAddress, DataStorage, DataValue};
 use std::collections::{BTreeMap, HashMap};
 
 use crate::{
@@ -25,29 +26,6 @@ impl DataArrayHandle {
     }
     pub fn samples(&self) -> &[f32] {
         &self.0
-    }
-}
-
-#[derive(Clone, Copy)]
-#[repr(C)]
-pub union DataValue {
-    float: f32,
-    array: *mut f32,
-}
-// Raw array slots travel only with the processor owning their allocations.
-unsafe impl Send for DataValue {}
-
-impl DataValue {
-    pub fn new_float(value: f32) -> DataValue {
-        DataValue { float: value }
-    }
-
-    pub(crate) fn new_array(array: *mut f32) -> DataValue {
-        DataValue { array }
-    }
-
-    pub fn as_float(&self) -> f32 {
-        unsafe { self.float }
     }
 }
 
@@ -140,7 +118,11 @@ impl DataLayout {
                 Instruction::Call(id, name, _, _)
                 | Instruction::Load(_, SourceLocation::LastValue(id, name, _)) => {
                     let child_data_layout = rctx.get_function(name).unwrap().data_layout();
-                    assert!(child_data_layout.is_valid(), "Programmer error - wrong calculation order, data layout for {} is not valid", name);
+                    assert!(
+                        child_data_layout.is_valid(),
+                        "Programmer error - wrong calculation order, data layout for {} is not valid",
+                        name
+                    );
                     if let Some(child_data_layout) =
                         child_data_layout.get(dep_handle.clone()).as_ref()
                     {
@@ -160,33 +142,39 @@ impl DataLayout {
         self.data_layout.get(name)
     }
 
-    pub fn create_data(&self, name: &str) -> Vec<DataValue> {
-        if let Some(layout) = self.data_layout.get(name) {
-            let mut data = vec![DataValue::new_float(0.0); layout.total_size as usize];
-            self.create_data_recursive(&mut data, layout);
-            data
-        } else {
-            vec![]
-        }
+    pub(crate) fn create_bindings(
+        &self,
+        name: &str,
+        storage: &mut DataStorage,
+    ) -> Vec<DataAddress<DataValue>> {
+        let Some(layout) = self.get(name) else {
+            return Vec::new();
+        };
+        let mut bindings = Vec::with_capacity(layout.total_size as usize);
+        let empty_array = storage.empty_array().as_ptr();
+        self.append_bindings(layout, storage, empty_array, &mut bindings);
+        bindings
     }
 
-    fn create_data_recursive(&self, data: &mut [DataValue], layout: &FunctionDataLayout) {
-        let mut offset = 0;
+    fn append_bindings(
+        &self,
+        layout: &FunctionDataLayout,
+        storage: &mut DataStorage,
+        empty_array: *mut f32,
+        bindings: &mut Vec<DataAddress<DataValue>>,
+    ) {
+        let base = bindings.len();
         for item in layout.own_data_items.values() {
-            data[item.offset as usize] = match item.type_ {
+            debug_assert_eq!(bindings.len(), base + item.offset as usize);
+            let value = match item.type_ {
                 IRFunctionDataType::Float => DataValue::new_float(0.0),
-                IRFunctionDataType::Array => {
-                    static EMPTY: [f32; 1] = [0.0];
-                    DataValue::new_array(EMPTY.as_ptr() as *mut f32)
-                }
+                IRFunctionDataType::Array => DataValue::new_array(empty_array),
             };
+            bindings.push(storage.alloc_cell(value));
         }
-        offset += layout.own_data_items.len() as u32;
-        for (name, _) in layout.children_data_items.values() {
-            if let Some(layout) = self.data_layout.get(name).as_ref() {
-                self.create_data_recursive(&mut data[offset as usize..], layout);
-                offset += layout.total_size;
-            }
+        for (name, offset) in layout.children_data_items.values() {
+            debug_assert_eq!(bindings.len(), base + *offset as usize);
+            self.append_bindings(&self.data_layout[name], storage, empty_array, bindings);
         }
     }
 }
